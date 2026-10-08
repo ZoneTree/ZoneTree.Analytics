@@ -1,0 +1,30 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+
+  <PropertyGroup>
+    <Copyright>Ahmed Yasin Koculu</Copyright>
+    <Authors>Ahmed Yasin Koculu</Authors>
+    <PackageId>ZoneTree.Analytics</PackageId>
+    <Title>ZoneTree.Analytics</Title>
+    <ProductVersion>0.1.0.0</ProductVersion>
+    <Version>0.1.0.0</Version>
+    <AssemblyTitle>ZoneTree.Analytics</AssemblyTitle>
+    <Description>ZoneTree.Analytics is a lightweight, embeddable, high-performance analytics engine for .NET. It records web analytics, custom events, telemetry and business metrics, and answers time-series, breakdown and unique-visitor queries directly inside your application, using ZoneTree as its storage engine.</Description>
+    <Summary>
+      ZoneTree.Analytics is a lightweight, embeddable, high-performance analytics engine for .NET built on ZoneTree.
+    </Summary>
+    <PackageTags>analytics, web analytics, embedded analytics, privacy, page views, unique visitors, sessions, events, telemetry, metrics, time series, hyperloglog, ZoneTree, lsm-tree, dotnet</PackageTags>
+    <ReleaseNotes></ReleaseNotes>
+    <Company>ZoneTree</Company>
+
+    <PackageProjectUrl>https://github.com/ZoneTree/ZoneTree.Analytics</PackageProjectUrl>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <IncludeSymbols>true</IncludeSymbols>
+    <DebugType>portable</DebugType>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+</Project>

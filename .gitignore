@@ -1,0 +1,7 @@
+.vs
+.idea
+bin
+obj
+*.user
+TestResults
+src/ZoneTree.Analytics.Playground/data
