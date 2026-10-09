@@ -109,12 +109,18 @@ sealed class IngestionWorker
 
   PartitionLease<Memory<byte>, Memory<byte>> rawLease;
 
+  readonly SessionSchema schema;
+
+  readonly RetentionCutoffs cutoffs;
+
   Task task;
 
   public IngestionWorker(IngestionServices services)
   {
     this.services = services;
     var options = services.Options;
+    schema = services.Enricher.Schema;
+    cutoffs = new RetentionCutoffs(options.Retention, services.Calendar);
     channel = Channel.CreateBounded<WorkItem>(new BoundedChannelOptions(options.Ingestion.QueueCapacity)
     {
       SingleReader = true,
@@ -126,7 +132,9 @@ sealed class IngestionWorker
         services.Definitions,
         options.Rollups.Granularities,
         services.Calendar,
-        options.Rollups.HyperLogLogPrecision);
+        options.Rollups.HyperLogLogPrecision,
+        services.Enricher.Schema,
+        cutoffs);
     sessionTimeoutTicks = options.Sessions.Timeout.Ticks;
     flushIntervalTimestamp = (long)(options.Ingestion.FlushInterval.TotalSeconds * Stopwatch.Frequency);
     sessionsEnabled = options.Sessions.Enabled && services.Sessions != null;
@@ -223,7 +231,7 @@ sealed class IngestionWorker
     var sessionDimensions = session?.Dimensions ?? ev.SessionDimensions;
     if (sessionDimensions != null)
     {
-      var names = StandardDimensions.SessionLevel;
+      var names = schema.Names;
       for (var i = 0; i < sessionDimensions.Length; ++i)
       {
         if (sessionDimensions[i] != null)
@@ -233,7 +241,7 @@ sealed class IngestionWorker
     if (session != null)
       dimensions[StandardDimensions.EntryPage] = session.EntryPage;
 
-    if (storeRawEvents)
+    if (storeRawEvents && cutoffs.KeepsRawEvent(ev.Ticks))
       WriteRawEvent(ev, session);
 
     metricChanges.Clear();
@@ -272,11 +280,11 @@ sealed class IngestionWorker
     return null;
   }
 
-  static SessionState StartSession(EnrichedEvent ev)
+  SessionState StartSession(EnrichedEvent ev)
   {
     var dimensions = ev.SessionDimensions != null
         ? (string[])ev.SessionDimensions.Clone()
-        : new string[StandardDimensions.SessionLevel.Count];
+        : new string[schema.Count];
     return new SessionState
     {
       SessionId = (ulong)Random.Shared.NextInt64() | 1UL,
@@ -288,12 +296,12 @@ sealed class IngestionWorker
     };
   }
 
-  static Dictionary<string, string> GetSessionDimensions(SessionState session)
+  Dictionary<string, string> GetSessionDimensions(SessionState session)
   {
     if (session.DimensionCache != null)
       return session.DimensionCache;
     var result = new Dictionary<string, string>(StringComparer.Ordinal);
-    var names = StandardDimensions.SessionLevel;
+    var names = schema.Names;
     for (var i = 0; i < session.Dimensions.Length; ++i)
     {
       if (session.Dimensions[i] != null)

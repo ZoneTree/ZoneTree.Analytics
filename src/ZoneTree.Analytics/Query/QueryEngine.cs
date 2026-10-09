@@ -39,6 +39,9 @@ sealed class QueryEngine
 
   const int CancellationCheckInterval = 1024;
 
+  // Time series longer than this are rejected rather than truncated.
+  const int MaxBuckets = 100_000;
+
   readonly AnalyticsOptions options;
 
   readonly ReportingCalendar storageCalendar;
@@ -203,6 +206,12 @@ sealed class QueryEngine
     var (from, to) = query.Range.Resolve(calendar, now);
     if (from >= to)
       throw new AnalyticsQueryException("The query range is empty.");
+    if (query.Interval != TimeInterval.None &&
+        EnumerateBuckets(calendar, from, to, query.Interval).Skip(MaxBuckets).Any())
+    {
+      throw new AnalyticsQueryException(
+          $"The range has more than {MaxBuckets.ToString("N0", System.Globalization.CultureInfo.InvariantCulture)} {query.Interval.ToString().ToLowerInvariant()} buckets. Use a larger interval or a shorter range.");
+    }
 
     var groupBy = query.GroupBy
         .Select(x => x?.Trim())
@@ -279,14 +288,14 @@ sealed class QueryEngine
     return context;
   }
 
-  static void ValidateScope(Metric metric, string baseEvent, string[] dimensions)
+  void ValidateScope(Metric metric, string baseEvent, string[] dimensions)
   {
     var scope = metric.ScopeFor(baseEvent);
     if (scope == DimensionScope.All)
       return;
     foreach (var dimension in dimensions)
     {
-      if (DimensionScopes.Contains(scope, dimension))
+      if (enricher.Schema.Contains(scope, dimension))
         continue;
       var (allowed, hint) = scope switch
       {
@@ -626,7 +635,7 @@ sealed class QueryEngine
     // carry page-view-level dimensions only.
     var pageViewSource = context.Metrics.Any(UsesPageFlow) &&
         context.GroupBy.Concat(context.Filters.Select(x => x.Dimension))
-            .All(x => DimensionScopes.Contains(DimensionScope.PageView, x))
+            .All(x => enricher.Schema.Contains(DimensionScope.PageView, x))
         ? sources.FirstOrDefault(x => x.Event == StandardEvents.PageView)
         : null;
     var trackSessions = options.Sessions.Enabled && (sessionSource != null || pageViewSource != null);
@@ -714,7 +723,7 @@ sealed class QueryEngine
       accumulator.AddMetric(name, value);
   }
 
-  static void TrackSession(Dictionary<ulong, RawSession> sessions, RawEvent rawEvent, bool allowed)
+  void TrackSession(Dictionary<ulong, RawSession> sessions, RawEvent rawEvent, bool allowed)
   {
     if (!sessions.TryGetValue(rawEvent.SessionId, out var session))
     {
@@ -733,7 +742,7 @@ sealed class QueryEngine
       var dimensions = new Dictionary<string, string>(StringComparer.Ordinal);
       foreach (var (key, value) in rawEvent.Dimensions)
       {
-        if (key == StandardDimensions.EntryPage || EnrichmentPipeline.IsSessionLevel(key))
+        if (key == StandardDimensions.EntryPage || enricher.Schema.IsSessionLevel(key))
           dimensions[key] = value;
       }
       session.Dimensions = dimensions;
@@ -1026,10 +1035,9 @@ sealed class QueryEngine
 
   static IEnumerable<long> EnumerateBuckets(ReportingCalendar calendar, long from, long to, TimeInterval interval)
   {
-    const int maxBuckets = 100_000;
     var bucket = calendar.Bucket(from, interval);
     var isUtcInterval = interval is TimeInterval.Minute or TimeInterval.Hour;
-    for (var i = 0; i < maxBuckets; ++i)
+    for (var i = 0; i <= MaxBuckets; ++i)
     {
       var start = isUtcInterval ? bucket : calendar.UtcStartOfLocalDay(bucket);
       if (start >= to)

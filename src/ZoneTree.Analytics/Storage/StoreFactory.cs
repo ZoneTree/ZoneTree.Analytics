@@ -1,3 +1,4 @@
+using ZoneTree.Analytics.Ingestion;
 using ZoneTree.Logger;
 using ZoneTree.Options;
 
@@ -37,6 +38,24 @@ sealed class StoreFactory
   }
 
   /// <summary>
+  /// Creates the maintainer of a data store and applies <see cref="StorageOptions.ConfigureMaintainer"/>.
+  /// </summary>
+  public IMaintainer CreateMaintainer<TKey, TValue>(IZoneTree<TKey, TValue> tree)
+  {
+    var maintainer = tree.CreateMaintainer();
+    try
+    {
+      storage.ConfigureMaintainer?.Invoke(maintainer);
+    }
+    catch
+    {
+      maintainer.Dispose();
+      throw;
+    }
+    return maintainer;
+  }
+
+  /// <summary>
   /// Raw events: Memory&lt;byte&gt; keys and values. Raw events are only scanned, never
   /// point-read, so the mutable segment Bloom filter is disabled.
   /// </summary>
@@ -70,11 +89,11 @@ sealed class StoreFactory
   /// Active sessions keyed by visitor hash. Expired sessions are hidden by a TTL
   /// deletion predicate and physically removed by normal merges.
   /// </summary>
-  public IZoneTree<ulong, SessionState> OpenSessions(string directory)
+  public IZoneTree<ulong, SessionState> OpenSessions(string directory, SessionSchema schema)
   {
     return Create<ulong, SessionState>(directory, storage.WriteAheadLogMode)
         .SetMutableSegmentMaxItemCount(50_000)
-        .SetValueSerializer(new SessionStateSerializer())
+        .SetValueSerializer(new SessionStateSerializer(schema))
         .SetIsDeletedDelegate((in ulong _, in SessionState value) =>
             value == null || value.ExpiresAtUtcTicks <= DateTime.UtcNow.Ticks)
         .SetMarkValueDeletedDelegate((ref SessionState value) => value = null)

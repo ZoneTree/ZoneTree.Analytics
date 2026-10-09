@@ -735,16 +735,18 @@ public sealed class EngineTests
   [Test]
   public void RetentionDropsExpiredPartitions()
   {
-    Recreate(o =>
-    {
-      o.Retention.RawEvents = TimeSpan.FromDays(30);
-      o.Retention.HourRollups = TimeSpan.FromDays(60);
-    });
+    // Data written while retention was longer (here: unlimited), then retention is shortened.
     var old = DateTime.UtcNow.Date.AddDays(-200).AddHours(12);
     var recent = DateTime.UtcNow.Date.AddDays(-1).AddHours(12);
     engine.Track(new AnalyticsEvent("e") { VisitorId = "1", Timestamp = Utc(old) });
     engine.Track(new AnalyticsEvent("e") { VisitorId = "1", Timestamp = Utc(recent) });
     engine.Flush();
+    engine.Dispose();
+    engine = TestEngine.Create(directory, o =>
+    {
+      o.Retention.RawEvents = TimeSpan.FromDays(30);
+      o.Retention.HourRollups = TimeSpan.FromDays(60);
+    });
     Assert.That(engine.ApplyRetention(), Is.EqualTo(2), "raw and hourly partitions of the old month");
 
     var oldDay = engine.Query(new AnalyticsQuery { Event = "e", Range = Day(old.Date) });
@@ -758,6 +760,30 @@ public sealed class EngineTests
       Assert.That(oldRaw.Plan.IsComplete, Is.False);
       Assert.That(oldRaw.Plan.Warnings.Single(), Does.Contain("retention"));
       Assert.That(recentHour.Totals[Metric.Events], Is.EqualTo(1));
+    });
+  }
+
+  [Test]
+  public void LateEventsAreOnlyWrittenToTiersThatStillKeepThem()
+  {
+    Recreate(o =>
+    {
+      o.Retention.RawEvents = TimeSpan.FromDays(30);
+      o.Retention.HourRollups = TimeSpan.FromDays(60);
+    });
+    var old = DateTime.UtcNow.Date.AddDays(-200).AddHours(12);
+    engine.Track(new AnalyticsEvent("e") { VisitorId = "1", Timestamp = Utc(old) });
+    engine.Flush();
+    var daily = engine.Query(new AnalyticsQuery { Event = "e", Range = Day(old.Date) });
+    Assert.Multiple(() =>
+    {
+      // The event lands in daily rollups, which are kept forever, and nowhere else.
+      Assert.That(daily.Totals[Metric.Events], Is.EqualTo(1));
+      Assert.That(daily.Plan.UsedRawEvents, Is.False);
+      Assert.That(Directory.Exists(Path.Combine(directory, "events", old.ToString("yyyy-MM"))), Is.False);
+      Assert.That(Directory.Exists(Path.Combine(directory, "rollups", "hour", old.ToString("yyyy-MM"))), Is.False);
+      Assert.That(engine.ApplyRetention(), Is.EqualTo(0));
+      Assert.That(engine.GetStatistics().EventsProcessed, Is.EqualTo(1));
     });
   }
 

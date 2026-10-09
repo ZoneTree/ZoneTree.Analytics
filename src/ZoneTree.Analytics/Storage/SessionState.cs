@@ -1,3 +1,4 @@
+using ZoneTree.Analytics.Ingestion;
 using ZoneTree.Analytics.Internal;
 using ZoneTree.Serializers;
 
@@ -40,7 +41,7 @@ sealed class SessionState
   public long LastPageTicks;
 
   /// <summary>
-  /// Values of <see cref="StandardDimensions.SessionLevel"/>, in order.
+  /// Session-level values, aligned with the engine's session schema: standard dimensions first, then custom ones.
   /// </summary>
   public string[] Dimensions = [];
 
@@ -90,14 +91,32 @@ sealed class SessionState
 /// Binary serializer of <see cref="SessionState"/>. The type name is part of the
 /// persisted ZoneTree metadata and must stay stable.
 /// </summary>
+/// <remarks>
+/// Version 2 stores standard session-level values by position and custom ones by name, so
+/// custom session dimensions can be added, removed or reordered between runs. Version 1
+/// records (standard values only) are still read.
+/// </remarks>
 sealed class SessionStateSerializer : ISerializer<SessionState>
 {
-  const byte Version = 1;
+  const byte Version = 2;
+
+  const byte Version1 = 1;
 
   const byte NullValue = 0;
 
   [ThreadStatic]
   static ByteWriter threadWriter;
+
+  readonly SessionSchema schema;
+
+  public SessionStateSerializer() : this(SessionSchema.Standard)
+  {
+  }
+
+  public SessionStateSerializer(SessionSchema schema)
+  {
+    this.schema = schema ?? SessionSchema.Standard;
+  }
 
   public SessionState Deserialize(Memory<byte> bytes)
   {
@@ -105,7 +124,7 @@ sealed class SessionStateSerializer : ISerializer<SessionState>
     var version = reader.ReadByte();
     if (version == NullValue)
       return null;
-    if (version != Version)
+    if (version != Version && version != Version1)
       throw new FormatException($"Unsupported session state version {version}.");
     var state = new SessionState
     {
@@ -122,14 +141,26 @@ sealed class SessionStateSerializer : ISerializer<SessionState>
     state.LastPage = reader.ReadString();
     state.LastHostname = reader.ReadString();
     state.LastPageTicks = state.StartTicks + reader.ReadVarInt64();
+    var dimensions = new string[schema.Count];
     var count = (int)reader.ReadVarUInt64();
-    var dimensions = new string[StandardDimensions.SessionLevel.Count];
     for (var i = 0; i < count; ++i)
     {
       // Null means the dimension is not collected; empty means collected but unknown.
       var value = reader.ReadString();
-      if (i < dimensions.Length)
+      if (i < SessionSchema.StandardCount)
         dimensions[i] = value;
+    }
+    if (version == Version)
+    {
+      var customCount = (int)reader.ReadVarUInt64();
+      for (var i = 0; i < customCount; ++i)
+      {
+        var name = reader.ReadString();
+        var value = reader.ReadString();
+        var index = schema.IndexOf(name);
+        if (index >= SessionSchema.StandardCount)
+          dimensions[index] = value;
+      }
     }
     state.Dimensions = dimensions;
     return state;
@@ -154,9 +185,25 @@ sealed class SessionStateSerializer : ISerializer<SessionState>
     writer.WriteString(entry.LastPage);
     writer.WriteString(entry.LastHostname);
     writer.WriteVarInt64(entry.LastPageTicks - entry.StartTicks);
-    writer.WriteVarUInt64((ulong)entry.Dimensions.Length);
-    foreach (var value in entry.Dimensions)
-      writer.WriteString(value);
+    var dimensions = entry.Dimensions;
+    var standardCount = Math.Min(dimensions.Length, SessionSchema.StandardCount);
+    writer.WriteVarUInt64((ulong)standardCount);
+    for (var i = 0; i < standardCount; ++i)
+      writer.WriteString(dimensions[i]);
+    var customCount = 0;
+    for (var i = SessionSchema.StandardCount; i < dimensions.Length; ++i)
+    {
+      if (dimensions[i] != null)
+        ++customCount;
+    }
+    writer.WriteVarUInt64((ulong)customCount);
+    for (var i = SessionSchema.StandardCount; i < dimensions.Length; ++i)
+    {
+      if (dimensions[i] == null)
+        continue;
+      writer.WriteString(schema.Names[i]);
+      writer.WriteString(dimensions[i]);
+    }
     return writer.ToArray();
   }
 }

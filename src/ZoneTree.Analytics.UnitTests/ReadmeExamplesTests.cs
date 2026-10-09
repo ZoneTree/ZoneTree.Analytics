@@ -21,7 +21,8 @@ public sealed class ReadmeExamplesTests
         DefaultSite = "example.com",
         TimeZone = TimeZoneInfo.FindSystemTimeZoneById("Europe/Berlin"),
         Ingestion = { WorkerCount = 2, QueueFullBehavior = QueueFullBehavior.Drop },
-        Sessions = { Timeout = TimeSpan.FromMinutes(30) },
+        Sessions = { Timeout = TimeSpan.FromMinutes(30), Dimensions = { "ab_variant" } },
+        Queries = { Timeout = TimeSpan.FromSeconds(10) },
         Rollups = { Granularities = Granularity.Minute | Granularity.Hour | Granularity.Day },
         Retention =
         {
@@ -30,7 +31,11 @@ public sealed class ReadmeExamplesTests
           HourRollups = TimeSpan.FromDays(400),
           DayRollups = null,
         },
-        Storage = { Partitioning = { RawEvents = PartitionPeriod.Day } },
+        Storage =
+        {
+          Partitioning = { RawEvents = PartitionPeriod.Day },
+          ConfigureMaintainer = maintainer => maintainer.InactiveBlockCacheCleanupInterval = TimeSpan.FromMinutes(1),
+        },
         Privacy = { GeoPrecision = GeoPrecision.Country },
         Web = { GeoLocator = new StubGeoLocator() },
         Enrichers = { EventEnricher.NormalizePage(path => Regex.Replace(path, @"/\d+", "/:id")) },

@@ -46,6 +46,8 @@ sealed class PartitionedStore<TKey, TValue> : IDisposable
 
   readonly Func<string, IZoneTree<TKey, TValue>> openTree;
 
+  readonly Func<IZoneTree<TKey, TValue>, IMaintainer> createMaintainer;
+
   readonly ILogger logger;
 
   bool isDisposed;
@@ -54,11 +56,13 @@ sealed class PartitionedStore<TKey, TValue> : IDisposable
       string rootDirectory,
       PartitionScheme scheme,
       Func<string, IZoneTree<TKey, TValue>> openTree,
-      ILogger logger)
+      ILogger logger,
+      Func<IZoneTree<TKey, TValue>, IMaintainer> createMaintainer = null)
   {
     RootDirectory = rootDirectory;
     Scheme = scheme;
     this.openTree = openTree;
+    this.createMaintainer = createMaintainer ?? (tree => tree.CreateMaintainer());
     this.logger = logger;
     Directory.CreateDirectory(rootDirectory);
   }
@@ -108,7 +112,7 @@ sealed class PartitionedStore<TKey, TValue> : IDisposable
         IMaintainer maintainer;
         try
         {
-          maintainer = tree.CreateMaintainer();
+          maintainer = createMaintainer(tree);
         }
         catch
         {

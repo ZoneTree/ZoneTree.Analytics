@@ -108,8 +108,8 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
 
       if (options.Sessions.Enabled)
       {
-        sessions = factory.OpenSessions(Path.Combine(root, "sessions"));
-        sessionsMaintainer = sessions.CreateMaintainer();
+        sessions = factory.OpenSessions(Path.Combine(root, "sessions"), enricher.Schema);
+        sessionsMaintainer = factory.CreateMaintainer(sessions);
       }
       var definitions = options.Rollups.Definitions.ToArray();
       rollups = new RollupStore(
@@ -169,6 +169,8 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
   }
 
   internal AnalyticsOptions Options => options;
+
+  internal SessionSchema Schema => enricher.Schema;
 
   /// <summary>
   /// The default reporting time zone.
@@ -425,10 +427,11 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
   /// when the result must include every tracked event.
   /// </remarks>
   /// <exception cref="AnalyticsQueryException">The query is invalid or cannot be answered.</exception>
+  /// <exception cref="AnalyticsQueryTimeoutException">The query ran longer than <see cref="QueryOptions.Timeout"/>.</exception>
   public AnalyticsResult Query(AnalyticsQuery query, CancellationToken cancellationToken = default)
   {
     ObjectDisposedException.ThrowIf(IsDisposed, this);
-    return queryEngine.Execute(query, cancellationToken);
+    return WithTimeout(token => queryEngine.Execute(query, token), cancellationToken);
   }
 
   /// <summary>
@@ -439,18 +442,39 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
   {
     ObjectDisposedException.ThrowIf(IsDisposed, this);
     ArgumentNullException.ThrowIfNull(query);
-    return Task.Run(() => queryEngine.Execute(query, cancellationToken), cancellationToken);
+    return Task.Run(() => WithTimeout(token => queryEngine.Execute(query, token), cancellationToken), cancellationToken);
   }
 
   /// <summary>
   /// Analyzes a funnel: how many visitors completed each step, in order.
   /// </summary>
   /// <exception cref="AnalyticsQueryException">The funnel is invalid or raw events are not available.</exception>
+  /// <exception cref="AnalyticsQueryTimeoutException">The funnel ran longer than <see cref="QueryOptions.Timeout"/>.</exception>
   public Task<FunnelResult> QueryFunnelAsync(FunnelQuery funnel, CancellationToken cancellationToken = default)
   {
     ObjectDisposedException.ThrowIf(IsDisposed, this);
     ArgumentNullException.ThrowIfNull(funnel);
-    return Task.Run(() => funnelEngine.Execute(funnel, cancellationToken), cancellationToken);
+    return Task.Run(() => WithTimeout(token => funnelEngine.Execute(funnel, token), cancellationToken), cancellationToken);
+  }
+
+  /// <summary>
+  /// Runs a query with <see cref="QueryOptions.Timeout"/> applied on top of the caller's token.
+  /// </summary>
+  T WithTimeout<T>(Func<CancellationToken, T> execute, CancellationToken cancellationToken)
+  {
+    var timeout = options.Queries.Timeout;
+    if (timeout == null)
+      return execute(cancellationToken);
+    using var source = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+    source.CancelAfter(timeout.Value);
+    try
+    {
+      return execute(source.Token);
+    }
+    catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && source.IsCancellationRequested)
+    {
+      throw new AnalyticsQueryTimeoutException(timeout.Value);
+    }
   }
 
   /// <summary>

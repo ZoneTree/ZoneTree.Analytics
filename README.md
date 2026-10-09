@@ -168,7 +168,7 @@ A query has a base `Event` (page views by default), a `Range`, an optional `Inte
 
 The engine runs one sub-query per event the metrics read and joins them on the time bucket and group values. A row is returned for every group that has data for any metric; set `IncludeRowsWithoutBaseEvent = false` to keep only groups with base events. Filters apply to every sub-query.
 
-Session metrics can only be grouped and filtered by session-level dimensions and the entry page; entrances and exits also by page and hostname. Use a segment to select sessions by anything else. Bot metrics can only be grouped and filtered by page, hostname, `event`, `bot` and `bot_category`, and cannot be combined with segments.
+Session metrics can only be grouped and filtered by session-level dimensions (standard and `Sessions.Dimensions`) and the entry page; entrances and exits also by page and hostname. Use a segment to select sessions by anything else. Bot metrics can only be grouped and filtered by page, hostname, `event`, `bot` and `bot_category`, and cannot be combined with segments.
 
 Every metric has a stable key, for example `visitors`, `bounce_rate`, `sum:revenue`, `avg:duration_ms@job_completed`, `conversion_rate:signup` or `percent:visitors`; `Metric.Parse` turns keys back into metrics.
 
@@ -200,7 +200,9 @@ query.TimeZone = TimeZoneInfo.FindSystemTimeZoneById("America/New_York");
 query.Compare = Comparison.PreviousPeriod;   // or PreviousYear, or Custom(range)
 ```
 
-Calendar ranges and day, week, month and year buckets follow the query's time zone (the engine's reporting time zone by default). Daily rollups are stored in the reporting time zone; other time zones are answered from hourly rollups.
+Calendar ranges and day, week, month and year buckets follow the query's time zone (the engine's reporting time zone by default). Daily rollups are stored in the reporting time zone; other time zones are answered from hourly rollups. A time series has at most 100,000 buckets; longer ones are rejected rather than truncated.
+
+Queries and funnels that run longer than `Queries.Timeout` (30 seconds by default) are cancelled with an `AnalyticsQueryTimeoutException`, so an expensive ad-hoc query cannot tie up the host application.
 
 ### Filters
 
@@ -281,6 +283,19 @@ Source, campaign, geography and device are **session-level**: captured from the 
 ### Sessions
 
 A session is a sequence of events from one visitor with no gap longer than `Sessions.Timeout` (30 minutes by default). A session bounces when it has at most one interactive event; page views and custom events are interactive unless `NonInteractive` is set. Session metrics are attributed to the session start; entrances and exits to their page views. Sessions are maintained incrementally, so session metrics are real-time.
+
+Custom dimensions can be session-level too, for example an experiment variant or a plan:
+
+```csharp
+options.Sessions.Dimensions.Add("ab_variant");
+options.Rollups.Definitions.Add(new RollupDefinition("ab_variant"));
+
+analytics.Track(AnalyticsEvent.PageView(url, referrer, ip, userAgent).WithDimension("ab_variant", "B"));
+
+var variants = await analytics.Web.GetBreakdownAsync(request, "ab_variant");   // with sessions and bounce rate
+```
+
+Like source or country, the value is taken from the first event of a session and applies to the whole session; values on later events are ignored. Session metrics, entrances and exits can then be grouped and filtered by it, and enrichers can set it. Custom session dimensions can be added or removed at any time.
 
 ### Bot traffic
 
@@ -374,7 +389,7 @@ POST /_analytics/api/query
 }
 ```
 
-The API exposes analytics data: protect it with authorization, and restrict sites with `AuthorizeSite`.
+Invalid requests return 400 with an `error` message; queries that exceed `Queries.Timeout` return 503. The API exposes analytics data: protect it with authorization, and restrict sites with `AuthorizeSite`.
 
 ---
 
@@ -387,9 +402,9 @@ The API exposes analytics data: protect it with authorization, and restrict site
   * `ExplicitOnly`: only explicit `VisitorId` values identify visitors.
   * `None`: no visitor tracking, no sessions or unique counts.
 * **Secret management.** Supply `Privacy.VisitorIdSecret` from your secret store to keep the hashing key away from the data files.
-* **Data minimization.** `GeoPrecision`, `CollectUserAgentDetails`, `CollectVersions`, `IncludeQueryString` (off by default), `AllowedDimensions`, `DeniedDimensions`, `MaxCustomDimensions`, `MaxValueLength`.
+* **Data minimization.** `GeoPrecision`, `CollectUserAgentDetails`, `CollectVersions`, `IncludeQueryString` (off by default), `AllowedDimensions`, `DeniedDimensions`, `MaxCustomDimensions`, `MaxCustomMetrics`, `MaxValueLength`.
 * **Filtering.** `EventFilters` drop events before they are queued, for example internal traffic or visitors who opted out. Bot traffic is excluded by default.
-* **Retention** per data tier, see below.
+* **Retention** per data tier, see below. Late events older than a tier's retention are not written to that tier, so backfilled history only lands where it is kept.
 * **Erasure.** `await analytics.EraseVisitorAsync(userId)` deletes the raw events and the session of an explicitly identified visitor. Rollups contain only aggregates and sketches, never identifiers.
 
 With daily rotation, a person who visits on several days counts once per day in multi-day totals. Use `PersistentHash` or explicit visitor ids for cross-day unique visitors.
@@ -405,7 +420,8 @@ var options = new AnalyticsOptions
     DefaultSite = "example.com",
     TimeZone = TimeZoneInfo.FindSystemTimeZoneById("Europe/Berlin"),
     Ingestion = { WorkerCount = 2, QueueFullBehavior = QueueFullBehavior.Drop },
-    Sessions = { Timeout = TimeSpan.FromMinutes(30) },
+    Sessions = { Timeout = TimeSpan.FromMinutes(30), Dimensions = { "ab_variant" } },
+    Queries = { Timeout = TimeSpan.FromSeconds(10) },
     Rollups = { Granularities = Granularity.Minute | Granularity.Hour | Granularity.Day },
     Retention =
     {
@@ -417,6 +433,7 @@ var options = new AnalyticsOptions
     Storage =
     {
         Partitioning = { RawEvents = PartitionPeriod.Day },  // one ZoneTree per day of raw events
+        ConfigureMaintainer = maintainer => maintainer.InactiveBlockCacheCleanupInterval = TimeSpan.FromMinutes(1),
     },
     Privacy = { GeoPrecision = GeoPrecision.Country },
     Web =

@@ -173,12 +173,15 @@ public sealed class PartitioningTests
   {
     var old = DateTime.UtcNow.Date.AddDays(-10).AddHours(12);
     var recent = DateTime.UtcNow.Date.AddDays(-1).AddHours(12);
+    using (var writer = Create(p => p.RawEvents = PartitionPeriod.Day))
+    {
+      writer.Track(new AnalyticsEvent("e") { VisitorId = "1", Timestamp = Utc(old) });
+      writer.Track(new AnalyticsEvent("e") { VisitorId = "1", Timestamp = Utc(recent) });
+    }
+    // Retention is shortened afterwards.
     using var engine = Create(
         p => p.RawEvents = PartitionPeriod.Day,
         o => o.Retention.RawEvents = TimeSpan.FromDays(3));
-    engine.Track(new AnalyticsEvent("e") { VisitorId = "1", Timestamp = Utc(old) });
-    engine.Track(new AnalyticsEvent("e") { VisitorId = "1", Timestamp = Utc(recent) });
-    engine.Flush();
     Assert.That(engine.ApplyRetention(), Is.EqualTo(1));
     int RawEvents(DateTime day) => (int)engine.Query(new AnalyticsQuery
     {

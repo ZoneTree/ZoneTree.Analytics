@@ -183,10 +183,9 @@ public sealed class WebAnalytics
   {
     if (!engine.Options.Sessions.Enabled)
       return false;
-    static bool IsSessionLevel(string name) =>
-        name == StandardDimensions.EntryPage || EnrichmentPipeline.IsSessionLevel(name);
-    return (dimension == null || IsSessionLevel(dimension)) &&
-        request.Filters.All(x => x == null || IsSessionLevel(x.Dimension));
+    var schema = engine.Schema;
+    return (dimension == null || schema.Contains(DimensionScope.Session, dimension)) &&
+        request.Filters.All(x => x == null || schema.Contains(DimensionScope.Session, x.Dimension));
   }
 
   bool BotMetricsAvailable(WebReportRequest request) =>
@@ -194,13 +193,8 @@ public sealed class WebAnalytics
       request.Segments.Count == 0 &&
       request.Filters.All(x => x == null || x.Dimension is StandardDimensions.Page or StandardDimensions.Hostname);
 
-  static bool PageMetricsAvailable(WebReportRequest request)
-  {
-    static bool IsPageLevel(string name) =>
-        name is StandardDimensions.EntryPage or StandardDimensions.Page or StandardDimensions.Hostname ||
-        EnrichmentPipeline.IsSessionLevel(name);
-    return request.Filters.All(x => x == null || IsPageLevel(x.Dimension));
-  }
+  bool PageMetricsAvailable(WebReportRequest request) =>
+      request.Filters.All(x => x == null || engine.Schema.Contains(DimensionScope.PageView, x.Dimension));
 
   static AnalyticsQuery NewQuery(WebReportRequest request, bool paged)
   {

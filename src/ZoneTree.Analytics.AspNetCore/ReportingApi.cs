@@ -163,6 +163,10 @@ static class ReportingApi
     {
       await WriteError(context, StatusCodes.Status400BadRequest, e.Message);
     }
+    catch (AnalyticsQueryTimeoutException e)
+    {
+      await WriteError(context, StatusCodes.Status503ServiceUnavailable, e.Message);
+    }
     finally
     {
       document?.Dispose();

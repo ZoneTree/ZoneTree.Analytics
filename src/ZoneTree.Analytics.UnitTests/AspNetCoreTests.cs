@@ -306,6 +306,22 @@ public sealed class AspNetCoreTests
   }
 
   [Test]
+  public async Task ReportingApiReportsTimeouts()
+  {
+    var now = DateTimeOffset.UtcNow;
+    for (var i = 0; i < 2000; ++i)
+      engine.Track(new AnalyticsEvent("e") { VisitorId = i.ToString(), Timestamp = now.AddSeconds(-i) });
+    await engine.FlushAsync();
+    engine.Options.Queries.Timeout = TimeSpan.FromTicks(1);
+    var (status, error) = await PostJson("/_analytics/api/query", """{ "event": "e", "range": "1h", "source": "RawEvents" }""");
+    Assert.Multiple(() =>
+    {
+      Assert.That(status, Is.EqualTo(HttpStatusCode.ServiceUnavailable));
+      Assert.That(error.GetProperty("error").GetString(), Does.Contain("Timeout"));
+    });
+  }
+
+  [Test]
   public async Task ReportingApiValidatesRequests()
   {
     var (badRange, error) = await GetJson("/_analytics/api/summary?range=forever");

@@ -83,23 +83,6 @@ enum DimensionScope
   All,
 }
 
-static class DimensionScopes
-{
-  /// <summary>
-  /// True when rows of the scope can carry the dimension.
-  /// </summary>
-  public static bool Contains(DimensionScope scope, string dimension) => scope switch
-  {
-    DimensionScope.Session =>
-        dimension == StandardDimensions.EntryPage || EnrichmentPipeline.IsSessionLevel(dimension),
-    DimensionScope.PageView =>
-        dimension is StandardDimensions.EntryPage or StandardDimensions.Page or StandardDimensions.Hostname ||
-        EnrichmentPipeline.IsSessionLevel(dimension),
-    DimensionScope.Bot => StandardDimensions.BotLevel.Contains(dimension),
-    _ => true
-  };
-}
-
 /// <summary>
 /// One metric change applied to a rollup row.
 /// </summary>
@@ -127,11 +110,18 @@ sealed class RollupBuffer
 
   Dictionary<RollupBufferKey, RollupAccumulator> rows = [];
 
+  // Per scope, per definition: whether contributions of the scope reach the definition.
+  readonly bool[][] accepts;
+
+  readonly RetentionCutoffs cutoffs;
+
   public RollupBuffer(
       RollupDefinition[] definitions,
       Granularity enabled,
       ReportingCalendar calendar,
-      int precision)
+      int precision,
+      SessionSchema schema,
+      RetentionCutoffs cutoffs = null)
   {
     this.definitions = definitions;
     granularities = new[] { Granularity.Minute, Granularity.Hour, Granularity.Day }
@@ -139,6 +129,12 @@ sealed class RollupBuffer
         .ToArray();
     dayCache = new LocalDayCache(calendar);
     this.precision = precision;
+    this.cutoffs = cutoffs;
+    accepts = Enum.GetValues<DimensionScope>()
+        .Select(scope => definitions
+            .Select(x => schema.Accepts(x, scope, scope == DimensionScope.Bot ? StandardEvents.Bot : null))
+            .ToArray())
+        .ToArray();
   }
 
   public int Count => rows.Count;
@@ -178,13 +174,29 @@ sealed class RollupBuffer
       return;
     var siteEventHash = HashCode.Combine(site, eventName);
     Span<long> buckets = stackalloc long[granularities.Length];
+    var kept = 0;
     for (var g = 0; g < granularities.Length; ++g)
-      buckets[g] = BucketOf(granularities[g], ticks);
+    {
+      var bucket = BucketOf(granularities[g], ticks);
+      // A bucket beyond its granularity's retention is skipped (long.MinValue).
+      if (cutoffs == null || cutoffs.KeepsRollup(granularities[g], ticks, bucket))
+      {
+        buckets[g] = bucket;
+        ++kept;
+      }
+      else
+      {
+        buckets[g] = long.MinValue;
+      }
+    }
+    if (kept == 0)
+      return;
 
+    var scopeAccepts = accepts[(int)scope];
     for (var d = 0; d < definitions.Length; ++d)
     {
       var definition = definitions[d];
-      if (!definition.Accepts(scope, eventName))
+      if (!scopeAccepts[d])
         continue;
       if (definition.Events != null && !definition.Events.Contains(eventName))
         continue;
@@ -192,6 +204,8 @@ sealed class RollupBuffer
       var valueHash = value.GetHashCode();
       for (var g = 0; g < granularities.Length; ++g)
       {
+        if (buckets[g] == long.MinValue)
+          continue;
         var key = new RollupBufferKey(granularities[g], buckets[g], site, eventName, d, value, siteEventHash, valueHash);
         if (!rows.TryGetValue(key, out var accumulator))
         {

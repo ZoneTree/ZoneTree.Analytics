@@ -11,7 +11,7 @@ sealed class RawEventStore : IDisposable
   public RawEventStore(
       string rootDirectory, PartitionPeriod period, StoreFactory factory, ILogger logger)
   {
-    Store = new(rootDirectory, new PartitionScheme(period), factory.OpenRawEvents, logger);
+    Store = new(rootDirectory, new PartitionScheme(period), factory.OpenRawEvents, logger, factory.CreateMaintainer);
   }
 
   public PartitionedStore<Memory<byte>, Memory<byte>> Store { get; }

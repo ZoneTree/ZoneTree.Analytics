@@ -83,6 +83,11 @@ public sealed class AnalyticsOptions
   /// </summary>
   public StorageOptions Storage { get; set; } = new();
 
+  /// <summary>
+  /// Query options.
+  /// </summary>
+  public QueryOptions Queries { get; set; } = new();
+
   internal void Validate()
   {
     if (string.IsNullOrWhiteSpace(DataDirectory))
@@ -123,10 +128,46 @@ public sealed class AnalyticsOptions
     Storage.Partitioning.Validate(Retention, Storage.StoreRawEvents, Rollups.Granularities);
     if (Privacy.MaxCustomDimensions < 0)
       throw new ArgumentException("Privacy.MaxCustomDimensions cannot be negative.");
+    if (Privacy.MaxCustomMetrics < 0)
+      throw new ArgumentException("Privacy.MaxCustomMetrics cannot be negative.");
+    Queries ??= new();
+    if (Queries.Timeout <= TimeSpan.Zero)
+      throw new ArgumentException("Queries.Timeout must be positive, or null for no limit.");
+    ValidateSessionDimensions();
     if (Privacy.MaxValueLength < 16)
       throw new ArgumentException("Privacy.MaxValueLength must be at least 16.");
     if (Privacy.VisitorIdSecret != null && Privacy.VisitorIdSecret.Length < 16)
       throw new ArgumentException("Privacy.VisitorIdSecret must be at least 16 bytes.");
+  }
+
+  /// <summary>
+  /// At most this many custom session-level dimensions are allowed.
+  /// </summary>
+  internal const int MaxSessionDimensions = 16;
+
+  void ValidateSessionDimensions()
+  {
+    var custom = Sessions.Dimensions;
+    if (custom.Count > MaxSessionDimensions)
+      throw new ArgumentException($"At most {MaxSessionDimensions} custom session dimensions are supported.");
+    var seen = new HashSet<string>(StringComparer.Ordinal);
+    foreach (var name in custom)
+    {
+      if (string.IsNullOrWhiteSpace(name) || name.Trim() != name || name.Contains(',') ||
+          name.Any(char.IsControl) || name.Length > 128 || name[0] == '$')
+        throw new ArgumentException($"'{name}' is not a valid session dimension name.");
+      if (StandardDimensions.SessionLevel.Contains(name))
+        throw new ArgumentException($"'{name}' is already a standard session-level dimension.");
+      if (name is StandardDimensions.Page or StandardDimensions.Hostname or StandardDimensions.EntryPage ||
+          StandardDimensions.BotLevel.Contains(name))
+        throw new ArgumentException($"'{name}' is maintained by the engine and cannot be a session dimension.");
+      if (!seen.Add(name))
+        throw new ArgumentException($"Duplicate session dimension '{name}'.");
+      if (Privacy.DeniedDimensions?.Contains(name) == true ||
+          (Privacy.AllowedDimensions != null && !Privacy.AllowedDimensions.Contains(name)))
+        throw new ArgumentException(
+            $"The session dimension '{name}' is excluded by Privacy.AllowedDimensions or Privacy.DeniedDimensions.");
+    }
   }
 }
 
@@ -186,6 +227,20 @@ public enum QueueFullBehavior
 }
 
 /// <summary>
+/// Query options.
+/// </summary>
+public sealed class QueryOptions
+{
+  /// <summary>
+  /// The longest a query or funnel may run before it is cancelled with an
+  /// <see cref="AnalyticsQueryTimeoutException"/>. It protects the host application from
+  /// expensive ad-hoc queries, for example long raw event scans requested through a reporting
+  /// API. Null means no limit. Default is 30 seconds.
+  /// </summary>
+  public TimeSpan? Timeout { get; set; } = TimeSpan.FromSeconds(30);
+}
+
+/// <summary>
 /// Session tracking options.
 /// </summary>
 public sealed class SessionOptions
@@ -206,6 +261,25 @@ public sealed class SessionOptions
   /// remain available in storage. Default is 250,000.
   /// </summary>
   public int MaxCachedSessions { get; set; } = 250_000;
+
+  /// <summary>
+  /// Custom dimensions that are session-level, for example an experiment variant or a plan.
+  /// </summary>
+  /// <remarks>
+  /// <para>
+  /// Like source, country or device, a session-level dimension is captured from the first event
+  /// of a session and attached to every event of that session; values on later events of the
+  /// session are ignored. Session metrics (sessions, bounce rate, duration) and entrances and
+  /// exits can then be grouped and filtered by it, and enrichers can set it on the first event.
+  /// </para>
+  /// <para>
+  /// Track the value as an event dimension, for example
+  /// <c>Dimensions = { ["ab_variant"] = "B" }</c>, and add a <see cref="RollupDefinition"/> for it
+  /// to answer its reports from rollups. Dimensions can be added or removed at any time;
+  /// a dimension added later applies to sessions that start afterwards.
+  /// </para>
+  /// </remarks>
+  public List<string> Dimensions { get; } = [];
 }
 
 /// <summary>
@@ -262,29 +336,7 @@ public sealed class RollupDefinition
     }
     Dimensions = sorted;
     Id = string.Join(",", sorted);
-    isSessionScoped = sorted.All(x => DimensionScopes.Contains(DimensionScope.Session, x));
-    isPageViewScoped = sorted.All(x => DimensionScopes.Contains(DimensionScope.PageView, x));
-    isBotScoped = sorted.All(x => DimensionScopes.Contains(DimensionScope.Bot, x));
   }
-
-  readonly bool isSessionScoped;
-
-  readonly bool isPageViewScoped;
-
-  readonly bool isBotScoped;
-
-  /// <summary>
-  /// True when contributions of the given scope can reach this rollup. Engine-generated rows
-  /// (sessions, entrances and exits, bots) only reach rollups over dimensions they carry,
-  /// unless the rollup explicitly lists their event.
-  /// </summary>
-  internal bool Accepts(DimensionScope scope, string eventName) => scope switch
-  {
-    DimensionScope.Session => isSessionScoped,
-    DimensionScope.PageView => isPageViewScoped,
-    DimensionScope.Bot => isBotScoped || (Events != null && Events.Contains(eventName)),
-    _ => true
-  };
 
   /// <summary>
   /// The dimensions in canonical (ordinal) order.
@@ -471,6 +523,11 @@ public sealed class PrivacyOptions
   public int MaxCustomDimensions { get; set; } = 32;
 
   /// <summary>
+  /// Maximum number of custom metrics (numeric values) kept per event. Default is 32.
+  /// </summary>
+  public int MaxCustomMetrics { get; set; } = 32;
+
+  /// <summary>
   /// Maximum length of names and values. Longer values are truncated. Default is 512.
   /// </summary>
   public int MaxValueLength { get; set; } = 512;
@@ -527,6 +584,13 @@ public sealed class StorageOptions
   /// Optional hook to tune ZoneTree write-ahead-log options of every store.
   /// </summary>
   public Action<WriteAheadLogOptions> ConfigureWriteAheadLog { get; set; }
+
+  /// <summary>
+  /// Optional hook to tune the ZoneTree maintainer of every data store (raw event and rollup
+  /// partitions and the session store), for example merge thresholds or block cache cleanup.
+  /// It runs when a store or partition is opened.
+  /// </summary>
+  public Action<IMaintainer> ConfigureMaintainer { get; set; }
 
   /// <summary>
   /// The logger used by the engine and its ZoneTree stores.

@@ -39,7 +39,7 @@ sealed class EnrichedEvent
 
   /// <summary>
   /// Session-level dimensions computed from this event, aligned with
-  /// <see cref="StandardDimensions.SessionLevel"/>. Null entries are not collected.
+  /// <see cref="SessionSchema.Names"/>. Null entries are not collected.
   /// </summary>
   public string[] SessionDimensions;
 
@@ -78,28 +78,24 @@ sealed class EnrichmentPipeline
 {
   const int MaxNameLength = 128;
 
-  const int MaxMetrics = 32;
+  static readonly SessionSchema StandardSchema = SessionSchema.Standard;
 
-  static readonly Dictionary<string, int> SessionLevelIndex = StandardDimensions.SessionLevel
-      .Select((name, index) => (name, index))
-      .ToDictionary(x => x.name, x => x.index, StringComparer.Ordinal);
-
-  static readonly int SourceIndex = SessionLevelIndex[StandardDimensions.Source];
-  static readonly int ReferrerIndex = SessionLevelIndex[StandardDimensions.Referrer];
-  static readonly int ChannelIndex = SessionLevelIndex[StandardDimensions.Channel];
-  static readonly int UtmSourceIndex = SessionLevelIndex[StandardDimensions.UtmSource];
-  static readonly int UtmMediumIndex = SessionLevelIndex[StandardDimensions.UtmMedium];
-  static readonly int UtmCampaignIndex = SessionLevelIndex[StandardDimensions.UtmCampaign];
-  static readonly int UtmTermIndex = SessionLevelIndex[StandardDimensions.UtmTerm];
-  static readonly int UtmContentIndex = SessionLevelIndex[StandardDimensions.UtmContent];
-  static readonly int CountryIndex = SessionLevelIndex[StandardDimensions.Country];
-  static readonly int RegionIndex = SessionLevelIndex[StandardDimensions.Region];
-  static readonly int CityIndex = SessionLevelIndex[StandardDimensions.City];
-  static readonly int BrowserIndex = SessionLevelIndex[StandardDimensions.Browser];
-  static readonly int BrowserVersionIndex = SessionLevelIndex[StandardDimensions.BrowserVersion];
-  static readonly int OperatingSystemIndex = SessionLevelIndex[StandardDimensions.OperatingSystem];
-  static readonly int OperatingSystemVersionIndex = SessionLevelIndex[StandardDimensions.OperatingSystemVersion];
-  static readonly int DeviceIndex = SessionLevelIndex[StandardDimensions.Device];
+  static readonly int SourceIndex = StandardSchema.IndexOf(StandardDimensions.Source);
+  static readonly int ReferrerIndex = StandardSchema.IndexOf(StandardDimensions.Referrer);
+  static readonly int ChannelIndex = StandardSchema.IndexOf(StandardDimensions.Channel);
+  static readonly int UtmSourceIndex = StandardSchema.IndexOf(StandardDimensions.UtmSource);
+  static readonly int UtmMediumIndex = StandardSchema.IndexOf(StandardDimensions.UtmMedium);
+  static readonly int UtmCampaignIndex = StandardSchema.IndexOf(StandardDimensions.UtmCampaign);
+  static readonly int UtmTermIndex = StandardSchema.IndexOf(StandardDimensions.UtmTerm);
+  static readonly int UtmContentIndex = StandardSchema.IndexOf(StandardDimensions.UtmContent);
+  static readonly int CountryIndex = StandardSchema.IndexOf(StandardDimensions.Country);
+  static readonly int RegionIndex = StandardSchema.IndexOf(StandardDimensions.Region);
+  static readonly int CityIndex = StandardSchema.IndexOf(StandardDimensions.City);
+  static readonly int BrowserIndex = StandardSchema.IndexOf(StandardDimensions.Browser);
+  static readonly int BrowserVersionIndex = StandardSchema.IndexOf(StandardDimensions.BrowserVersion);
+  static readonly int OperatingSystemIndex = StandardSchema.IndexOf(StandardDimensions.OperatingSystem);
+  static readonly int OperatingSystemVersionIndex = StandardSchema.IndexOf(StandardDimensions.OperatingSystemVersion);
+  static readonly int DeviceIndex = StandardSchema.IndexOf(StandardDimensions.Device);
 
   static readonly IReadOnlyDictionary<string, string> NoDimensions = new Dictionary<string, string>();
 
@@ -120,12 +116,13 @@ sealed class EnrichmentPipeline
     this.logger = logger;
     this.counters = counters;
     referrerClassifier = new ReferrerClassifier(options.Web);
+    Schema = new SessionSchema(options.Sessions.Dimensions);
   }
 
-  public static bool IsSessionLevel(string dimension) => SessionLevelIndex.ContainsKey(dimension);
-
-  public static int SessionLevelIndexOf(string dimension) =>
-      SessionLevelIndex.TryGetValue(dimension, out var index) ? index : -1;
+  /// <summary>
+  /// The session-level dimensions of the engine, standard and custom.
+  /// </summary>
+  public SessionSchema Schema { get; }
 
   public string NormalizeSite(string site)
   {
@@ -202,7 +199,7 @@ sealed class EnrichmentPipeline
     };
     result.Interactive = result.IsPageView || !e.NonInteractive;
 
-    // Custom dimensions. Standard session-level names are overrides.
+    // Custom dimensions. Session-level names, standard or custom, go to the session dimensions.
     string[] sessionOverrides = null;
     if (e.Dimensions != null)
     {
@@ -215,10 +212,10 @@ sealed class EnrichmentPipeline
         if (key.Length == 0 || key.Contains(',') || key == StandardDimensions.EntryPage)
           continue;
         var value = Text.Value(rawValue, privacy.MaxValueLength);
-        var sessionIndex = SessionLevelIndexOf(key);
+        var sessionIndex = Schema.IndexOf(key);
         if (sessionIndex >= 0)
         {
-          sessionOverrides ??= new string[StandardDimensions.SessionLevel.Count];
+          sessionOverrides ??= new string[Schema.Count];
           sessionOverrides[sessionIndex] = value;
           continue;
         }
@@ -250,10 +247,10 @@ sealed class EnrichmentPipeline
     // Metrics.
     if (e.Metrics != null && e.Metrics.Length > 0)
     {
-      result.Metrics = new(Math.Min(e.Metrics.Length, MaxMetrics));
+      result.Metrics = new(Math.Min(e.Metrics.Length, privacy.MaxCustomMetrics));
       foreach (var (rawKey, value) in e.Metrics)
       {
-        if (result.Metrics.Count >= MaxMetrics)
+        if (result.Metrics.Count >= privacy.MaxCustomMetrics)
           break;
         if (!double.IsFinite(value))
           continue;
@@ -390,11 +387,11 @@ sealed class EnrichmentPipeline
     }
   }
 
-  static string GetDimension(EnrichedEvent result, string dimension)
+  string GetDimension(EnrichedEvent result, string dimension)
   {
     if (string.IsNullOrEmpty(dimension))
       return null;
-    var index = result.IsBot ? -1 : SessionLevelIndexOf(dimension);
+    var index = result.IsBot ? -1 : Schema.IndexOf(dimension);
     if (index >= 0)
       return result.SessionDimensions?[index];
     return result.Dimensions.GetValueOrDefault(dimension);
@@ -410,10 +407,10 @@ sealed class EnrichmentPipeline
     if (result.IsBot && name is StandardDimensions.Bot or StandardDimensions.BotCategory or StandardDimensions.Event)
       throw new ArgumentException($"'{name}' is maintained by the engine on bot events.", nameof(dimension));
     var sanitized = value == null ? null : Text.Value(value, options.Privacy.MaxValueLength);
-    var index = result.IsBot ? -1 : SessionLevelIndexOf(name);
+    var index = result.IsBot ? -1 : Schema.IndexOf(name);
     if (index >= 0)
     {
-      result.SessionDimensions ??= new string[StandardDimensions.SessionLevel.Count];
+      result.SessionDimensions ??= new string[Schema.Count];
       result.SessionDimensions[index] = sanitized;
       return;
     }
@@ -432,7 +429,7 @@ sealed class EnrichmentPipeline
   {
     var privacy = options.Privacy;
     var maxLength = privacy.MaxValueLength;
-    var values = new string[StandardDimensions.SessionLevel.Count];
+    var values = new string[Schema.Count];
 
     string Pick(int index, string computed) =>
         overrides?[index] ?? Text.Value(computed, maxLength);
@@ -491,6 +488,10 @@ sealed class EnrichmentPipeline
         values[OperatingSystemVersionIndex] = Pick(OperatingSystemVersionIndex, userAgent?.OperatingSystemVersion);
       }
     }
+
+    // Custom session-level dimensions come from the event only.
+    for (var i = SessionSchema.StandardCount; i < values.Length; ++i)
+      values[i] = overrides?[i];
     return values;
   }
 }

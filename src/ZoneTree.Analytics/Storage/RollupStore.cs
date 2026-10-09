@@ -29,11 +29,11 @@ sealed class RollupStore : IDisposable
   {
     this.definitions = definitions;
     if ((granularities & Granularity.Minute) != 0)
-      stores[0] = new(Path.Combine(rootDirectory, "minute"), new PartitionScheme(partitioning.MinuteRollups), factory.OpenRollups, logger);
+      stores[0] = new(Path.Combine(rootDirectory, "minute"), new PartitionScheme(partitioning.MinuteRollups), factory.OpenRollups, logger, factory.CreateMaintainer);
     if ((granularities & Granularity.Hour) != 0)
-      stores[1] = new(Path.Combine(rootDirectory, "hour"), new PartitionScheme(partitioning.HourRollups), factory.OpenRollups, logger);
+      stores[1] = new(Path.Combine(rootDirectory, "hour"), new PartitionScheme(partitioning.HourRollups), factory.OpenRollups, logger, factory.CreateMaintainer);
     if ((granularities & Granularity.Day) != 0)
-      stores[2] = new(Path.Combine(rootDirectory, "day"), new PartitionScheme(partitioning.DayRollups), factory.OpenRollups, logger);
+      stores[2] = new(Path.Combine(rootDirectory, "day"), new PartitionScheme(partitioning.DayRollups), factory.OpenRollups, logger, factory.CreateMaintainer);
   }
 
   static int IndexOf(Granularity granularity) => granularity switch
