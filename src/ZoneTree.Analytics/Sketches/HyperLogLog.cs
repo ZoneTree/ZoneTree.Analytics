@@ -331,25 +331,8 @@ sealed class HyperLogLog
   }
 
   /// <summary>
-  /// Serializes the sketch into a compact binary form.
+  /// Writes the sketch in its compact binary form: sparse entries as deltas, dense registers as is.
   /// </summary>
-  public byte[] ToByteArray()
-  {
-    Compact();
-    var writer = new ByteWriter(registers?.Length + 16 ?? sparseCount * 5 + 16);
-    Write(writer);
-    return writer.ToArray();
-  }
-
-  /// <summary>
-  /// Deserializes a sketch produced by <see cref="ToByteArray"/>.
-  /// </summary>
-  public static HyperLogLog FromByteArray(ReadOnlySpan<byte> bytes)
-  {
-    var reader = new ByteReader(bytes);
-    return Read(ref reader);
-  }
-
   internal void Write(ByteWriter writer)
   {
     Compact();
@@ -371,6 +354,9 @@ sealed class HyperLogLog
     }
   }
 
+  /// <summary>
+  /// Reads a sketch written by <see cref="Write"/>.
+  /// </summary>
   internal static HyperLogLog Read(ref ByteReader reader)
   {
     var precision = reader.ReadByte();

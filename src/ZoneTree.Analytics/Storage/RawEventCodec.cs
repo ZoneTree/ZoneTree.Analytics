@@ -83,7 +83,7 @@ sealed class DimensionSelector
 /// </summary>
 /// <remarks>
 /// <code>
-/// version(1) name(string) visitor(8) session(8) sessionStartOffset(varint) flags(1)
+/// name(string) visitor(8) session(8) sessionStartOffset(varint) flags(1)
 /// dimensionCount(varint) [name(string) value(string)]*
 /// metricCount(varint) [name(string) value(double)]*
 /// </code>
@@ -91,8 +91,6 @@ sealed class DimensionSelector
 /// </remarks>
 static class RawEventCodec
 {
-  const byte Version = 1;
-
   const byte InteractiveFlag = 1;
 
   [ThreadStatic]
@@ -110,7 +108,6 @@ static class RawEventCodec
   {
     var writer = threadWriter ??= new ByteWriter(512);
     writer.Reset();
-    writer.WriteByte(Version);
     writer.WriteString(name);
     Span<byte> fixed8 = stackalloc byte[8];
     BinaryPrimitives.WriteUInt64LittleEndian(fixed8, visitor);
@@ -154,9 +151,6 @@ static class RawEventCodec
   {
     target.Clear();
     var reader = new ByteReader(bytes);
-    var version = reader.ReadByte();
-    if (version != Version)
-      return false;
     if (expectedName != null)
     {
       if (!reader.ReadStringEquals(expectedNameUtf8))
@@ -207,8 +201,6 @@ static class RawEventCodec
   public static ulong ReadVisitor(ReadOnlySpan<byte> bytes)
   {
     var reader = new ByteReader(bytes);
-    if (reader.ReadByte() != Version)
-      return 0;
     reader.SkipString();
     return BinaryPrimitives.ReadUInt64LittleEndian(reader.ReadBytes(8));
   }

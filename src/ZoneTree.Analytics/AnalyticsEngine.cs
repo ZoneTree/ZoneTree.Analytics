@@ -102,11 +102,11 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
     meta = new MetaStore(factory.OpenMeta(Path.Combine(root, "meta")));
     try
     {
-      var isNew = ValidateConfiguration(root);
+      var isNew = ValidateConfiguration();
       RegisterRollupDefinitions(isNew);
       sequence = Math.Max(
           DateTime.UtcNow.Ticks,
-          long.TryParse(meta.Get("raw-sequence"), NumberStyles.Integer, CultureInfo.InvariantCulture, out var stored) ? stored : 0);
+          meta.Get("raw-sequence") is { } stored ? long.Parse(stored, CultureInfo.InvariantCulture) : 0);
 
       visitorHasher = new VisitorHasher(
           options.Privacy.VisitorIdentification, options.Privacy.VisitorIdSecret, meta);
@@ -196,42 +196,42 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
   bool IsDisposed => Volatile.Read(ref disposed) != 0;
 
   /// <summary>
-  /// Persists configuration that defines the storage format and validates it on reopen.
+  /// Persists the settings that define the storage format when the directory is created, and
+  /// requires the same settings on reopen. Returns true for a new directory.
   /// </summary>
-  bool ValidateConfiguration(string root)
+  bool ValidateConfiguration()
   {
-    var isNew = meta.Get("format-version") == null;
-    void Check(string key, string expected, string description, string legacy = null, string dataDirectory = null)
+    var partitioning = options.Storage.Partitioning;
+    (string Key, string Value, string Description)[] settings =
+    [
+      ("time-zone", options.TimeZone.Id, "time zone"),
+      ("hll-precision", options.Rollups.HyperLogLogPrecision.ToString(CultureInfo.InvariantCulture), "HyperLogLog precision"),
+      ("raw-partitioning", partitioning.RawEvents.ToString(), "raw event partitioning"),
+      ("minute-partitioning", partitioning.MinuteRollups.ToString(), "minute rollup partitioning"),
+      ("hour-partitioning", partitioning.HourRollups.ToString(), "hourly rollup partitioning"),
+      ("day-partitioning", partitioning.DayRollups.ToString(), "daily rollup partitioning"),
+    ];
+    if (meta.Get("format-version") == null)
     {
-      var persisted = meta.Get(key);
-      // Directories created before a setting existed were written with its legacy value.
-      var stored = persisted ?? (isNew ? null : legacy);
-      // A setting that shapes one store can change while that store holds no data.
-      var unused = dataDirectory != null &&
-          (!Directory.Exists(dataDirectory) || !Directory.EnumerateFileSystemEntries(dataDirectory).Any());
-      if (stored == null || stored == expected || unused)
-      {
-        if (persisted != expected)
-          meta.Set(key, expected);
-        return;
-      }
+      foreach (var (key, value, _) in settings)
+        meta.Set(key, value);
+      // Written last, so a directory whose creation was interrupted is simply created again.
+      meta.Set("format-version", FormatVersion);
+      return true;
+    }
+    Require("format-version", FormatVersion, "format version");
+    foreach (var (key, value, description) in settings)
+      Require(key, value, description);
+    return false;
+  }
+
+  void Require(string key, string expected, string description)
+  {
+    var stored = meta.Get(key);
+    if (stored != expected)
       throw new AnalyticsConfigurationException(
           $"The analytics data directory was created with {description} '{stored}', " +
           $"but the options specify '{expected}'. This setting cannot be changed for an existing data directory.");
-    }
-    var partitioning = options.Storage.Partitioning;
-    Check("format-version", FormatVersion, "format version");
-    Check("time-zone", options.TimeZone.Id, "time zone");
-    Check("hll-precision", options.Rollups.HyperLogLogPrecision.ToString(CultureInfo.InvariantCulture), "HyperLogLog precision");
-    Check("raw-partitioning", partitioning.RawEvents.ToString(), "raw event partitioning",
-        dataDirectory: Path.Combine(root, "events"));
-    Check("minute-partitioning", partitioning.MinuteRollups.ToString(), "minute rollup partitioning",
-        legacy: nameof(PartitionPeriod.Day), dataDirectory: Path.Combine(root, "rollups", "minute"));
-    Check("hour-partitioning", partitioning.HourRollups.ToString(), "hourly rollup partitioning",
-        legacy: nameof(PartitionPeriod.Month), dataDirectory: Path.Combine(root, "rollups", "hour"));
-    Check("day-partitioning", partitioning.DayRollups.ToString(), "daily rollup partitioning",
-        legacy: nameof(PartitionPeriod.Year), dataDirectory: Path.Combine(root, "rollups", "day"));
-    return isNew;
   }
 
   /// <summary>
@@ -253,7 +253,12 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
     {
       var key = RollupActivationKey(definition);
       var stored = meta.Get(key);
-      if (stored == null || !long.TryParse(stored, NumberStyles.Integer, CultureInfo.InvariantCulture, out var since))
+      long since;
+      if (stored != null)
+      {
+        since = long.Parse(stored, CultureInfo.InvariantCulture);
+      }
+      else
       {
         since = isNewDirectory ? 0 : DateTime.UtcNow.Ticks;
         meta.Set(key, since.ToString(CultureInfo.InvariantCulture));
@@ -406,19 +411,6 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
     {
       return false;
     }
-  }
-
-  /// <summary>
-  /// Queues a page view.
-  /// </summary>
-  public bool TrackPageView(
-      string url,
-      string referrer = null,
-      string ipAddress = null,
-      string userAgent = null,
-      string site = null)
-  {
-    return Track(AnalyticsEvent.PageView(url, referrer, ipAddress, userAgent, site));
   }
 
   /// <summary>

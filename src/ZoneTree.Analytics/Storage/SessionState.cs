@@ -92,40 +92,31 @@ sealed class SessionState
 /// persisted ZoneTree metadata and must stay stable.
 /// </summary>
 /// <remarks>
-/// Version 2 stores standard session-level values by position and custom ones by name, so
-/// custom session dimensions can be added, removed or reordered between runs. Version 1
-/// records (standard values only) are still read.
+/// Standard session-level values are stored by position and custom ones by name, so the custom
+/// session dimensions of <see cref="SessionOptions.Dimensions"/> can change between runs while
+/// sessions are still active.
 /// </remarks>
 sealed class SessionStateSerializer : ISerializer<SessionState>
 {
-  const byte Version = 2;
+  const byte Deleted = 0;
 
-  const byte Version1 = 1;
-
-  const byte NullValue = 0;
+  const byte Present = 1;
 
   [ThreadStatic]
   static ByteWriter threadWriter;
 
   readonly SessionSchema schema;
 
-  public SessionStateSerializer() : this(SessionSchema.Standard)
-  {
-  }
-
   public SessionStateSerializer(SessionSchema schema)
   {
-    this.schema = schema ?? SessionSchema.Standard;
+    this.schema = schema;
   }
 
   public SessionState Deserialize(Memory<byte> bytes)
   {
     var reader = new ByteReader(bytes.Span);
-    var version = reader.ReadByte();
-    if (version == NullValue)
+    if (reader.ReadByte() == Deleted)
       return null;
-    if (version != Version && version != Version1)
-      throw new FormatException($"Unsupported session state version {version}.");
     var state = new SessionState
     {
       SessionId = reader.ReadVarUInt64(),
@@ -136,31 +127,23 @@ sealed class SessionStateSerializer : ISerializer<SessionState>
     state.PageViews = (int)reader.ReadVarInt64();
     state.Interactions = (int)reader.ReadVarInt64();
     state.Events = (int)reader.ReadVarInt64();
-    state.EntryPage = reader.ReadString() ?? "";
-    state.EntryHostname = reader.ReadString() ?? "";
+    state.EntryPage = reader.ReadString();
+    state.EntryHostname = reader.ReadString();
     state.LastPage = reader.ReadString();
     state.LastHostname = reader.ReadString();
     state.LastPageTicks = state.StartTicks + reader.ReadVarInt64();
     var dimensions = new string[schema.Count];
-    var count = (int)reader.ReadVarUInt64();
-    for (var i = 0; i < count; ++i)
+    // Null means the dimension is not collected; empty means collected but unknown.
+    for (var i = 0; i < SessionSchema.StandardCount; ++i)
+      dimensions[i] = reader.ReadString();
+    var customCount = (int)reader.ReadVarUInt64();
+    for (var i = 0; i < customCount; ++i)
     {
-      // Null means the dimension is not collected; empty means collected but unknown.
+      var name = reader.ReadString();
       var value = reader.ReadString();
-      if (i < SessionSchema.StandardCount)
-        dimensions[i] = value;
-    }
-    if (version == Version)
-    {
-      var customCount = (int)reader.ReadVarUInt64();
-      for (var i = 0; i < customCount; ++i)
-      {
-        var name = reader.ReadString();
-        var value = reader.ReadString();
-        var index = schema.IndexOf(name);
-        if (index >= SessionSchema.StandardCount)
-          dimensions[index] = value;
-      }
+      var index = schema.IndexOf(name);
+      if (index >= SessionSchema.StandardCount)
+        dimensions[index] = value;
     }
     state.Dimensions = dimensions;
     return state;
@@ -169,10 +152,10 @@ sealed class SessionStateSerializer : ISerializer<SessionState>
   public Memory<byte> Serialize(in SessionState entry)
   {
     if (entry == null)
-      return new byte[] { NullValue };
+      return new byte[] { Deleted };
     var writer = threadWriter ??= new ByteWriter(256);
     writer.Reset();
-    writer.WriteByte(Version);
+    writer.WriteByte(Present);
     writer.WriteVarUInt64(entry.SessionId);
     writer.WriteVarInt64(entry.StartTicks);
     writer.WriteVarInt64(entry.LastTicks - entry.StartTicks);
@@ -186,9 +169,7 @@ sealed class SessionStateSerializer : ISerializer<SessionState>
     writer.WriteString(entry.LastHostname);
     writer.WriteVarInt64(entry.LastPageTicks - entry.StartTicks);
     var dimensions = entry.Dimensions;
-    var standardCount = Math.Min(dimensions.Length, SessionSchema.StandardCount);
-    writer.WriteVarUInt64((ulong)standardCount);
-    for (var i = 0; i < standardCount; ++i)
+    for (var i = 0; i < SessionSchema.StandardCount; ++i)
       writer.WriteString(dimensions[i]);
     var customCount = 0;
     for (var i = SessionSchema.StandardCount; i < dimensions.Length; ++i)

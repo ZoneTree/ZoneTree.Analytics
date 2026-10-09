@@ -115,22 +115,15 @@ static class KeyCodec
   }
 
   /// <summary>
-  /// Splits a combined value into one value per dimension.
+  /// Splits a combined value into one value per dimension. Sanitized values contain no control
+  /// characters, so the separator never occurs inside a value.
   /// </summary>
-  public static string[] SplitValues(string combined, int dimensionCount)
+  public static string[] SplitValues(string combined, int dimensionCount) => dimensionCount switch
   {
-    if (dimensionCount == 0)
-      return [];
-    if (dimensionCount == 1)
-      return [combined];
-    var parts = combined.Split(ValueSeparator);
-    if (parts.Length == dimensionCount)
-      return parts;
-    Array.Resize(ref parts, dimensionCount);
-    for (var i = 0; i < parts.Length; ++i)
-      parts[i] ??= "";
-    return parts;
-  }
+    0 => [],
+    1 => [combined],
+    _ => combined.Split(ValueSeparator)
+  };
 
   public static Memory<byte> RawKey(string site, long ticks, long sequence)
   {

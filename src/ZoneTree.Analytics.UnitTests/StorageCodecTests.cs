@@ -157,7 +157,7 @@ public sealed class StorageCodecTests
       Dimensions = new string[StandardDimensions.SessionLevel.Count]
     };
     state.Dimensions[0] = "Google";
-    var serializer = new SessionStateSerializer();
+    var serializer = new SessionStateSerializer(SessionSchema.Standard);
     var restored = serializer.Deserialize(serializer.Serialize(state));
     Assert.Multiple(() =>
     {
@@ -187,37 +187,6 @@ public sealed class StorageCodecTests
       Assert.That(restored.Dimensions[0], Is.EqualTo("Google"));
       Assert.That(restored.Dimensions[readerSchema.IndexOf("ab_variant")], Is.EqualTo("B"));
       Assert.That(restored.Dimensions[readerSchema.IndexOf("team")], Is.Null);
-    });
-  }
-
-  [Test]
-  public void SessionStateReadsVersion1()
-  {
-    var writer = new ByteWriter(64);
-    writer.WriteByte(1);
-    writer.WriteVarUInt64(7);           // session id
-    writer.WriteVarInt64(1000);         // start
-    writer.WriteVarInt64(60);           // last - start
-    writer.WriteVarInt64(5000);         // expires
-    writer.WriteVarInt64(2);            // page views
-    writer.WriteVarInt64(2);            // interactions
-    writer.WriteVarInt64(2);            // events
-    writer.WriteString("/");
-    writer.WriteString("a.com");
-    writer.WriteString("/b");
-    writer.WriteString("a.com");
-    writer.WriteVarInt64(60);           // last page - start
-    writer.WriteVarUInt64(2);
-    writer.WriteString("Google");
-    writer.WriteString(null);
-    var restored = new SessionStateSerializer(new SessionSchema(["plan"])).Deserialize(writer.ToArray());
-    Assert.Multiple(() =>
-    {
-      Assert.That(restored.SessionId, Is.EqualTo(7));
-      Assert.That(restored.LastTicks, Is.EqualTo(1060));
-      Assert.That(restored.Dimensions, Has.Length.EqualTo(StandardDimensions.SessionLevel.Count + 1));
-      Assert.That(restored.Dimensions[0], Is.EqualTo("Google"));
-      Assert.That(restored.Dimensions[^1], Is.Null);
     });
   }
 

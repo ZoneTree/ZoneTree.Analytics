@@ -294,13 +294,19 @@ sealed class RollupAccumulator
 /// Binary serializer of <see cref="RollupValue"/>. The type name is part of the
 /// persisted ZoneTree metadata and must stay stable.
 /// </summary>
+/// <remarks>
+/// <code>
+/// header(1: 0 = deleted, otherwise Present | HasVisitors) count(varint) [sketch]
+/// metricCount(varint) [name(string) sum(double) count(varint) [min(double) max(double)]]*
+/// </code>
+/// </remarks>
 sealed class RollupValueSerializer : ISerializer<RollupValue>
 {
-  const byte Version = 1;
+  const byte Deleted = 0;
 
-  const byte NullValue = 0;
+  const byte Present = 1;
 
-  const byte HasVisitors = 1;
+  const byte HasVisitors = 2;
 
   [ThreadStatic]
   static ByteWriter threadWriter;
@@ -308,16 +314,11 @@ sealed class RollupValueSerializer : ISerializer<RollupValue>
   public RollupValue Deserialize(Memory<byte> bytes)
   {
     var reader = new ByteReader(bytes.Span);
-    var version = reader.ReadByte();
-    if (version == NullValue)
+    var header = reader.ReadByte();
+    if (header == Deleted)
       return null;
-    if (version != Version)
-      throw new FormatException($"Unsupported rollup value version {version}.");
     var count = reader.ReadVarInt64();
-    var flags = reader.ReadByte();
-    HyperLogLog visitors = null;
-    if ((flags & HasVisitors) != 0)
-      visitors = HyperLogLog.Read(ref reader);
+    var visitors = (header & HasVisitors) != 0 ? HyperLogLog.Read(ref reader) : null;
     var metricCount = (int)reader.ReadVarUInt64();
     var names = new string[metricCount];
     var metrics = new MetricValue[metricCount];
@@ -340,13 +341,12 @@ sealed class RollupValueSerializer : ISerializer<RollupValue>
   public Memory<byte> Serialize(in RollupValue entry)
   {
     if (entry == null)
-      return new byte[] { NullValue };
+      return new byte[] { Deleted };
     var writer = threadWriter ??= new ByteWriter(256);
     writer.Reset();
-    writer.WriteByte(Version);
-    writer.WriteVarInt64(entry.Count);
     var hasVisitors = entry.Visitors != null && !entry.Visitors.IsEmpty;
-    writer.WriteByte(hasVisitors ? HasVisitors : (byte)0);
+    writer.WriteByte(hasVisitors ? (byte)(Present | HasVisitors) : Present);
+    writer.WriteVarInt64(entry.Count);
     if (hasVisitors)
       entry.Visitors.Write(writer);
     writer.WriteVarUInt64((ulong)entry.MetricNames.Length);

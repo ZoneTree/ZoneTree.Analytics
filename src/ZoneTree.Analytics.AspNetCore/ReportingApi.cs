@@ -52,7 +52,7 @@ public static class AnalyticsReportingApiExtensions
 }
 
 /// <summary>
-/// Request parameters from the query string or a JSON body.
+/// Request parameters: the JSON body of a POST request, or the query string of a GET request.
 /// </summary>
 sealed class ApiParameters
 {
@@ -75,34 +75,36 @@ sealed class ApiParameters
 
   public string Get(string name)
   {
-    if (Element(name) is { } element)
+    if (!hasBody)
     {
-      return element.ValueKind switch
-      {
-        JsonValueKind.String => element.GetString(),
-        JsonValueKind.Number => element.GetRawText(),
-        JsonValueKind.True => "true",
-        JsonValueKind.False => "false",
-        _ => throw new FormatException($"'{name}' must be a string or a number.")
-      };
+      var values = query[name];
+      return values.Count == 0 ? null : values[^1];
     }
-    var values = query[name];
-    return values.Count == 0 ? null : values[^1];
+    if (Element(name) is not { } element)
+      return null;
+    return element.ValueKind switch
+    {
+      JsonValueKind.String => element.GetString(),
+      JsonValueKind.Number => element.GetRawText(),
+      JsonValueKind.True => "true",
+      JsonValueKind.False => "false",
+      _ => throw new FormatException($"'{name}' must be a string or a number.")
+    };
   }
 
   public IEnumerable<string> GetAll(string name)
   {
-    if (Element(name) is { } element)
-    {
-      if (element.ValueKind == JsonValueKind.String)
-        return [element.GetString()];
-      if (element.ValueKind != JsonValueKind.Array)
-        throw new FormatException($"'{name}' must be an array of strings.");
-      return element.EnumerateArray().Select(x => x.ValueKind == JsonValueKind.String
-          ? x.GetString()
-          : throw new FormatException($"'{name}' must be an array of strings.")).ToList();
-    }
-    return query[name].Where(x => !string.IsNullOrEmpty(x)).SelectMany(x => x.Split(',')).ToList();
+    if (!hasBody)
+      return query[name].Where(x => !string.IsNullOrEmpty(x)).SelectMany(x => x.Split(',')).ToList();
+    if (Element(name) is not { } element)
+      return [];
+    if (element.ValueKind == JsonValueKind.String)
+      return [element.GetString()];
+    if (element.ValueKind != JsonValueKind.Array)
+      throw new FormatException($"'{name}' must be an array of strings.");
+    return element.EnumerateArray().Select(x => x.ValueKind == JsonValueKind.String
+        ? x.GetString()
+        : throw new FormatException($"'{name}' must be an array of strings.")).ToList();
   }
 
   public int? GetInt(string name)

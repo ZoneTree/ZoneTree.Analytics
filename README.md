@@ -445,7 +445,7 @@ var options = new AnalyticsOptions
 };
 ```
 
-The engine copies the options when it is created; changing them afterwards has no effect. The reporting time zone, sketch precision and partitioning define the storage format. They are persisted on creation; reopening with different values throws `AnalyticsConfigurationException`. The partitioning of a tier that holds no data yet can still change.
+The engine copies the options when it is created; changing them afterwards has no effect. The reporting time zone, sketch precision and partitioning define the storage format. They are persisted on creation; reopening with different values throws `AnalyticsConfigurationException`.
 
 ### Partitioning
 

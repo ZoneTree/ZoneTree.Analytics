@@ -14,13 +14,13 @@ static class Text
   /// Sanitizes a name (event, site, dimension or metric name): removes control characters,
   /// trims and truncates. Returns empty for null.
   /// </summary>
-  public static string Name(string value, int maxLength = MaxNameLength)
+  public static string Name(string value)
   {
     if (string.IsNullOrEmpty(value))
       return "";
     if (ContainsControl(value))
       value = string.Concat(value.Where(c => !char.IsControl(c)));
-    return Truncate(value.Trim(), maxLength);
+    return Truncate(value.Trim(), MaxNameLength);
   }
 
   /// <summary>

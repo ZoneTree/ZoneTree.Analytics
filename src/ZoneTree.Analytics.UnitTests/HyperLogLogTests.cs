@@ -1,3 +1,4 @@
+using ZoneTree.Analytics.Internal;
 using ZoneTree.Analytics.Sketches;
 
 namespace ZoneTree.Analytics.UnitTests;
@@ -99,7 +100,10 @@ public sealed class HyperLogLogTests
       var sketch = new HyperLogLog(12);
       for (var i = 1; i <= count; ++i)
         sketch.Add((ulong)i * 7919);
-      var restored = HyperLogLog.FromByteArray(sketch.ToByteArray());
+      var writer = new ByteWriter();
+      sketch.Write(writer);
+      var reader = new ByteReader(writer.ToArray());
+      var restored = HyperLogLog.Read(ref reader);
       Assert.Multiple(() =>
       {
         Assert.That(restored.Precision, Is.EqualTo(12));

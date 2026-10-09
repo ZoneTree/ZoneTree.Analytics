@@ -75,24 +75,22 @@ enum RejectReason
 /// </remarks>
 sealed class EnrichmentPipeline
 {
-  static readonly SessionSchema StandardSchema = SessionSchema.Standard;
-
-  static readonly int SourceIndex = StandardSchema.IndexOf(StandardDimensions.Source);
-  static readonly int ReferrerIndex = StandardSchema.IndexOf(StandardDimensions.Referrer);
-  static readonly int ChannelIndex = StandardSchema.IndexOf(StandardDimensions.Channel);
-  static readonly int UtmSourceIndex = StandardSchema.IndexOf(StandardDimensions.UtmSource);
-  static readonly int UtmMediumIndex = StandardSchema.IndexOf(StandardDimensions.UtmMedium);
-  static readonly int UtmCampaignIndex = StandardSchema.IndexOf(StandardDimensions.UtmCampaign);
-  static readonly int UtmTermIndex = StandardSchema.IndexOf(StandardDimensions.UtmTerm);
-  static readonly int UtmContentIndex = StandardSchema.IndexOf(StandardDimensions.UtmContent);
-  static readonly int CountryIndex = StandardSchema.IndexOf(StandardDimensions.Country);
-  static readonly int RegionIndex = StandardSchema.IndexOf(StandardDimensions.Region);
-  static readonly int CityIndex = StandardSchema.IndexOf(StandardDimensions.City);
-  static readonly int BrowserIndex = StandardSchema.IndexOf(StandardDimensions.Browser);
-  static readonly int BrowserVersionIndex = StandardSchema.IndexOf(StandardDimensions.BrowserVersion);
-  static readonly int OperatingSystemIndex = StandardSchema.IndexOf(StandardDimensions.OperatingSystem);
-  static readonly int OperatingSystemVersionIndex = StandardSchema.IndexOf(StandardDimensions.OperatingSystemVersion);
-  static readonly int DeviceIndex = StandardSchema.IndexOf(StandardDimensions.Device);
+  static readonly int SourceIndex = SessionSchema.Standard.IndexOf(StandardDimensions.Source);
+  static readonly int ReferrerIndex = SessionSchema.Standard.IndexOf(StandardDimensions.Referrer);
+  static readonly int ChannelIndex = SessionSchema.Standard.IndexOf(StandardDimensions.Channel);
+  static readonly int UtmSourceIndex = SessionSchema.Standard.IndexOf(StandardDimensions.UtmSource);
+  static readonly int UtmMediumIndex = SessionSchema.Standard.IndexOf(StandardDimensions.UtmMedium);
+  static readonly int UtmCampaignIndex = SessionSchema.Standard.IndexOf(StandardDimensions.UtmCampaign);
+  static readonly int UtmTermIndex = SessionSchema.Standard.IndexOf(StandardDimensions.UtmTerm);
+  static readonly int UtmContentIndex = SessionSchema.Standard.IndexOf(StandardDimensions.UtmContent);
+  static readonly int CountryIndex = SessionSchema.Standard.IndexOf(StandardDimensions.Country);
+  static readonly int RegionIndex = SessionSchema.Standard.IndexOf(StandardDimensions.Region);
+  static readonly int CityIndex = SessionSchema.Standard.IndexOf(StandardDimensions.City);
+  static readonly int BrowserIndex = SessionSchema.Standard.IndexOf(StandardDimensions.Browser);
+  static readonly int BrowserVersionIndex = SessionSchema.Standard.IndexOf(StandardDimensions.BrowserVersion);
+  static readonly int OperatingSystemIndex = SessionSchema.Standard.IndexOf(StandardDimensions.OperatingSystem);
+  static readonly int OperatingSystemVersionIndex = SessionSchema.Standard.IndexOf(StandardDimensions.OperatingSystemVersion);
+  static readonly int DeviceIndex = SessionSchema.Standard.IndexOf(StandardDimensions.Device);
 
   readonly AnalyticsOptions options;
 

@@ -141,34 +141,6 @@ public sealed class PartitioningTests
   }
 
   [Test]
-  public void PartitioningOfATierWithoutDataCanChange()
-  {
-    using (var engine = Create(_ => { }, o =>
-    {
-      o.Storage.StoreRawEvents = false;
-      o.Rollups.Granularities = Granularity.Hour | Granularity.Day;
-    }))
-    {
-      TrackAcrossMonthBoundary(engine);
-    }
-    using (var engine = Create(p =>
-    {
-      p.RawEvents = PartitionPeriod.Day;
-      p.MinuteRollups = PartitionPeriod.Month;
-    }))
-    {
-      TrackAcrossMonthBoundary(engine);
-    }
-    Assert.Multiple(() =>
-    {
-      Assert.That(Partitions("events"), Has.All.Length.EqualTo(10));
-      Assert.That(Partitions("rollups", "minute"), Has.All.Length.EqualTo(7));
-    });
-    // Now that they hold data, the new values are fixed.
-    Assert.Throws<AnalyticsConfigurationException>(() => Create(_ => { }).Dispose());
-  }
-
-  [Test]
   public void SmallerPartitionsMakeRetentionPrecise()
   {
     var old = DateTime.UtcNow.Date.AddDays(-10).AddHours(12);

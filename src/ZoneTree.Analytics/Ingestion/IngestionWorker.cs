@@ -109,9 +109,6 @@ sealed class IngestionWorker
 
   long lastFlushTimestamp = Stopwatch.GetTimestamp();
 
-  // The Environment.TickCount64 at which the retention cutoffs are refreshed next.
-  long nextCutoffRefresh = long.MinValue;
-
   PartitionLease<Memory<byte>, Memory<byte>> rawLease;
 
   Task task;
@@ -140,6 +137,7 @@ sealed class IngestionWorker
     storeRawEvents = options.Storage.StoreRawEvents && services.RawEvents != null;
     maxBufferedRows = options.Ingestion.MaxBufferedRollupRows;
     lookupHorizon = services.StoredSessionHorizon;
+    RefreshRetentionCutoffs();
   }
 
   public ChannelWriter<WorkItem> Writer => channel.Writer;
@@ -185,7 +183,6 @@ sealed class IngestionWorker
 
   void Process(EventSnapshot snapshot)
   {
-    RefreshRetentionCutoffs();
     var counters = services.Counters;
     var ev = services.Enricher.Enrich(snapshot, out var reason);
     if (ev == null)
@@ -261,16 +258,11 @@ sealed class IngestionWorker
   }
 
   /// <summary>
-  /// Late events older than a tier's retention are not written to that tier.
+  /// Late events older than a tier's retention are not written to that tier. The cutoffs move
+  /// with time, so they are refreshed on every flush.
   /// </summary>
-  void RefreshRetentionCutoffs()
-  {
-    var tick = Environment.TickCount64;
-    if (tick < nextCutoffRefresh)
-      return;
-    nextCutoffRefresh = tick + 1000;
-    buffer.Cutoffs = RetentionCutoffs.Compute(services.Options.Retention, services.Calendar, DateTime.UtcNow.Ticks);
-  }
+  void RefreshRetentionCutoffs() =>
+      buffer.Cutoffs = RetentionCutoffs.Compute(services.Options.Retention, services.Calendar, DateTime.UtcNow.Ticks);
 
   SessionState GetSession(ulong visitor, long ticks)
   {
@@ -478,6 +470,7 @@ sealed class IngestionWorker
   void Flush()
   {
     lastFlushTimestamp = Stopwatch.GetTimestamp();
+    RefreshRetentionCutoffs();
     try
     {
       foreach (var visitor in dirtySessions)
