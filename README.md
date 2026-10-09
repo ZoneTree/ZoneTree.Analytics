@@ -247,9 +247,13 @@ foreach (var step in funnel.Steps)
     Console.WriteLine($"{step.Name}: {step.Visitors} ({step.ConversionRate:P0}, drop-off {step.DropOff})");
 ```
 
+A funnel has two to 64 steps.
+
 ### Where answers come from
 
 Ingestion maintains **rollups**: pre-aggregated rows per time bucket for configured dimension sets. A sub-query is answered from rollups when the union of its group-by and filter dimensions equals a rollup's dimension set. The range is covered greedily: whole days from daily rollups, remaining hours from hourly rollups, remaining minutes from minute rollups, and any remainder from raw events. Other dimension combinations, segments and funnels scan **raw events** within raw event retention. `result.Plan` shows the source of each part; `Source = QuerySource.Rollups` or `QuerySource.RawEvents` forces one, and both give the same numbers.
+
+Raw scans run in parallel. A range is split into time slices, within partitions, that are scanned on up to `Queries.MaxDegreeOfParallelism` threads (the processor count by default) and merged; the results equal those of a sequential scan, also for sessions and funnels that span slices. Lower it when many raw queries run at the same time and should share the processors; `1` scans on the calling thread only.
 
 Add rollups for hot combinations:
 
@@ -421,7 +425,7 @@ var options = new AnalyticsOptions
     TimeZone = TimeZoneInfo.FindSystemTimeZoneById("Europe/Berlin"),
     Ingestion = { WorkerCount = 2, QueueFullBehavior = QueueFullBehavior.Drop },
     Sessions = { Timeout = TimeSpan.FromMinutes(30), Dimensions = { "ab_variant" } },
-    Queries = { Timeout = TimeSpan.FromSeconds(10) },
+    Queries = { Timeout = TimeSpan.FromSeconds(10), MaxDegreeOfParallelism = 4 },
     Rollups = { Granularities = Granularity.Minute | Granularity.Hour | Granularity.Day },
     Retention =
     {
@@ -583,6 +587,7 @@ Rollup query time depends on the number of rows in the range, not on the number 
 * **Logging.** Pass `Storage.Logger` (a ZoneTree `ILogger`); the ASP.NET Core package bridges to `Microsoft.Extensions.Logging`.
 * **Backups.** Every partition is a regular ZoneTree directory. For a consistent offline backup, dispose the engine and copy the data directory, and `Storage.WriteAheadLogDirectory` when it is set: the logs hold records that are not in disk segments yet.
 * **Retention** runs hourly by default (`Retention.CheckInterval`) and can be triggered with `ApplyRetention()`.
+* **Compaction.** Each store moves its in-memory segment to disk and merges in the background when the segment reaches `Storage.<store>.MutableSegmentMaxItemCount`. `await analytics.CompactAsync()` flushes and moves everything to disk now, and waits for the merges: useful after a bulk import to release memory, or to measure queries against data on disk.
 
 ---
 

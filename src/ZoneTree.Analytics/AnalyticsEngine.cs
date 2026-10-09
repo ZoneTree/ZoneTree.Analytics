@@ -446,6 +446,38 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
   public void Flush() => FlushAsync().GetAwaiter().GetResult();
 
   /// <summary>
+  /// Flushes, moves the in-memory data of every open store to disk and waits until the
+  /// background merges complete.
+  /// </summary>
+  /// <remarks>
+  /// The engine compacts on its own as data grows (see
+  /// <see cref="StoreOptions.MutableSegmentMaxItemCount"/>), so this is never required. Call it
+  /// after a bulk import to release memory, or to measure queries against data on disk.
+  /// Tracking continues meanwhile.
+  /// </remarks>
+  public async Task CompactAsync(CancellationToken cancellationToken = default)
+  {
+    ObjectDisposedException.ThrowIf(IsDisposed, this);
+    await FlushAsync(cancellationToken).ConfigureAwait(false);
+    await Task.Run(() =>
+    {
+      rawEvents?.Store.Compact();
+      foreach (var store in rollups.AllStores)
+        store.Compact();
+      if (sessionsMaintainer != null)
+      {
+        sessionsMaintainer.EvictToDisk();
+        sessionsMaintainer.WaitForBackgroundThreads();
+      }
+    }, cancellationToken).ConfigureAwait(false);
+  }
+
+  /// <summary>
+  /// Synchronous version of <see cref="CompactAsync"/>.
+  /// </summary>
+  public void Compact() => CompactAsync().GetAwaiter().GetResult();
+
+  /// <summary>
   /// Executes a query.
   /// </summary>
   /// <remarks>
@@ -525,15 +557,25 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
       return null;
     site = enricher.NormalizeSite(site);
     var now = DateTime.UtcNow.Ticks;
-    var visitors = new HashSet<ulong>();
-    rawEvents.Scan(site, now - window.Ticks, now + options.Ingestion.MaxFutureSkew.Ticks, (_, _, value) =>
+    var slices = rawEvents.Scan(
+        site, now - window.Ticks, now + options.Ingestion.MaxFutureSkew.Ticks, options.Queries.MaxDegreeOfParallelism,
+        () => new HashSet<ulong>(),
+        (visitors, _, value) =>
+        {
+          var visitor = RawEventCodec.ReadVisitor(value);
+          if (visitor != 0)
+            visitors.Add(visitor);
+        },
+        CancellationToken.None);
+    if (slices.Length == 0)
+      return 0;
+    var all = slices.MaxBy(x => x.Count);
+    foreach (var visitors in slices)
     {
-      var visitor = RawEventCodec.ReadVisitor(value.Span);
-      if (visitor != 0)
-        visitors.Add(visitor);
-      return true;
-    });
-    return visitors.Count;
+      if (visitors != all)
+        all.UnionWith(visitors);
+    }
+    return all.Count;
   }
 
   /// <summary>
@@ -555,12 +597,14 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
     {
       var store = rawEvents.Store;
       var sitePrefix = KeyCodec.SitePrefix(site);
-      foreach (var partition in store.ListPartitions())
+      var partitions = store.ListPartitions();
+      // Partitions are independent; each is scanned and cleaned on its own thread.
+      ParallelWork.For(partitions.Count, options.Queries.MaxDegreeOfParallelism, i =>
       {
         cancellationToken.ThrowIfCancellationRequested();
-        using var lease = store.Acquire(partition, create: false);
+        using var lease = store.Acquire(partitions[i], create: false);
         if (lease == null)
-          continue;
+          return;
         var toDelete = new List<Memory<byte>>();
         // Keys are collected first and deleted after the scan, so a plain iterator suffices.
         using (var iterator = lease.Tree.CreateIterator())
@@ -576,8 +620,8 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
         }
         foreach (var key in toDelete)
           lease.Tree.ForceDelete(key);
-        deleted += toDelete.Count;
-      }
+        Interlocked.Add(ref deleted, toDelete.Count);
+      });
     }
     sessions?.ForceDelete(hash);
     return deleted;

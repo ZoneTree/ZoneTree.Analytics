@@ -57,6 +57,11 @@ public sealed class FunnelStep
 /// </remarks>
 public sealed class FunnelQuery
 {
+  /// <summary>
+  /// The most steps a funnel can have.
+  /// </summary>
+  public const int MaxSteps = 64;
+
   /// <summary>The site. Defaults to <see cref="AnalyticsOptions.DefaultSite"/>.</summary>
   public string Site { get; set; }
 
@@ -66,7 +71,7 @@ public sealed class FunnelQuery
   /// <summary>The time zone of calendar ranges. Defaults to the engine's reporting time zone.</summary>
   public TimeZoneInfo TimeZone { get; set; }
 
-  /// <summary>The steps, in order. At least two.</summary>
+  /// <summary>The steps, in order. At least two, at most <see cref="MaxSteps"/>.</summary>
   public List<FunnelStep> Steps { get; } = [];
 
   /// <summary>

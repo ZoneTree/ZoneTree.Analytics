@@ -503,6 +503,12 @@ public sealed class EngineTests
       Assert.That(safari.Steps.Select(x => x.Visitors), Is.EqualTo(new long[] { 1, 0, 0 }));
     });
     Assert.ThrowsAsync<AnalyticsQueryException>(async () => await engine.QueryFunnelAsync(new FunnelQuery()));
+    var tooLong = new FunnelQuery { Range = Day(Day0) };
+    tooLong.Steps.AddRange(Enumerable.Repeat(FunnelStep.Page("Home", "/"), FunnelQuery.MaxSteps + 1));
+    Assert.ThrowsAsync<AnalyticsQueryException>(async () => await engine.QueryFunnelAsync(tooLong));
+    var longest = new FunnelQuery { Range = Day(Day0) };
+    longest.Steps.AddRange(Enumerable.Repeat(FunnelStep.Page("Home", "/"), FunnelQuery.MaxSteps));
+    Assert.That((await engine.QueryFunnelAsync(longest)).Steps, Has.Count.EqualTo(FunnelQuery.MaxSteps));
   }
 
   [Test]
@@ -802,13 +808,12 @@ public sealed class EngineTests
         new StoreFactory(options.Storage, Path.GetFullPath(directory), new ZoneTree.Logger.ConsoleLogger()),
         new ZoneTree.Logger.ConsoleLogger()))
     {
-      raw.Scan("default", Day0.Ticks, Day0.AddDays(1).Ticks, (ticks, _, value) =>
+      raw.Scan("default", Day0.Ticks, Day0.AddDays(1).Ticks, 1, () => events, (list, ticks, value) =>
       {
         var e = new RawEvent();
-        RawEventCodec.TryDecode(value.Span, ticks, null, default, e);
-        events.Add(e);
-        return true;
-      });
+        RawEventCodec.TryDecode(value, ticks, null, default, e);
+        list.Add(e);
+      }, CancellationToken.None);
     }
     var values = events.SelectMany(x => x.Dimensions.Select(d => d.Value)).ToList();
     Assert.Multiple(() =>
@@ -819,6 +824,33 @@ public sealed class EngineTests
       Assert.That(events.Select(x => x.Visitor).Distinct().Count(), Is.EqualTo(3));
     });
     engine = TestEngine.Create(directory);
+  }
+
+  [Test]
+  public async Task CompactionKeepsResults()
+  {
+    TrackScenario();
+    engine.Flush();
+    string Snapshot()
+    {
+      var parts = Sources.Select(source => Query(q =>
+      {
+        q.Source = source;
+        q.GroupBy.Add(StandardDimensions.Country);
+        q.Metrics.AddRange([Metric.PageViews, Metric.Visitors, Metric.Sessions, Metric.BounceRate, Metric.Exits]);
+      })).Select(result => string.Join("\n", result.Rows.Append(result.Totals)));
+      return string.Join("\n", parts);
+    }
+    var before = Snapshot();
+    await engine.CompactAsync();
+    var compacted = Snapshot();
+    engine.Dispose();
+    engine = TestEngine.Create(directory);
+    Assert.Multiple(() =>
+    {
+      Assert.That(compacted, Is.EqualTo(before));
+      Assert.That(Snapshot(), Is.EqualTo(before));
+    });
   }
 
   [Test]

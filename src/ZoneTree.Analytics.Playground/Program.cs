@@ -33,6 +33,8 @@ if (mode.Contains("totalsonly"))
   options.Rollups.Definitions = [new RollupDefinition()];
 if (mode.Contains("norollups"))
   options.Rollups.Granularities = Granularity.None;
+if (mode.Contains("sequential"))
+  options.Queries.MaxDegreeOfParallelism = 1;
 
 Console.WriteLine($"Generating {eventCount:N0} page views over {days} days with {workers} worker(s)...");
 var traffic = new SyntheticTraffic(days, eventCount, seed: 42);
@@ -62,6 +64,16 @@ using (var engine = new AnalyticsEngine(options))
   Console.WriteLine($"Throughput: {eventCount / elapsed.TotalSeconds:N0} events/s");
   Console.WriteLine($"CPU time: {cpu.TotalSeconds:F2}s ({cpu.TotalMilliseconds * 1000 / eventCount:F1} µs/event), allocated: {allocated / 1024 / 1024:N0} MB ({(double)allocated / eventCount:N0} bytes/event)");
   Console.WriteLine($"Processed={statistics.EventsProcessed:N0} bots={statistics.BotsExcluded:N0} sessions={statistics.SessionsStarted:N0} errors={statistics.Errors}");
+  // Background merges may still run after the flush. Compacting moves everything to disk and
+  // waits for the merges, so every configuration answers the queries from the same settled state.
+  if (!mode.Contains("nocompact"))
+  {
+    var compaction = Stopwatch.StartNew();
+    engine.Compact();
+    process.Refresh();
+    var totalCpu = process.TotalProcessorTime - cpuBefore;
+    Console.WriteLine($"Compacted in {compaction.Elapsed.TotalSeconds:F2}s; CPU time including compaction: {totalCpu.TotalSeconds:F2}s ({totalCpu.TotalMilliseconds * 1000 / eventCount:F1} µs/event)");
+  }
   var heapBefore = GC.GetTotalMemory(false);
   events = null;
   var liveHeap = GC.GetTotalMemory(true);

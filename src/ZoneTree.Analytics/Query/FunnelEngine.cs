@@ -52,6 +52,8 @@ sealed class FunnelEngine
     var steps = funnel.Steps.Where(x => x != null).ToArray();
     if (steps.Length < 2)
       throw new AnalyticsQueryException("A funnel needs at least two steps.");
+    if (steps.Length > FunnelQuery.MaxSteps)
+      throw new AnalyticsQueryException($"A funnel has at most {FunnelQuery.MaxSteps} steps.");
     if (funnel.Window <= TimeSpan.Zero)
       throw new AnalyticsQueryException("The funnel window must be positive.");
     if (rawEvents == null)
@@ -73,7 +75,8 @@ sealed class FunnelEngine
     var segments = funnel.Segments.Where(x => x != null).ToArray();
     var segmentSets = segments.Length == 0
         ? null
-        : SegmentSets.Evaluate(rawEvents, site, from, to, segments, cancellationToken);
+        : SegmentSets.Evaluate(
+            rawEvents, site, from, to, segments, options.Queries.MaxDegreeOfParallelism, cancellationToken);
 
     var progress = Scan(site, from, to, steps, filters, segmentSets, funnel.Window, cancellationToken);
     var results = Summarize(steps, progress);
@@ -89,9 +92,29 @@ sealed class FunnelEngine
   }
 
   /// <summary>
+  /// An event that matches at least one step, with the steps it matches as bits.
+  /// </summary>
+  readonly record struct StepHit(ulong Key, ulong Visitor, long Ticks, ulong Steps);
+
+  /// <summary>
+  /// The step hits of one slice, by shard of the progress key.
+  /// </summary>
+  sealed class FunnelSlice(int shardCount)
+  {
+    public readonly RawEvent RawEvent = new();
+
+    public readonly List<StepHit>[] Hits = Shards.Create<List<StepHit>>(shardCount);
+  }
+
+  /// <summary>
   /// Follows every session (or, with a window, every visitor) through the steps.
   /// </summary>
-  Dictionary<ulong, Progress> Scan(
+  /// <remarks>
+  /// Slices are scanned in parallel and keep only the events that match a step: an event that
+  /// matches no step does not change any progress. The hits of each shard are then replayed in
+  /// time order, shards in parallel.
+  /// </remarks>
+  Dictionary<ulong, Progress>[] Scan(
       string site,
       long from,
       long to,
@@ -105,35 +128,56 @@ sealed class FunnelEngine
         filters.Select(x => x.Dimension).Concat(steps.SelectMany(x => x.Filters).Select(x => x.Dimension)));
     var bySession = window == null;
     var windowTicks = window?.Ticks ?? 0;
-    var progress = new Dictionary<ulong, Progress>();
-    var rawEvent = new RawEvent();
-    var counter = 0;
-    rawEvents.Scan(site, from, to, (ticks, _, value) =>
+    var maxDegree = options.Queries.MaxDegreeOfParallelism;
+    var shardCount = maxDegree;
+    var slices = rawEvents.Scan(
+        site, from, to, maxDegree, () => new FunnelSlice(shardCount),
+        (slice, ticks, value) =>
+        {
+          var rawEvent = slice.RawEvent;
+          if (!RawEventCodec.TryDecode(value, ticks, null, default, rawEvent, selector))
+            return;
+          if (rawEvent.Visitor == 0)
+            return;
+          var key = bySession ? rawEvent.SessionId : rawEvent.Visitor;
+          if (key == 0 || (segmentSets != null && !segmentSets.Allows(rawEvent.Visitor, rawEvent.SessionId)))
+            return;
+          foreach (var filter in filters)
+          {
+            rawEvent.TryGetDimension(filter.Dimension, out var dimension);
+            if (!filter.IsMatch(dimension))
+              return;
+          }
+          ulong matched = 0;
+          for (var i = 0; i < steps.Length; ++i)
+          {
+            if (steps[i].Matches(rawEvent))
+              matched |= 1UL << i;
+          }
+          if (matched != 0)
+            slice.Hits[Shards.Of(key, shardCount)].Add(new StepHit(key, rawEvent.Visitor, ticks, matched));
+        },
+        cancellationToken);
+
+    var progress = new Dictionary<ulong, Progress>[shardCount];
+    ParallelWork.For(shardCount, maxDegree, shard =>
     {
-      if (++counter % SegmentSets.CancellationCheckInterval == 0)
-        cancellationToken.ThrowIfCancellationRequested();
-      if (!RawEventCodec.TryDecode(value.Span, ticks, null, default, rawEvent, selector))
-        return true;
-      if (rawEvent.Visitor == 0)
-        return true;
-      var key = bySession ? rawEvent.SessionId : rawEvent.Visitor;
-      if (key == 0 || (segmentSets != null && !segmentSets.Allows(rawEvent.Visitor, rawEvent.SessionId)))
-        return true;
-      foreach (var filter in filters)
+      var progressOfShard = new Dictionary<ulong, Progress>();
+      foreach (var slice in slices)
       {
-        rawEvent.TryGetDimension(filter.Dimension, out var dimension);
-        if (!filter.IsMatch(dimension))
-          return true;
+        foreach (var hit in slice.Hits[shard])
+        {
+          if (!progressOfShard.TryGetValue(hit.Key, out var state))
+          {
+            if ((hit.Steps & 1) == 0)
+              continue;
+            state = new Progress { Visitor = hit.Visitor };
+            progressOfShard.Add(hit.Key, state);
+          }
+          Advance(state, steps.Length, hit.Steps, hit.Ticks, windowTicks);
+        }
       }
-      if (!progress.TryGetValue(key, out var state))
-      {
-        if (!steps[0].Matches(rawEvent))
-          return true;
-        state = new Progress { Visitor = rawEvent.Visitor };
-        progress.Add(key, state);
-      }
-      Advance(state, steps, rawEvent, ticks, windowTicks);
-      return true;
+      progress[shard] = progressOfShard;
     });
     return progress;
   }
@@ -141,10 +185,10 @@ sealed class FunnelEngine
   /// <summary>
   /// Counts each visitor once, at the furthest step any of its sessions or attempts reached.
   /// </summary>
-  static List<FunnelStepResult> Summarize(FunnelStep[] steps, Dictionary<ulong, Progress> progress)
+  static List<FunnelStepResult> Summarize(FunnelStep[] steps, Dictionary<ulong, Progress>[] progress)
   {
     var bestByVisitor = new Dictionary<ulong, int>();
-    foreach (var state in progress.Values)
+    foreach (var state in progress.SelectMany(x => x.Values))
     {
       if (!bestByVisitor.TryGetValue(state.Visitor, out var best) || state.Best > best)
         bestByVisitor[state.Visitor] = state.Best;
@@ -170,11 +214,12 @@ sealed class FunnelEngine
   }
 
   /// <summary>
-  /// Advances a visitor's (or session's) progress with one event. Steps are completed in order.
+  /// Advances a visitor's (or session's) progress with one event that matches the steps in
+  /// <paramref name="matchedSteps"/>, one bit per step. Steps are completed in order.
   /// With a time window, an attempt that runs out of time restarts from the latest first step
   /// that is still inside the window.
   /// </summary>
-  static void Advance(Progress state, FunnelStep[] steps, RawEvent rawEvent, long ticks, long windowTicks)
+  static void Advance(Progress state, int stepCount, ulong matchedSteps, long ticks, long windowTicks)
   {
     if (windowTicks > 0 && state.Current > 0 && ticks - state.Start > windowTicks)
     {
@@ -188,11 +233,11 @@ sealed class FunnelEngine
         state.Current = 0;
       }
     }
-    if (steps[0].Matches(rawEvent))
+    if ((matchedSteps & 1) != 0)
       state.LastStart = ticks;
-    if (state.Current == steps.Length)
+    if (state.Current == stepCount)
       return;
-    if (steps[state.Current].Matches(rawEvent))
+    if (((matchedSteps >> state.Current) & 1) != 0)
     {
       if (state.Current == 0)
         state.Start = ticks;

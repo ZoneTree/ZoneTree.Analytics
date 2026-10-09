@@ -256,6 +256,38 @@ sealed class PartitionedStore<TKey, TValue> : IDisposable
       CloseOrDrop(partition, drop: partition.DropRequested);
   }
 
+  /// <summary>
+  /// Moves the in-memory data of every open partition to disk and waits until the merges
+  /// complete. Partitions merge concurrently.
+  /// </summary>
+  public void Compact()
+  {
+    var open = new List<(IMaintainer Maintainer, PartitionLease<TKey, TValue> Lease)>();
+    lock (sync)
+    {
+      ObjectDisposedException.ThrowIf(isDisposed, this);
+      foreach (var partition in partitions.Values)
+      {
+        if (partition.Closing || partition.DropRequested)
+          continue;
+        ++partition.Leases;
+        open.Add((partition.Maintainer, new PartitionLease<TKey, TValue>(this, partition.Name, partition.Tree)));
+      }
+    }
+    try
+    {
+      foreach (var (maintainer, _) in open)
+        maintainer.EvictToDisk();
+      foreach (var (maintainer, _) in open)
+        maintainer.WaitForBackgroundThreads();
+    }
+    finally
+    {
+      foreach (var (_, lease) in open)
+        lease.Dispose();
+    }
+  }
+
   void CloseOrDrop(Partition partition, bool drop)
   {
     try

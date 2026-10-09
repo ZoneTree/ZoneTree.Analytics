@@ -37,7 +37,7 @@ sealed class QueryEngine
 
   readonly record struct GroupKey(long Bucket, string Values);
 
-  const int CancellationCheckInterval = SegmentSets.CancellationCheckInterval;
+  const int CancellationCheckInterval = RawEventStore.CancellationCheckInterval;
 
   const int MaxGroupBy = 8;
 
@@ -172,7 +172,8 @@ sealed class QueryEngine
         throw new AnalyticsQueryException("Segments require raw events (StorageOptions.StoreRawEvents).");
       AddWarning(context, context.Cutoffs.RawEventsWarning(context.From));
       context.SegmentSets = SegmentSets.Evaluate(
-          rawEvents, context.Site, context.From, context.To, context.Segments, context.CancellationToken);
+          rawEvents, context.Site, context.From, context.To, context.Segments,
+          options.Queries.MaxDegreeOfParallelism, context.CancellationToken);
     }
     foreach (var source in context.Sources.Values)
       Plan(context, source, query.Source);
@@ -557,14 +558,14 @@ sealed class QueryEngine
             outputBucket = calendar.Bucket(bucket, interval);
           for (var i = 0; i < groupValues.Length; ++i)
             groupValues[i] = parts[source.GroupByIndexes[i]];
-          GetGroup(source, outputBucket, groupValues).Merge(value);
+          GetGroup(source.Groups, outputBucket, groupValues).Merge(value);
         });
   }
 
   /// <summary>
   /// Returns the group of stored-form values (missing values as <see cref="KeyCodec.MissingValue"/>).
   /// </summary>
-  static RollupAccumulator GetGroup(SourceContext source, long bucket, string[] storedValues)
+  static RollupAccumulator GetGroup(Dictionary<GroupKey, RollupAccumulator> groups, long bucket, string[] storedValues)
   {
     var combined = storedValues.Length switch
     {
@@ -573,12 +574,26 @@ sealed class QueryEngine
       _ => string.Join(KeyCodec.ValueSeparator, storedValues)
     };
     var key = new GroupKey(bucket, combined);
-    if (!source.Groups.TryGetValue(key, out var accumulator))
+    if (!groups.TryGetValue(key, out var accumulator))
     {
       accumulator = new RollupAccumulator();
-      source.Groups.Add(key, accumulator);
+      groups.Add(key, accumulator);
     }
     return accumulator;
+  }
+
+  /// <summary>
+  /// Moves groups into the target. The source must not be used afterwards.
+  /// </summary>
+  static void MergeGroups(Dictionary<GroupKey, RollupAccumulator> target, Dictionary<GroupKey, RollupAccumulator> source)
+  {
+    foreach (var (key, accumulator) in source)
+    {
+      if (target.TryGetValue(key, out var existing))
+        existing.Merge(accumulator);
+      else
+        target.Add(key, accumulator);
+    }
   }
 
   sealed class RawSession
@@ -608,11 +623,46 @@ sealed class QueryEngine
     public string LastHostname;
 
     public long LastPageTicks;
+
+    /// <summary>
+    /// Appends the part of the session seen in a later slice. Every event of that part is later
+    /// than the events seen so far, so the first event and the session dimensions stay, and the
+    /// last page view of the part, if it has one, replaces the current one.
+    /// </summary>
+    public void Append(RawSession later)
+    {
+      Last = Math.Max(Last, later.Last);
+      PageViews += later.PageViews;
+      Interactions += later.Interactions;
+      if (later.LastPage != null)
+      {
+        LastPage = later.LastPage;
+        LastHostname = later.LastHostname;
+        LastPageTicks = later.LastPageTicks;
+      }
+    }
+  }
+
+  /// <summary>
+  /// The partial results of one slice of a raw scan.
+  /// </summary>
+  sealed class RawSlice(int eventSourceCount, int sessionShardCount, int groupByCount)
+  {
+    public readonly RawEvent RawEvent = new();
+
+    /// <summary>The groups of each event source.</summary>
+    public readonly Dictionary<GroupKey, RollupAccumulator>[] Groups =
+        Shards.Create<Dictionary<GroupKey, RollupAccumulator>>(eventSourceCount);
+
+    /// <summary>The sessions seen in the slice, by shard of the session id.</summary>
+    public readonly Dictionary<ulong, RawSession>[] Sessions = Shards.Create<Dictionary<ulong, RawSession>>(sessionShardCount);
+
+    public readonly string[] GroupValues = new string[groupByCount];
   }
 
   void ExecuteRaw(QueryContext context, PlanSegment segment, List<SourceContext> sources)
   {
-    var eventSources = sources.Where(x => x.Event != StandardEvents.Session).ToList();
+    var eventSources = sources.Where(x => x.Event != StandardEvents.Session).ToArray();
     var sessionSource = sources.FirstOrDefault(x => x.Event == StandardEvents.Session);
     // Entrances and exits are only replayed when a metric reads them; like their rollups, they
     // carry page-view-level dimensions only.
@@ -622,16 +672,13 @@ sealed class QueryEngine
         ? sources.FirstOrDefault(x => x.Event == StandardEvents.PageView)
         : null;
     var trackSessions = options.Sessions.Enabled && (sessionSource != null || pageViewSource != null);
-    var onlyEvent = eventSources.Count == 1 && !trackSessions ? eventSources[0] : null;
+    var onlyEvent = eventSources.Length == 1 && !trackSessions ? eventSources[0] : null;
 
     var needed = context.GroupBy.Concat(context.Filters.Select(x => x.Dimension));
     if (trackSessions)
       needed = needed.Append(StandardDimensions.Page).Append(StandardDimensions.Hostname);
     var selector = new DimensionSelector(needed);
 
-    var rawEvent = new RawEvent();
-    var groupValues = new string[context.GroupBy.Length];
-    var sessions = trackSessions ? new Dictionary<ulong, RawSession>() : null;
     var scanTo = segment.To;
     if (trackSessions)
     {
@@ -641,45 +688,95 @@ sealed class QueryEngine
       scanTo = Math.Max(segment.To, Math.Min(segment.To + extension, context.NowTicks + options.Ingestion.MaxFutureSkew.Ticks));
     }
     var segmentSets = context.SegmentSets;
-    var counter = 0;
+    var maxDegree = options.Queries.MaxDegreeOfParallelism;
+    var shardCount = trackSessions ? maxDegree : 0;
 
-    rawEvents.Scan(context.Site, segment.From, scanTo, (ticks, _, value) =>
-    {
-      if (++counter % CancellationCheckInterval == 0)
-        context.CancellationToken.ThrowIfCancellationRequested();
-      var decoded = onlyEvent != null
-          ? RawEventCodec.TryDecode(value.Span, ticks, onlyEvent.Event, onlyEvent.EventUtf8, rawEvent, selector)
-          : RawEventCodec.TryDecode(value.Span, ticks, null, default, rawEvent, selector);
-      if (!decoded)
-        return true;
-      var allowed = segmentSets == null || segmentSets.Allows(rawEvent.Visitor, rawEvent.SessionId);
-      if (allowed && ticks < segment.To)
-      {
-        foreach (var source in eventSources)
+    var slices = rawEvents.Scan(
+        context.Site, segment.From, scanTo, maxDegree,
+        () => new RawSlice(eventSources.Length, shardCount, context.GroupBy.Length),
+        (slice, ticks, value) =>
         {
-          if (source.Event == rawEvent.Name)
-            AddRawEvent(context, source, rawEvent, groupValues);
-        }
-      }
-      if (trackSessions && rawEvent.SessionId != 0)
-        TrackSession(sessions, rawEvent, allowed);
-      return true;
-    });
+          var rawEvent = slice.RawEvent;
+          var decoded = onlyEvent != null
+              ? RawEventCodec.TryDecode(value, ticks, onlyEvent.Event, onlyEvent.EventUtf8, rawEvent, selector)
+              : RawEventCodec.TryDecode(value, ticks, null, default, rawEvent, selector);
+          if (!decoded)
+            return;
+          var allowed = segmentSets == null || segmentSets.Allows(rawEvent.Visitor, rawEvent.SessionId);
+          if (allowed && ticks < segment.To)
+          {
+            for (var i = 0; i < eventSources.Length; ++i)
+            {
+              if (eventSources[i].Event == rawEvent.Name)
+                AddRawEvent(context, slice.Groups[i], rawEvent, slice.GroupValues);
+            }
+          }
+          if (trackSessions && rawEvent.SessionId != 0)
+            TrackSession(slice.Sessions[Shards.Of(rawEvent.SessionId, shardCount)], rawEvent, allowed);
+        },
+        context.CancellationToken);
 
-    if (sessions == null)
-      return;
-    foreach (var session in sessions.Values)
+    ParallelWork.For(eventSources.Length, maxDegree, i =>
     {
-      if (session.Dimensions == null || !session.Allowed)
-        continue;
-      if (sessionSource != null && session.Start >= segment.From && session.Start < segment.To)
-        AddRawSession(context, sessionSource, session, groupValues);
+      foreach (var slice in slices)
+        MergeGroups(eventSources[i].Groups, slice.Groups[i]);
+    });
+    if (!trackSessions)
+      return;
+
+    // A session can span slices. Its parts are joined in time order, shard by shard, and each
+    // shard adds its complete sessions to groups of its own.
+    var sessionGroups = new Dictionary<GroupKey, RollupAccumulator>[shardCount];
+    var pageViewGroups = new Dictionary<GroupKey, RollupAccumulator>[shardCount];
+    ParallelWork.For(shardCount, maxDegree, shard =>
+    {
+      var groupValues = new string[context.GroupBy.Length];
+      var sessionGroupsOfShard = new Dictionary<GroupKey, RollupAccumulator>();
+      var pageViewGroupsOfShard = new Dictionary<GroupKey, RollupAccumulator>();
+      foreach (var session in JoinSessions(slices, shard).Values)
+      {
+        if (session.Dimensions == null || !session.Allowed)
+          continue;
+        if (sessionSource != null && session.Start >= segment.From && session.Start < segment.To)
+          AddRawSession(context, sessionGroupsOfShard, session, groupValues);
+        if (pageViewSource != null)
+          AddRawEntranceAndExit(context, pageViewGroupsOfShard, session, groupValues, segment);
+      }
+      sessionGroups[shard] = sessionGroupsOfShard;
+      pageViewGroups[shard] = pageViewGroupsOfShard;
+    });
+    for (var shard = 0; shard < shardCount; ++shard)
+    {
+      if (sessionSource != null)
+        MergeGroups(sessionSource.Groups, sessionGroups[shard]);
       if (pageViewSource != null)
-        AddRawEntranceAndExit(context, pageViewSource, session, groupValues, segment);
+        MergeGroups(pageViewSource.Groups, pageViewGroups[shard]);
     }
   }
 
-  static void AddRawEvent(QueryContext context, SourceContext source, RawEvent rawEvent, string[] groupValues)
+  /// <summary>
+  /// Joins the parts of the sessions of one shard. The slices are in time order.
+  /// </summary>
+  static Dictionary<ulong, RawSession> JoinSessions(RawSlice[] slices, int shard)
+  {
+    if (slices.Length == 0)
+      return [];
+    var joined = slices[0].Sessions[shard];
+    for (var i = 1; i < slices.Length; ++i)
+    {
+      foreach (var (id, part) in slices[i].Sessions[shard])
+      {
+        if (joined.TryGetValue(id, out var session))
+          session.Append(part);
+        else
+          joined.Add(id, part);
+      }
+    }
+    return joined;
+  }
+
+  static void AddRawEvent(
+      QueryContext context, Dictionary<GroupKey, RollupAccumulator> groups, RawEvent rawEvent, string[] groupValues)
   {
     foreach (var filter in context.Filters)
     {
@@ -692,7 +789,7 @@ sealed class QueryEngine
       rawEvent.TryGetDimension(context.GroupBy[i], out var value);
       groupValues[i] = KeyCodec.Stored(value);
     }
-    var accumulator = GetGroup(source, context.Calendar.Bucket(rawEvent.Ticks, context.Interval), groupValues);
+    var accumulator = GetGroup(groups, context.Calendar.Bucket(rawEvent.Ticks, context.Interval), groupValues);
     ++accumulator.Count;
     accumulator.AddVisitor(rawEvent.Visitor, context.Precision);
     foreach (var (name, value) in rawEvent.Metrics)
@@ -747,11 +844,12 @@ sealed class QueryEngine
     }
   }
 
-  static void AddRawSession(QueryContext context, SourceContext source, RawSession session, string[] groupValues)
+  static void AddRawSession(
+      QueryContext context, Dictionary<GroupKey, RollupAccumulator> groups, RawSession session, string[] groupValues)
   {
     if (!MatchAndGroup(context, session.Dimensions, groupValues))
       return;
-    var accumulator = GetGroup(source, context.Calendar.Bucket(session.Start, context.Interval), groupValues);
+    var accumulator = GetGroup(groups, context.Calendar.Bucket(session.Start, context.Interval), groupValues);
     ++accumulator.Count;
     accumulator.AddVisitor(session.Visitor, context.Precision);
     accumulator.AddMetricDelta(StandardMetrics.Bounces, session.Interactions <= 1 ? 1 : 0);
@@ -767,14 +865,14 @@ sealed class QueryEngine
   /// the last page view of a session. This matches how ingestion maintains them in rollups.
   /// </summary>
   static void AddRawEntranceAndExit(
-      QueryContext context, SourceContext source, RawSession session, string[] groupValues, PlanSegment segment)
+      QueryContext context, Dictionary<GroupKey, RollupAccumulator> groups, RawSession session, string[] groupValues, PlanSegment segment)
   {
     if (session.FirstIsPageView && session.Start >= segment.From && session.Start < segment.To)
     {
       var dimensions = WithPage(session.Dimensions, session.FirstPage, session.FirstHostname);
       if (MatchAndGroup(context, dimensions, groupValues))
       {
-        GetGroup(source, context.Calendar.Bucket(session.Start, context.Interval), groupValues)
+        GetGroup(groups, context.Calendar.Bucket(session.Start, context.Interval), groupValues)
             .AddMetricDelta(StandardMetrics.Entrances, 1);
       }
     }
@@ -783,7 +881,7 @@ sealed class QueryEngine
       var dimensions = WithPage(session.Dimensions, session.LastPage, session.LastHostname);
       if (MatchAndGroup(context, dimensions, groupValues))
       {
-        GetGroup(source, context.Calendar.Bucket(session.LastPageTicks, context.Interval), groupValues)
+        GetGroup(groups, context.Calendar.Bucket(session.LastPageTicks, context.Interval), groupValues)
             .AddMetricDelta(StandardMetrics.Exits, 1);
       }
     }

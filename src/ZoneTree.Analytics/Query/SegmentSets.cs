@@ -1,3 +1,4 @@
+using ZoneTree.Analytics.Internal;
 using ZoneTree.Analytics.Storage;
 
 namespace ZoneTree.Analytics.Query;
@@ -8,50 +9,76 @@ namespace ZoneTree.Analytics.Query;
 /// </summary>
 sealed class SegmentSets
 {
-  /// <summary>
-  /// Raw scans check for cancellation once per this many events.
-  /// </summary>
-  public const int CancellationCheckInterval = 1024;
-
   readonly Segment[] segments;
 
-  readonly HashSet<ulong>[] members;
+  // Members by segment, then by shard of the visitor or session id.
+  readonly HashSet<ulong>[][] members;
 
-  SegmentSets(Segment[] segments)
+  SegmentSets(Segment[] segments, HashSet<ulong>[][] members)
   {
     this.segments = segments;
-    members = segments.Select(_ => new HashSet<ulong>()).ToArray();
+    this.members = members;
+  }
+
+  sealed class SliceState(int segmentCount, int shardCount)
+  {
+    public readonly RawEvent RawEvent = new();
+
+    public readonly HashSet<ulong>[][] Members =
+        Enumerable.Range(0, segmentCount).Select(_ => Shards.Create<HashSet<ulong>>(shardCount)).ToArray();
   }
 
   /// <summary>
   /// Collects the visitors and sessions with a matching event in [from, to).
   /// </summary>
   public static SegmentSets Evaluate(
-      RawEventStore rawEvents, string site, long from, long to, Segment[] segments, CancellationToken cancellationToken)
+      RawEventStore rawEvents,
+      string site,
+      long from,
+      long to,
+      Segment[] segments,
+      int maxDegreeOfParallelism,
+      CancellationToken cancellationToken)
   {
-    var sets = new SegmentSets(segments);
+    var shardCount = maxDegreeOfParallelism;
     var selector = new DimensionSelector(segments.SelectMany(x => x.Filters).Select(x => x.Dimension));
-    var rawEvent = new RawEvent();
-    var counter = 0;
-    rawEvents.Scan(site, from, to, (ticks, _, value) =>
+    var slices = rawEvents.Scan(
+        site, from, to, maxDegreeOfParallelism, () => new SliceState(segments.Length, shardCount),
+        (state, ticks, value) =>
+        {
+          var rawEvent = state.RawEvent;
+          if (!RawEventCodec.TryDecode(value, ticks, null, default, rawEvent, selector))
+            return;
+          for (var i = 0; i < segments.Length; ++i)
+          {
+            var id = IdOf(segments[i], rawEvent.Visitor, rawEvent.SessionId);
+            if (id != 0 && segments[i].Matches(rawEvent))
+              state.Members[i][Shards.Of(id, shardCount)].Add(id);
+          }
+        },
+        cancellationToken);
+
+    // Sets are unions, so slices merge in any order; each segment and shard merges on its own.
+    var members = Enumerable.Range(0, segments.Length).Select(_ => new HashSet<ulong>[shardCount]).ToArray();
+    ParallelWork.For(segments.Length * shardCount, maxDegreeOfParallelism, index =>
     {
-      if (++counter % CancellationCheckInterval == 0)
-        cancellationToken.ThrowIfCancellationRequested();
-      if (!RawEventCodec.TryDecode(value.Span, ticks, null, default, rawEvent, selector))
-        return true;
-      for (var i = 0; i < segments.Length; ++i)
+      var (segment, shard) = Math.DivRem(index, shardCount);
+      HashSet<ulong> merged = null;
+      foreach (var slice in slices)
       {
-        var id = sets.IdOf(i, rawEvent.Visitor, rawEvent.SessionId);
-        if (id != 0 && segments[i].Matches(rawEvent))
-          sets.members[i].Add(id);
+        var set = slice.Members[segment][shard];
+        if (merged == null || set.Count > merged.Count)
+          (merged, set) = (set, merged);
+        if (set != null)
+          merged.UnionWith(set);
       }
-      return true;
+      members[segment][shard] = merged ?? [];
     });
-    return sets;
+    return new SegmentSets(segments, members);
   }
 
-  ulong IdOf(int segment, ulong visitor, ulong session) =>
-      segments[segment].Scope == SegmentScope.Visitors ? visitor : session;
+  static ulong IdOf(Segment segment, ulong visitor, ulong session) =>
+      segment.Scope == SegmentScope.Visitors ? visitor : session;
 
   /// <summary>
   /// True when the visitor and session satisfy every segment.
@@ -60,8 +87,9 @@ sealed class SegmentSets
   {
     for (var i = 0; i < segments.Length; ++i)
     {
-      var id = IdOf(i, visitor, session);
-      var isMember = id != 0 && members[i].Contains(id);
+      var id = IdOf(segments[i], visitor, session);
+      var shards = members[i];
+      var isMember = id != 0 && shards[Shards.Of(id, shards.Length)].Contains(id);
       if (isMember == segments[i].IsExcluded)
         return false;
     }
