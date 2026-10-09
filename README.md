@@ -433,7 +433,7 @@ var options = new AnalyticsOptions
     Storage =
     {
         Partitioning = { RawEvents = PartitionPeriod.Day },  // one ZoneTree per day of raw events
-        ConfigureMaintainer = maintainer => maintainer.InactiveBlockCacheCleanupInterval = TimeSpan.FromMinutes(1),
+        Rollups = { ConfigureMaintainer = maintainer => maintainer.InactiveBlockCacheCleanupInterval = TimeSpan.FromMinutes(1) },
     },
     Privacy = { GeoPrecision = GeoPrecision.Country },
     Web =
@@ -459,6 +459,26 @@ Each data tier is split over time into partitions, and each partition is a separ
 | Daily rollups | `DayRollups` | `Year` | `Month`, `Year` |
 
 Retention drops whole partitions once they end before the cutoff, so a tier keeps data for up to one partition period longer than its retention. Smaller partitions make retention more precise and keep trees, merges and drops small; larger partitions mean fewer trees and directories, and fewer trees per long-range query. Use `Day` for raw events of high-volume sites or short raw retention. A partition period longer than the tier's retention is rejected, for example monthly minute rollups with two-day retention.
+
+### Storage tuning
+
+`Storage.RawEvents`, `Storage.Rollups` and `Storage.Sessions` tune the ZoneTrees of each kind of store, every partition included. Settings left null keep ZoneTree's defaults:
+
+| Setting | Default |
+| --- | --- |
+| `WriteAheadLogMode` | `AsyncCompressed` |
+| `MutableSegmentMaxItemCount` | raw events 50,000, rollups 20,000, sessions 50,000 |
+| `MutableSegmentBloomFilterBitsPerItem` | raw events 0 (scanned, never point-read); ZoneTree's default otherwise |
+| `DiskSegmentMaxItemCount`, `BTreeLockMode`, `BTreeNodeSize`, `BTreeLeafSize`, `EnableSingleSegmentGarbageCollection`, `AllowUnsafeOptionValues` | ZoneTree's defaults |
+| `ConfigureWriteAheadLog`, `ConfigureDiskSegments`, `ConfigureMaintainer` | hooks for every other write-ahead-log, disk segment and maintainer option |
+
+```csharp
+options.Storage.RawEvents.ConfigureDiskSegments = disk => disk.CompressionMethod = CompressionMethod.Zstd;
+options.Storage.Rollups.ConfigureMaintainer = maintainer => maintainer.ThresholdForMergeOperationStart = 4;
+options.Storage.WriteAheadLogDirectory = "/fast-disk/analytics-wal";
+```
+
+`Storage.WriteAheadLogDirectory` moves write-ahead logs to their own root, for example a faster disk; it is fixed once the data directory exists. Comparers, serializers and deletion markers define the storage format and are chosen by the engine. The current partition of every store is opened at start, so ZoneTree validates these settings before the first event.
 
 ---
 
@@ -521,7 +541,7 @@ data/analytics/
 * **Time partitioning.** Each period is its own ZoneTree with its own maintainer; the period of every tier is configurable, see [Partitioning](#partitioning). Idle partitions are merged to disk and closed; retention drops whole partitions with `Maintenance.Drop()`.
 * **Sessions with TTL.** Expired sessions disappear through ZoneTree's deletion predicate and are removed by normal merges.
 * **Bounded memory.** Memory is governed by ZoneTree's mutable segment limits per open partition, not by the amount of data.
-* **Durability.** Data stores use ZoneTree's asynchronous compressed write-ahead log.
+* **Durability.** Data stores use ZoneTree's asynchronous compressed write-ahead log by default; the engine metadata uses the synchronous one.
 
 ---
 

@@ -799,7 +799,7 @@ public sealed class EngineTests
     using (var raw = new RawEventStore(
         Path.Combine(directory, "events"),
         PartitionPeriod.Month,
-        new StoreFactory(options.Storage, new ZoneTree.Logger.ConsoleLogger()),
+        new StoreFactory(options.Storage, Path.GetFullPath(directory), new ZoneTree.Logger.ConsoleLogger()),
         new ZoneTree.Logger.ConsoleLogger()))
     {
       raw.Scan("default", Day0.Ticks, Day0.AddDays(1).Ticks, (ticks, _, value) =>

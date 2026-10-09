@@ -87,6 +87,89 @@ public sealed class ConfigurationTests
   }
 
   [Test]
+  public void WriteAheadLogsCanLiveInTheirOwnDirectory()
+  {
+    var logs = Path.Combine(directory, "logs");
+    void Separate(AnalyticsOptions o)
+    {
+      o.DataDirectory = Path.Combine(directory, "data");
+      o.Storage.WriteAheadLogDirectory = logs;
+      o.Storage.Partitioning.RawEvents = PartitionPeriod.Day;
+    }
+    var old = DateTime.UtcNow.Date.AddDays(-10).AddHours(12);
+    using (var engine = TestEngine.Create(directory, Separate))
+    {
+      engine.Track(Event("purchase", "pro", 0));
+      engine.Track(new AnalyticsEvent("purchase") { VisitorId = "old", Timestamp = Utc(old) });
+    }
+    var oldDay = old.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+    Assert.Multiple(() =>
+    {
+      // Every store but the engine metadata keeps its log under the same relative path.
+      Assert.That(Directory.Exists(Path.Combine(logs, "events", oldDay)), Is.True);
+      Assert.That(Directory.Exists(Path.Combine(logs, "sessions")), Is.True);
+      Assert.That(Directory.Exists(Path.Combine(logs, "meta")), Is.False);
+      Assert.Throws<AnalyticsConfigurationException>(() =>
+          TestEngine.Create(directory, o => o.DataDirectory = Path.Combine(directory, "data")).Dispose());
+    });
+
+    // Retention drops a partition's log together with its data.
+    using (var engine = TestEngine.Create(directory, o =>
+    {
+      Separate(o);
+      o.Retention.RawEvents = TimeSpan.FromDays(3);
+    }))
+    {
+      Assert.That(engine.ApplyRetention(), Is.EqualTo(1));
+      Assert.That(engine.Query(new AnalyticsQuery { Event = "purchase", Range = Range, Metrics = { Metric.Events } })
+          .Totals[Metric.Events], Is.EqualTo(1));
+    }
+    Assert.Multiple(() =>
+    {
+      Assert.That(Directory.Exists(Path.Combine(directory, "data", "events", oldDay)), Is.False);
+      Assert.That(Directory.Exists(Path.Combine(logs, "events", oldDay)), Is.False);
+    });
+  }
+
+  [Test]
+  public void StoreOptionsAreValidatedWhenTheEngineStarts()
+  {
+    var engineRule = Assert.Throws<ArgumentException>(() =>
+        TestEngine.Create(directory, o => o.Storage.Rollups.BTreeNodeSize = 0).Dispose());
+    var bloomRule = Assert.Throws<ArgumentException>(() =>
+        TestEngine.Create(directory, o => o.Storage.Sessions.MutableSegmentBloomFilterBitsPerItem = 65).Dispose());
+    // Rules of ZoneTree itself surface at start too, not on the first event.
+    var zoneTreeRule = Assert.Catch(() =>
+        TestEngine.Create(directory, o => o.Storage.Rollups.DiskSegmentMaxItemCount = 1_000).Dispose());
+    Assert.Catch(() => TestEngine.Create(directory, o =>
+        o.Storage.RawEvents.ConfigureWriteAheadLog = wal => wal.AsyncCompressedModeOptions = null).Dispose());
+    Assert.Multiple(() =>
+    {
+      Assert.That(engineRule.Message, Does.Contain("Storage.Rollups.BTreeNodeSize"));
+      Assert.That(bloomRule.Message, Does.Contain("Storage.Sessions.MutableSegmentBloomFilterBitsPerItem"));
+      Assert.That(zoneTreeRule.Message, Does.Contain("DiskSegmentMaxItemCount"));
+    });
+  }
+
+  [Test]
+  public void StoreOptionsReachZoneTree()
+  {
+    var walModes = new System.Collections.Concurrent.ConcurrentBag<ZoneTree.Options.WriteAheadLogMode>();
+    using var engine = TestEngine.Create(directory, o =>
+    {
+      o.Storage.RawEvents.WriteAheadLogMode = ZoneTree.Options.WriteAheadLogMode.Sync;
+      o.Storage.RawEvents.ConfigureWriteAheadLog = wal => walModes.Add(wal.WriteAheadLogMode);
+      // Below ZoneTree's recommended minimum: only accepted with AllowUnsafeOptionValues.
+      o.Storage.Rollups.DiskSegmentMaxItemCount = 1_000;
+      o.Storage.Rollups.AllowUnsafeOptionValues = true;
+      o.Storage.Rollups.BTreeLockMode = ZoneTree.Collections.BTree.Lock.BTreeLockMode.NodeLevelMonitor;
+    });
+    engine.Track(Event("purchase", "pro", 0));
+    engine.Flush();
+    Assert.That(walModes, Has.Some.EqualTo(ZoneTree.Options.WriteAheadLogMode.Sync));
+  }
+
+  [Test]
   public void OptionsAreFixedWhenTheEngineIsCreated()
   {
     var options = TestEngine.Options(directory, o => o.Rollups.Definitions.Add(new RollupDefinition("plan")));

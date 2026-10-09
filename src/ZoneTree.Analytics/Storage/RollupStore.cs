@@ -34,11 +34,11 @@ sealed class RollupStore : IDisposable
   {
     this.definitions = definitions;
     if ((granularities & Granularity.Minute) != 0)
-      stores[0] = new(Path.Combine(rootDirectory, "minute"), new PartitionScheme(partitioning.MinuteRollups), factory.OpenRollups, logger, factory.CreateMaintainer);
+      stores[0] = new(Path.Combine(rootDirectory, "minute"), new PartitionScheme(partitioning.MinuteRollups), factory.OpenRollups, logger, factory.CreateRollupsMaintainer, factory.WriteAheadLogDirectoryOf);
     if ((granularities & Granularity.Hour) != 0)
-      stores[1] = new(Path.Combine(rootDirectory, "hour"), new PartitionScheme(partitioning.HourRollups), factory.OpenRollups, logger, factory.CreateMaintainer);
+      stores[1] = new(Path.Combine(rootDirectory, "hour"), new PartitionScheme(partitioning.HourRollups), factory.OpenRollups, logger, factory.CreateRollupsMaintainer, factory.WriteAheadLogDirectoryOf);
     if ((granularities & Granularity.Day) != 0)
-      stores[2] = new(Path.Combine(rootDirectory, "day"), new PartitionScheme(partitioning.DayRollups), factory.OpenRollups, logger, factory.CreateMaintainer);
+      stores[2] = new(Path.Combine(rootDirectory, "day"), new PartitionScheme(partitioning.DayRollups), factory.OpenRollups, logger, factory.CreateRollupsMaintainer, factory.WriteAheadLogDirectoryOf);
   }
 
   static int IndexOf(Granularity granularity) => granularity switch
@@ -120,9 +120,11 @@ sealed class RollupStore : IDisposable
       using var lease = store.Acquire(partition, create: false);
       if (lease == null)
         continue;
+      // Dashboards repeat rollup queries: cached blocks spare decompressing them again.
       using var iterator = lease.Tree.CreateIterator(new IteratorOptions
       {
-        DiskSegmentPrefetchSize = 32
+        DiskSegmentPrefetchSize = 32,
+        ContributeToTheBlockCache = true
       });
       iterator.Seek(seekKey);
       while (iterator.Next())

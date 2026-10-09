@@ -34,7 +34,7 @@ public sealed class ReadmeExamplesTests
         Storage =
         {
           Partitioning = { RawEvents = PartitionPeriod.Day },
-          ConfigureMaintainer = maintainer => maintainer.InactiveBlockCacheCleanupInterval = TimeSpan.FromMinutes(1),
+          Rollups = { ConfigureMaintainer = maintainer => maintainer.InactiveBlockCacheCleanupInterval = TimeSpan.FromMinutes(1) },
         },
         Privacy = { GeoPrecision = GeoPrecision.Country },
         Web = { GeoLocator = new StubGeoLocator() },

@@ -1,6 +1,5 @@
 using System.Globalization;
 using ZoneTree.Logger;
-using ZoneTree.Options;
 
 namespace ZoneTree.Analytics;
 
@@ -23,45 +22,41 @@ public sealed class StorageOptions
   public PartitioningOptions Partitioning { get; set; } = new();
 
   /// <summary>
-  /// The ZoneTree write-ahead-log mode of every store. Default is
-  /// <see cref="WriteAheadLogMode.AsyncCompressed"/>.
+  /// ZoneTree settings of raw event partitions. Raw events are only scanned, never point-read,
+  /// so by default the mutable segment holds 50,000 events and has no Bloom filter.
   /// </summary>
-  public WriteAheadLogMode WriteAheadLogMode { get; set; } = WriteAheadLogMode.AsyncCompressed;
+  public StoreOptions RawEvents { get; private set; } = new()
+  {
+    MutableSegmentMaxItemCount = 50_000,
+    MutableSegmentBloomFilterBitsPerItem = 0
+  };
 
   /// <summary>
-  /// Mutable segment size of raw event partitions: how many recent events are held in
-  /// memory before they move toward disk. Default is 50,000.
+  /// ZoneTree settings of rollup partitions. Rollup rows carry visitor sketches, so by default
+  /// the mutable segment is kept small: 20,000 rows. Rows that are still being updated are
+  /// rewritten into the mutable segment, so lowering it mainly moves cold rows to disk sooner.
   /// </summary>
-  public int RawEventsMutableSegmentMaxItemCount { get; set; } = 50_000;
+  public StoreOptions Rollups { get; private set; } = new() { MutableSegmentMaxItemCount = 20_000 };
 
   /// <summary>
-  /// Mutable segment size of rollup partitions. Rollup rows carry visitor sketches, so the
-  /// default is kept small: 20,000. Rows that are still being updated are rewritten into
-  /// the mutable segment, so lowering this mainly moves cold rows to disk sooner.
+  /// ZoneTree settings of the active session store. By default the mutable segment holds
+  /// 50,000 sessions.
   /// </summary>
-  public int RollupsMutableSegmentMaxItemCount { get; set; } = 20_000;
+  public StoreOptions Sessions { get; private set; } = new() { MutableSegmentMaxItemCount = 50_000 };
+
+  /// <summary>
+  /// A separate root directory for write-ahead logs, for example on a faster disk. Each store
+  /// keeps its log under the same relative path as its data. Null (the default) keeps logs next
+  /// to the data. Engine metadata always keeps its log next to its data. It is persisted when
+  /// the data directory is created and cannot be changed afterwards, because unflushed records
+  /// live in the log.
+  /// </summary>
+  public string WriteAheadLogDirectory { get; set; }
 
   /// <summary>
   /// Partitions that were not used for this long are closed. Default is 10 minutes.
   /// </summary>
   public TimeSpan PartitionIdleTimeout { get; set; } = TimeSpan.FromMinutes(10);
-
-  /// <summary>
-  /// Optional hook to tune ZoneTree disk segment options of every store.
-  /// </summary>
-  public Action<DiskSegmentOptions> ConfigureDiskSegments { get; set; }
-
-  /// <summary>
-  /// Optional hook to tune ZoneTree write-ahead-log options of every store.
-  /// </summary>
-  public Action<WriteAheadLogOptions> ConfigureWriteAheadLog { get; set; }
-
-  /// <summary>
-  /// Optional hook to tune the ZoneTree maintainer of every data store (raw event and rollup
-  /// partitions and the session store), for example merge thresholds or block cache cleanup.
-  /// It runs when a store or partition is opened.
-  /// </summary>
-  public Action<IMaintainer> ConfigureMaintainer { get; set; }
 
   /// <summary>
   /// The logger used by the engine and its ZoneTree stores.
@@ -73,19 +68,21 @@ public sealed class StorageOptions
   {
     var clone = (StorageOptions)MemberwiseClone();
     clone.Partitioning = Partitioning?.Clone();
+    clone.RawEvents = RawEvents.Clone();
+    clone.Rollups = Rollups.Clone();
+    clone.Sessions = Sessions.Clone();
     return clone;
   }
 
   internal void Validate(RetentionOptions retention, Granularity granularities)
   {
-    if (!Enum.IsDefined(WriteAheadLogMode))
-      throw new ArgumentException("Storage.WriteAheadLogMode is not a valid value.");
-    if (RawEventsMutableSegmentMaxItemCount < 1)
-      throw new ArgumentException("Storage.RawEventsMutableSegmentMaxItemCount must be positive.");
-    if (RollupsMutableSegmentMaxItemCount < 1)
-      throw new ArgumentException("Storage.RollupsMutableSegmentMaxItemCount must be positive.");
     if (PartitionIdleTimeout <= TimeSpan.Zero)
       throw new ArgumentException("Storage.PartitionIdleTimeout must be positive.");
+    if (WriteAheadLogDirectory != null && string.IsNullOrWhiteSpace(WriteAheadLogDirectory))
+      throw new ArgumentException("Storage.WriteAheadLogDirectory cannot be empty; use null to keep logs next to the data.");
+    RawEvents.Validate(nameof(RawEvents));
+    Rollups.Validate(nameof(Rollups));
+    Sessions.Validate(nameof(Sessions));
     Partitioning ??= new();
     Partitioning.Validate(retention, StoreRawEvents, granularities);
   }

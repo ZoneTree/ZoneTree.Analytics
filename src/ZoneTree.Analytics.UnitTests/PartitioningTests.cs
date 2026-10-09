@@ -42,6 +42,12 @@ public sealed class PartitioningTests
   string[] Partitions(params string[] path) =>
       Directory.GetDirectories(Path.Combine([directory, .. path])).Select(Path.GetFileName).Order().ToArray();
 
+  /// <summary>
+  /// Asserts that a store has exactly the partitions of the given times.
+  /// </summary>
+  void AssertPartitions(string format, string[] path, params DateTime[] times) =>
+      Assert.That(Partitions(path), Is.EqualTo(times.Select(x => Name(x, format)).Distinct().Order()), string.Join("/", path));
+
   [Test]
   public void EachTierIsPartitionedAsConfigured()
   {
@@ -57,10 +63,10 @@ public sealed class PartitioningTests
     }
     Assert.Multiple(() =>
     {
-      Assert.That(Partitions("events"), Is.EqualTo(new[] { Name(Before, "yyyy-MM-dd"), Name(After, "yyyy-MM-dd") }));
-      Assert.That(Partitions("rollups", "minute"), Is.EqualTo(new[] { Name(Before, "yyyy-MM"), Name(After, "yyyy-MM") }));
-      Assert.That(Partitions("rollups", "hour"), Is.EqualTo(new[] { Name(Before, "yyyy-MM-dd"), Name(After, "yyyy-MM-dd") }));
-      Assert.That(Partitions("rollups", "day"), Is.EqualTo(new[] { Name(Before, "yyyy-MM"), Name(After, "yyyy-MM") }));
+      AssertPartitions("yyyy-MM-dd", ["events"], Before, After);
+      AssertPartitions("yyyy-MM", ["rollups", "minute"], Before, After);
+      AssertPartitions("yyyy-MM-dd", ["rollups", "hour"], Before, After);
+      AssertPartitions("yyyy-MM", ["rollups", "day"], Before, After);
     });
   }
 
@@ -73,10 +79,10 @@ public sealed class PartitioningTests
     }
     Assert.Multiple(() =>
     {
-      Assert.That(Partitions("events"), Is.EqualTo(new[] { Name(Before, "yyyy-MM"), Name(After, "yyyy-MM") }));
-      Assert.That(Partitions("rollups", "minute"), Is.EqualTo(new[] { Name(Before, "yyyy-MM-dd"), Name(After, "yyyy-MM-dd") }));
-      Assert.That(Partitions("rollups", "hour"), Is.EqualTo(new[] { Name(Before, "yyyy-MM"), Name(After, "yyyy-MM") }));
-      Assert.That(Partitions("rollups", "day"), Is.EqualTo(new[] { Name(Before, "yyyy"), Name(After, "yyyy") }.Distinct()));
+      AssertPartitions("yyyy-MM", ["events"], Before, After);
+      AssertPartitions("yyyy-MM-dd", ["rollups", "minute"], Before, After);
+      AssertPartitions("yyyy-MM", ["rollups", "hour"], Before, After);
+      AssertPartitions("yyyy", ["rollups", "day"], Before, After);
     });
   }
 
@@ -165,8 +171,39 @@ public sealed class PartitioningTests
     {
       Assert.That(RawEvents(old), Is.EqualTo(0));
       Assert.That(RawEvents(recent), Is.EqualTo(1));
-      Assert.That(Partitions("events"), Is.EqualTo(new[] { Name(recent, "yyyy-MM-dd") }));
+      AssertPartitions("yyyy-MM-dd", ["events"], recent);
     });
+  }
+
+  [Test]
+  public void StorageLifecycleLogsNoProblems()
+  {
+    var logger = new RecordingLogger();
+    var old = DateTime.UtcNow.Date.AddDays(-10).AddHours(12);
+    void Configure(AnalyticsOptions o)
+    {
+      o.Storage.Logger = logger;
+      o.Storage.Partitioning.RawEvents = PartitionPeriod.Day;
+      o.Storage.Partitioning.HourRollups = PartitionPeriod.Day;
+    }
+    using (var engine = Create(_ => { }, Configure))
+    {
+      engine.Track(new AnalyticsEvent("e") { VisitorId = "1", Timestamp = Utc(old) });
+      engine.Track(new AnalyticsEvent("e") { VisitorId = "1", Timestamp = Utc(DateTime.UtcNow.AddMinutes(-5)) });
+      engine.Flush();
+    }
+    // Reopen, drop the old partitions through retention, query, close.
+    using (var engine = Create(_ => { }, o =>
+    {
+      Configure(o);
+      o.Retention.RawEvents = TimeSpan.FromDays(3);
+      o.Retention.HourRollups = TimeSpan.FromDays(3);
+    }))
+    {
+      Assert.That(engine.ApplyRetention(), Is.EqualTo(2));
+      engine.Query(new AnalyticsQuery { Event = "e", Range = DateRange.LastDays(30), Source = QuerySource.RawEvents });
+    }
+    Assert.That(logger.Problems, Is.Empty);
   }
 
   [Test]

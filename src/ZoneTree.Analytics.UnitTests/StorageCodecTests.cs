@@ -9,7 +9,7 @@ namespace ZoneTree.Analytics.UnitTests;
 
 public sealed class StorageCodecTests
 {
-  static readonly LexicographicByteComparer Comparer = new();
+  static readonly ByteArrayLexicographicComparerAscending Comparer = new();
 
   [Test]
   public void RollupKeysOrderBySeriesThenBucketThenValue()

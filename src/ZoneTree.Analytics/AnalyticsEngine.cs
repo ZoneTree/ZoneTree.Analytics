@@ -97,7 +97,9 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
     calendar = new ReportingCalendar(options.TimeZone, options.FirstDayOfWeek);
     var root = Path.GetFullPath(options.DataDirectory);
     Directory.CreateDirectory(root);
-    var factory = new StoreFactory(options.Storage, logger);
+    // Storage reports errors on its own threads: count them like every other error.
+    var storageLogger = new CountingLogger(logger, counters);
+    var factory = new StoreFactory(options.Storage, root, storageLogger);
 
     meta = new MetaStore(factory.OpenMeta(Path.Combine(root, "meta")));
     try
@@ -111,19 +113,21 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
       visitorHasher = new VisitorHasher(
           options.Privacy.VisitorIdentification, options.Privacy.VisitorIdSecret, meta);
       enricher = new EnrichmentPipeline(options, visitorHasher, logger, counters);
+      // Invalid store options fail here, not when a partition opens on an ingestion thread.
+      factory.Validate(enricher.Schema);
 
       if (options.Sessions.Enabled)
       {
         sessions = factory.OpenSessions(Path.Combine(root, "sessions"), enricher.Schema);
-        sessionsMaintainer = factory.CreateMaintainer(sessions);
+        sessionsMaintainer = factory.CreateSessionsMaintainer(sessions);
       }
       var definitions = options.Rollups.Definitions.ToArray();
       rollups = new RollupStore(
-          Path.Combine(root, "rollups"), options.Rollups.Granularities, options.Storage.Partitioning, definitions, factory, logger);
+          Path.Combine(root, "rollups"), options.Rollups.Granularities, options.Storage.Partitioning, definitions, factory, storageLogger);
       if (options.Storage.StoreRawEvents)
       {
         rawEvents = new RawEventStore(
-            Path.Combine(root, "events"), options.Storage.Partitioning.RawEvents, factory, logger);
+            Path.Combine(root, "events"), options.Storage.Partitioning.RawEvents, factory, storageLogger);
       }
 
       var services = new IngestionServices
@@ -202,6 +206,9 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
   bool ValidateConfiguration()
   {
     var partitioning = options.Storage.Partitioning;
+    var walDirectory = options.Storage.WriteAheadLogDirectory == null
+        ? ""
+        : Path.GetFullPath(options.Storage.WriteAheadLogDirectory);
     (string Key, string Value, string Description)[] settings =
     [
       ("time-zone", options.TimeZone.Id, "time zone"),
@@ -210,6 +217,7 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
       ("minute-partitioning", partitioning.MinuteRollups.ToString(), "minute rollup partitioning"),
       ("hour-partitioning", partitioning.HourRollups.ToString(), "hourly rollup partitioning"),
       ("day-partitioning", partitioning.DayRollups.ToString(), "daily rollup partitioning"),
+      ("wal-directory", walDirectory, "write-ahead-log directory"),
     ];
     if (meta.Get("format-version") == null)
     {
@@ -553,7 +561,8 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
         if (lease == null)
           continue;
         var toDelete = new List<Memory<byte>>();
-        using (var iterator = lease.Tree.CreateIterator(IteratorType.Snapshot))
+        // Keys are collected first and deleted after the scan, so a plain iterator suffices.
+        using (var iterator = lease.Tree.CreateIterator())
         {
           iterator.Seek(sitePrefix);
           while (iterator.Next())

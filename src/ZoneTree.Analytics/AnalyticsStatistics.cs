@@ -32,7 +32,10 @@ public sealed class AnalyticsStatistics
   /// <summary>Completed flushes of buffered aggregates.</summary>
   public long Flushes { get; init; }
 
-  /// <summary>Errors raised while processing or flushing, including exceptions thrown by extensions. Details are logged.</summary>
+  /// <summary>
+  /// Errors raised while processing or flushing, including exceptions thrown by extensions and
+  /// storage errors such as failed ZoneTree merges or partition cleanups. Details are logged.
+  /// </summary>
   public long Errors { get; init; }
 
   /// <summary>Events currently waiting in ingestion queues.</summary>

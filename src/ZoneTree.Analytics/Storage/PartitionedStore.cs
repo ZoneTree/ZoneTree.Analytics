@@ -48,6 +48,8 @@ sealed class PartitionedStore<TKey, TValue> : IDisposable
 
   readonly Func<IZoneTree<TKey, TValue>, IMaintainer> createMaintainer;
 
+  readonly Func<string, string> writeAheadLogDirectoryOf;
+
   readonly ILogger logger;
 
   bool isDisposed;
@@ -57,12 +59,14 @@ sealed class PartitionedStore<TKey, TValue> : IDisposable
       PartitionScheme scheme,
       Func<string, IZoneTree<TKey, TValue>> openTree,
       ILogger logger,
-      Func<IZoneTree<TKey, TValue>, IMaintainer> createMaintainer = null)
+      Func<IZoneTree<TKey, TValue>, IMaintainer> createMaintainer,
+      Func<string, string> writeAheadLogDirectoryOf)
   {
     RootDirectory = rootDirectory;
     Scheme = scheme;
     this.openTree = openTree;
-    this.createMaintainer = createMaintainer ?? (tree => tree.CreateMaintainer());
+    this.createMaintainer = createMaintainer;
+    this.writeAheadLogDirectoryOf = writeAheadLogDirectoryOf;
     this.logger = logger;
     Directory.CreateDirectory(rootDirectory);
   }
@@ -206,8 +210,8 @@ sealed class PartitionedStore<TKey, TValue> : IDisposable
       {
         if (!partitions.TryGetValue(name, out var partition))
         {
-          // Not open: delete the directory directly.
-          DeleteDirectory(PathOf(name));
+          // Not open: delete the files directly.
+          DeletePartitionFiles(name);
           return;
         }
         if (partition.Closing)
@@ -262,7 +266,7 @@ sealed class PartitionedStore<TKey, TValue> : IDisposable
         partition.Maintainer.Dispose();
         partition.Tree.Maintenance.Drop();
         partition.Tree.Dispose();
-        DeleteDirectory(PathOf(partition.Name));
+        DeletePartitionFiles(partition.Name);
       }
       else
       {
@@ -284,6 +288,16 @@ sealed class PartitionedStore<TKey, TValue> : IDisposable
         Monitor.PulseAll(sync);
       }
     }
+  }
+
+  /// <summary>
+  /// Deletes the data and, when it is kept elsewhere, the write-ahead log of a partition.
+  /// </summary>
+  void DeletePartitionFiles(string name)
+  {
+    DeleteDirectory(PathOf(name));
+    if (writeAheadLogDirectoryOf(PathOf(name)) is { } walDirectory)
+      DeleteDirectory(walDirectory);
   }
 
   void DeleteDirectory(string path)

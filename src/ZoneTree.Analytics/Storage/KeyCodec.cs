@@ -8,9 +8,10 @@ namespace ZoneTree.Analytics.Storage;
 /// Order-preserving binary key layouts.
 /// </summary>
 /// <remarks>
-/// Keys are compared with <see cref="LexicographicByteComparer"/>, which orders keys
-/// lexicographically. Variable-length segments are terminated by a zero byte,
-/// which never occurs inside sanitized names, so a segment never prefixes another.
+/// Keys are compared lexicographically, a key before every longer key it is a prefix of
+/// (ZoneTree's <c>ByteArrayLexicographicComparerAscending</c>). Variable-length segments are
+/// terminated by a zero byte, which never occurs inside sanitized names, so a segment never
+/// prefixes another.
 /// Timestamps are big-endian so byte order equals numeric order.
 /// <code>
 /// rollup key: site 0x00 event 0x00 dimension-set 0x00 bucket(8, BE) values(UTF-8, 0x1F separated)

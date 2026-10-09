@@ -271,24 +271,25 @@ public sealed class LimitsTests
   }
 
   [Test]
-  public void MaintainerHookConfiguresEveryDataStore()
+  public void MaintainerHooksConfigureEachStore()
   {
-    var configured = 0;
+    var configured = new System.Collections.Concurrent.ConcurrentBag<string>();
+    Action<IMaintainer> Hook(string store) => maintainer =>
+    {
+      maintainer.ThresholdForMergeOperationStart = 1234;
+      configured.Add(store);
+    };
     using (var engine = TestEngine.Create(directory, o =>
     {
-      o.Rollups.Granularities = Granularity.Hour | Granularity.Day;
-      o.Storage.ConfigureMaintainer = maintainer =>
-      {
-        maintainer.ThresholdForMergeOperationStart = 1234;
-        Interlocked.Increment(ref configured);
-      };
+      o.Storage.RawEvents.ConfigureMaintainer = Hook("raw");
+      o.Storage.Rollups.ConfigureMaintainer = Hook("rollups");
+      o.Storage.Sessions.ConfigureMaintainer = Hook("sessions");
     }))
     {
       engine.Track(new AnalyticsEvent(StandardEvents.PageView) { Url = "/", VisitorId = "1", Timestamp = Utc(T0) });
       engine.Flush();
     }
-    // Sessions, one raw event partition, one hourly and one daily rollup partition.
-    Assert.That(configured, Is.EqualTo(4));
+    Assert.That(configured.Distinct(), Is.EquivalentTo(new[] { "raw", "rollups", "sessions" }));
   }
 
   [Test]

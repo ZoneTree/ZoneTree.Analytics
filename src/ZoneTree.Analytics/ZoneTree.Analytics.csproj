@@ -38,10 +38,14 @@
   </ItemGroup>
 
   <!--
-    ZoneTree is the only dependency.
-    Build against a local ZoneTree checkout with:
-      dotnet build -p:ZoneTreeProjectPath=../../../ZoneTree/src/ZoneTree/ZoneTree.csproj
+    ZoneTree is the only dependency. During development it is referenced from a local checkout
+    next to this repository (it needs ZoneTreeFactory.Validate, which is not published yet).
+    Another checkout:      dotnet build -p:ZoneTreeProjectPath=path/to/ZoneTree.csproj
+    The NuGet package:     dotnet build -p:UseZoneTreePackage=true
   -->
+  <PropertyGroup Condition="'$(ZoneTreeProjectPath)' == '' and '$(UseZoneTreePackage)' != 'true'">
+    <ZoneTreeProjectPath>$(MSBuildThisFileDirectory)..\..\..\ZoneTree\src\ZoneTree\ZoneTree.csproj</ZoneTreeProjectPath>
+  </PropertyGroup>
   <ItemGroup Condition="'$(ZoneTreeProjectPath)' == ''">
     <PackageReference Include="ZoneTree" Version="1.9.8" />
   </ItemGroup>

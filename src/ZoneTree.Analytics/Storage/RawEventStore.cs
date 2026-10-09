@@ -11,7 +11,7 @@ sealed class RawEventStore : IDisposable
   public RawEventStore(
       string rootDirectory, PartitionPeriod period, StoreFactory factory, ILogger logger)
   {
-    Store = new(rootDirectory, new PartitionScheme(period), factory.OpenRawEvents, logger, factory.CreateMaintainer);
+    Store = new(rootDirectory, new PartitionScheme(period), factory.OpenRawEvents, logger, factory.CreateRawEventsMaintainer, factory.WriteAheadLogDirectoryOf);
   }
 
   public PartitionedStore<Memory<byte>, Memory<byte>> Store { get; }
@@ -33,6 +33,7 @@ sealed class RawEventStore : IDisposable
       using var lease = Store.Acquire(partition, create: false);
       if (lease == null)
         continue;
+      // A raw scan reads each block once; it stays out of the block cache to keep hot rollup blocks.
       using var iterator = lease.Tree.CreateIterator(new IteratorOptions
       {
         DiskSegmentPrefetchSize = 64

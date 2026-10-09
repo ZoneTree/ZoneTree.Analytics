@@ -74,3 +74,25 @@ static class UserAgents
   public const string Googlebot =
       "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)";
 }
+
+/// <summary>
+/// Records the errors and warnings that the engine and ZoneTree log.
+/// </summary>
+sealed class RecordingLogger : ZoneTree.Logger.ILogger
+{
+  public System.Collections.Concurrent.ConcurrentQueue<string> Problems { get; } = new();
+
+  public ZoneTree.Logger.LogLevel LogLevel { get; set; } = ZoneTree.Logger.LogLevel.Warning;
+
+  public void LogError(Exception log) => Problems.Enqueue(log.ToString());
+
+  public void LogWarning(object log) => Problems.Enqueue(log?.ToString());
+
+  public void LogInfo(object log)
+  {
+  }
+
+  public void LogTrace(object log)
+  {
+  }
+}
