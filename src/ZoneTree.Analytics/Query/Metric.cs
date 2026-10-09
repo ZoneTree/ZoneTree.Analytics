@@ -1,4 +1,3 @@
-using System.Globalization;
 using ZoneTree.Analytics.Ingestion;
 using ZoneTree.Analytics.Storage;
 
@@ -16,9 +15,11 @@ namespace ZoneTree.Analytics;
 /// fractions between 0 and 1; durations are seconds.
 /// </para>
 /// <para>
-/// Session metrics can only be grouped and filtered by session-level dimensions and the entry
-/// page; entrance and exit metrics additionally by page and hostname. Use a
-/// <see cref="Segment"/> to select sessions by what happened in them.
+/// Session metrics can only be grouped and filtered by session-level dimensions (standard ones
+/// and <see cref="SessionOptions.Dimensions"/>) and the entry page; entrance and exit metrics
+/// additionally by page and hostname. Use a <see cref="Segment"/> to select sessions by what
+/// happened in them. <see cref="BotHits"/> can only be grouped and filtered by the dimensions of
+/// bot events.
 /// </para>
 /// <para>
 /// Every metric has a stable <see cref="Key"/>, which <see cref="Parse"/> accepts, for example
@@ -230,34 +231,37 @@ public sealed class Metric : IEquatable<Metric>
   }
 
   /// <summary>
+  /// Session metrics read <see cref="StandardEvents.Session"/> rows.
+  /// </summary>
+  bool IsSessionMetric => MetricKind is Kind.Sessions or Kind.Bounces or Kind.BounceRate or
+      Kind.SessionDuration or Kind.AverageSessionDuration or Kind.PageViewsPerSession;
+
+  /// <summary>
+  /// Page flow metrics read the entrances and exits maintained on page view rows.
+  /// </summary>
+  bool IsPageFlowMetric => MetricKind is Kind.Entrances or Kind.Exits or Kind.ExitRate;
+
+  /// <summary>
+  /// True when the metric, or the metric it is a share of, reads entrances or exits.
+  /// </summary>
+  internal bool ReadsPageFlow => IsPageFlowMetric || (MetricKind == Kind.PercentOfTotal && Inner.ReadsPageFlow);
+
+  /// <summary>
   /// The events this metric reads.
   /// </summary>
   internal IEnumerable<string> Sources(string baseEvent)
   {
-    switch (MetricKind)
+    if (IsSessionMetric)
+      return [StandardEvents.Session];
+    if (IsPageFlowMetric)
+      return [StandardEvents.PageView];
+    return MetricKind switch
     {
-      case Kind.Events or Kind.Visitors or Kind.Sum or Kind.Average or Kind.Min or Kind.Max or Kind.Count:
-        yield return EventName ?? baseEvent;
-        break;
-      case Kind.Sessions or Kind.Bounces or Kind.BounceRate or Kind.SessionDuration or
-          Kind.AverageSessionDuration or Kind.PageViewsPerSession:
-        yield return StandardEvents.Session;
-        break;
-      case Kind.Entrances or Kind.Exits or Kind.ExitRate:
-        yield return StandardEvents.PageView;
-        break;
-      case Kind.Conversions:
-        yield return Argument;
-        break;
-      case Kind.ConversionRate:
-        yield return Argument;
-        yield return baseEvent;
-        break;
-      case Kind.PercentOfTotal:
-        foreach (var source in Inner.Sources(baseEvent))
-          yield return source;
-        break;
-    }
+      Kind.Conversions => [Argument],
+      Kind.ConversionRate => [Argument, baseEvent],
+      Kind.PercentOfTotal => Inner.Sources(baseEvent),
+      _ => [EventName ?? baseEvent]
+    };
   }
 
   /// <summary>
@@ -266,80 +270,78 @@ public sealed class Metric : IEquatable<Metric>
   internal DimensionScope ScopeFor(string baseEvent) =>
       Sources(baseEvent).Contains(StandardEvents.Bot) ? DimensionScope.Bot : Scope;
 
-  DimensionScope Scope => MetricKind switch
-  {
-    Kind.Sessions or Kind.Bounces or Kind.BounceRate or Kind.SessionDuration or
-        Kind.AverageSessionDuration or Kind.PageViewsPerSession => DimensionScope.Session,
-    Kind.Entrances or Kind.Exits or Kind.ExitRate => DimensionScope.PageView,
-    Kind.PercentOfTotal => Inner.Scope,
-    _ => DimensionScope.All
-  };
+  DimensionScope Scope =>
+      IsSessionMetric ? DimensionScope.Session :
+      IsPageFlowMetric ? DimensionScope.PageView :
+      MetricKind == Kind.PercentOfTotal ? Inner.Scope :
+      DimensionScope.All;
 
   /// <summary>
   /// Computes the metric from per-event aggregates. A missing aggregate counts as empty.
   /// </summary>
   internal double Evaluate(Func<string, RollupAccumulator> source, string baseEvent)
   {
+    if (IsSessionMetric)
+      return EvaluateSession(source(StandardEvents.Session));
+    if (IsPageFlowMetric)
+      return EvaluatePageFlow(source(StandardEvents.PageView));
     switch (MetricKind)
     {
       case Kind.Events:
         return source(EventName ?? baseEvent)?.Count ?? 0;
       case Kind.Visitors:
-        return VisitorsOfSource(source(EventName ?? baseEvent));
-      case Kind.Sessions:
-        return source(StandardEvents.Session)?.Count ?? 0;
-      case Kind.Bounces:
-        return SumOf(source(StandardEvents.Session), StandardMetrics.Bounces);
-      case Kind.BounceRate:
-        return Ratio(SumOf(source(StandardEvents.Session), StandardMetrics.Bounces), source(StandardEvents.Session)?.Count ?? 0, clamp: true);
-      case Kind.SessionDuration:
-        return Math.Max(0, SumOf(source(StandardEvents.Session), StandardMetrics.Duration));
-      case Kind.AverageSessionDuration:
-        return Math.Max(0, Ratio(SumOf(source(StandardEvents.Session), StandardMetrics.Duration), source(StandardEvents.Session)?.Count ?? 0));
-      case Kind.PageViewsPerSession:
-        return Ratio(SumOf(source(StandardEvents.Session), StandardMetrics.SessionPageViews), source(StandardEvents.Session)?.Count ?? 0);
-      case Kind.Entrances:
-        return Math.Max(0, SumOf(source(StandardEvents.PageView), StandardMetrics.Entrances));
-      case Kind.Exits:
-        return Math.Max(0, SumOf(source(StandardEvents.PageView), StandardMetrics.Exits));
-      case Kind.ExitRate:
-        {
-          var pageViews = source(StandardEvents.PageView);
-          return Ratio(Math.Max(0, SumOf(pageViews, StandardMetrics.Exits)), pageViews?.Count ?? 0, clamp: true);
-        }
-      case Kind.Sum:
-        return Value(source(EventName ?? baseEvent)).Sum;
-      case Kind.Average:
-        return Value(source(EventName ?? baseEvent)).Average;
-      case Kind.Min:
-        {
-          var value = Value(source(EventName ?? baseEvent));
-          return value.Count == 0 ? 0 : value.Min;
-        }
-      case Kind.Max:
-        {
-          var value = Value(source(EventName ?? baseEvent));
-          return value.Count == 0 ? 0 : value.Max;
-        }
-      case Kind.Count:
-        return Value(source(EventName ?? baseEvent)).Count;
+        return VisitorsOf(source(EventName ?? baseEvent));
       case Kind.Conversions:
-        return VisitorsOfSource(source(Argument));
+        return VisitorsOf(source(Argument));
       case Kind.ConversionRate:
-        return Ratio(VisitorsOfSource(source(Argument)), VisitorsOfSource(source(baseEvent)), clamp: true);
-      default:
+        return Ratio(VisitorsOf(source(Argument)), VisitorsOf(source(baseEvent)), clamp: true);
+      case Kind.PercentOfTotal:
         throw new InvalidOperationException("PercentOfTotal is evaluated against totals.");
     }
+    var value = source(EventName ?? baseEvent) is { } accumulator &&
+        accumulator.Metrics.TryGetValue(Argument, out var found)
+            ? found
+            : default;
+    return MetricKind switch
+    {
+      Kind.Sum => value.Sum,
+      Kind.Average => value.Average,
+      Kind.Min => value.Count == 0 ? 0 : value.Min,
+      Kind.Max => value.Count == 0 ? 0 : value.Max,
+      _ => value.Count
+    };
   }
 
-  static double VisitorsOfSource(RollupAccumulator accumulator) =>
+  double EvaluateSession(RollupAccumulator sessions)
+  {
+    var count = sessions?.Count ?? 0;
+    return MetricKind switch
+    {
+      Kind.Sessions => count,
+      Kind.Bounces => SumOf(sessions, StandardMetrics.Bounces),
+      Kind.BounceRate => Ratio(SumOf(sessions, StandardMetrics.Bounces), count, clamp: true),
+      Kind.SessionDuration => Math.Max(0, SumOf(sessions, StandardMetrics.Duration)),
+      Kind.AverageSessionDuration => Math.Max(0, Ratio(SumOf(sessions, StandardMetrics.Duration), count)),
+      _ => Ratio(SumOf(sessions, StandardMetrics.SessionPageViews), count)
+    };
+  }
+
+  double EvaluatePageFlow(RollupAccumulator pageViews)
+  {
+    // Entrances and exits are sums of deltas; never report a negative count.
+    return MetricKind switch
+    {
+      Kind.Entrances => Math.Max(0, SumOf(pageViews, StandardMetrics.Entrances)),
+      Kind.Exits => Math.Max(0, SumOf(pageViews, StandardMetrics.Exits)),
+      _ => Ratio(Math.Max(0, SumOf(pageViews, StandardMetrics.Exits)), pageViews?.Count ?? 0, clamp: true)
+    };
+  }
+
+  static double VisitorsOf(RollupAccumulator accumulator) =>
       accumulator?.Visitors?.Estimate() ?? 0;
 
   static double SumOf(RollupAccumulator accumulator, string metric) =>
       accumulator != null && accumulator.Metrics.TryGetValue(metric, out var value) ? value.Sum : 0;
-
-  MetricValue Value(RollupAccumulator accumulator) =>
-      accumulator != null && accumulator.Metrics.TryGetValue(Argument, out var value) ? value : default;
 
   static double Ratio(double numerator, double denominator, bool clamp = false)
   {
@@ -360,6 +362,4 @@ public sealed class Metric : IEquatable<Metric>
 
   /// <inheritdoc/>
   public override string ToString() => Key;
-
-  internal static string Format(double value) => value.ToString("R", CultureInfo.InvariantCulture);
 }

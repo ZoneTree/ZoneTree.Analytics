@@ -1,3 +1,4 @@
+using System.Globalization;
 using ZoneTree.Analytics.Storage;
 using ZoneTree.Analytics.Web;
 
@@ -478,7 +479,7 @@ public sealed class EngineTests
   {
     TrackScenario();
     engine.Flush();
-    FunnelQuery Funnel(TimeSpan? window)
+    static FunnelQuery Funnel(TimeSpan? window)
     {
       var funnel = new FunnelQuery { Range = Day(Day0), Window = window };
       funnel.Steps.Add(FunnelStep.Page("Home", "/"));
@@ -780,8 +781,8 @@ public sealed class EngineTests
       // The event lands in daily rollups, which are kept forever, and nowhere else.
       Assert.That(daily.Totals[Metric.Events], Is.EqualTo(1));
       Assert.That(daily.Plan.UsedRawEvents, Is.False);
-      Assert.That(Directory.Exists(Path.Combine(directory, "events", old.ToString("yyyy-MM"))), Is.False);
-      Assert.That(Directory.Exists(Path.Combine(directory, "rollups", "hour", old.ToString("yyyy-MM"))), Is.False);
+      Assert.That(Directory.Exists(Path.Combine(directory, "events", old.ToString("yyyy-MM", CultureInfo.InvariantCulture))), Is.False);
+      Assert.That(Directory.Exists(Path.Combine(directory, "rollups", "hour", old.ToString("yyyy-MM", CultureInfo.InvariantCulture))), Is.False);
       Assert.That(engine.ApplyRetention(), Is.EqualTo(0));
       Assert.That(engine.GetStatistics().EventsProcessed, Is.EqualTo(1));
     });

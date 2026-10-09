@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Text;
 using System.Text.Json;
@@ -19,7 +20,7 @@ public sealed class AspNetCoreTests
   HttpClient client;
 
   // Owned and disposed by the host.
-  AnalyticsEngine engine => app.Services.GetRequiredService<AnalyticsEngine>();
+  AnalyticsEngine Engine => app.Services.GetRequiredService<AnalyticsEngine>();
 
   [SetUp]
   public async Task SetUp()
@@ -66,7 +67,7 @@ public sealed class AspNetCoreTests
   static readonly DateRange Recent = DateRange.Last(TimeSpan.FromHours(1));
 
   double Count(string eventName) =>
-      engine.Query(new AnalyticsQuery { Event = eventName, Range = Recent, Metrics = { Metric.Events } }).Totals[Metric.Events];
+      Engine.Query(new AnalyticsQuery { Event = eventName, Range = Recent, Metrics = { Metric.Events } }).Totals[Metric.Events];
 
   [Test]
   public async Task MiddlewareTracksHtmlPageViewsOnly()
@@ -79,9 +80,9 @@ public sealed class AspNetCoreTests
     await client.GetAsync("/data.json");
     await client.GetAsync("/missing");
     await client.PostAsync("/", new StringContent(""));
-    await engine.FlushAsync();
+    await Engine.FlushAsync();
 
-    var pages = engine.Query(new AnalyticsQuery
+    var pages = Engine.Query(new AnalyticsQuery
     {
       Range = Recent,
       GroupBy = { StandardDimensions.Page },
@@ -127,9 +128,9 @@ public sealed class AspNetCoreTests
     var invalid = await Post("not json");
     var missingName = await Post("""{"u":"/"}""");
     var tooLarge = await Post("{\"n\":\"x\",\"p\":{\"a\":\"" + new string('x', 10_000) + "\"}}");
-    await engine.FlushAsync();
+    await Engine.FlushAsync();
 
-    var signup = engine.Query(new AnalyticsQuery
+    var signup = Engine.Query(new AnalyticsQuery
     {
       Event = "signup",
       Source = QuerySource.RawEvents,
@@ -137,7 +138,7 @@ public sealed class AspNetCoreTests
       GroupBy = { "plan", "seats" },
       Metrics = { Metric.Visitors, Metric.Sum("value") }
     });
-    var sources = engine.Query(new AnalyticsQuery
+    var sources = Engine.Query(new AnalyticsQuery
     {
       Range = Recent,
       GroupBy = { StandardDimensions.Source },
@@ -169,7 +170,7 @@ public sealed class AspNetCoreTests
       ("u2", "/", null),
     })
     {
-      engine.Track(new AnalyticsEvent(StandardEvents.PageView)
+      Engine.Track(new AnalyticsEvent(StandardEvents.PageView)
       {
         VisitorId = user,
         Url = "https://example.com" + page,
@@ -177,8 +178,8 @@ public sealed class AspNetCoreTests
         Timestamp = now.AddMinutes(-10)
       });
     }
-    engine.Track(new AnalyticsEvent("signup") { VisitorId = "u1", Timestamp = now.AddMinutes(-9) });
-    await engine.FlushAsync();
+    Engine.Track(new AnalyticsEvent("signup") { VisitorId = "u1", Timestamp = now.AddMinutes(-9) });
+    await Engine.FlushAsync();
   }
 
   async Task<(HttpStatusCode Status, JsonElement Json)> GetJson(string url)
@@ -235,7 +236,7 @@ public sealed class AspNetCoreTests
       request.Headers.TryAddWithoutValidation("User-Agent", userAgent);
       await client.SendAsync(request);
     }
-    await engine.FlushAsync();
+    await Engine.FlushAsync();
     var (_, summary) = await GetJson("/_analytics/api/summary?range=today");
     var (_, pages) = await GetJson("/_analytics/api/pages?range=today");
     var (botsStatus, bots) = await GetJson("/_analytics/api/bots?range=today");
@@ -310,9 +311,9 @@ public sealed class AspNetCoreTests
   {
     var now = DateTimeOffset.UtcNow;
     for (var i = 0; i < 2000; ++i)
-      engine.Track(new AnalyticsEvent("e") { VisitorId = i.ToString(), Timestamp = now.AddSeconds(-i) });
-    await engine.FlushAsync();
-    engine.Options.Queries.Timeout = TimeSpan.FromTicks(1);
+      Engine.Track(new AnalyticsEvent("e") { VisitorId = i.ToString(CultureInfo.InvariantCulture), Timestamp = now.AddSeconds(-i) });
+    await Engine.FlushAsync();
+    Engine.Options.Queries.Timeout = TimeSpan.FromTicks(1);
     var (status, error) = await PostJson("/_analytics/api/query", """{ "event": "e", "range": "1h", "source": "RawEvents" }""");
     Assert.Multiple(() =>
     {

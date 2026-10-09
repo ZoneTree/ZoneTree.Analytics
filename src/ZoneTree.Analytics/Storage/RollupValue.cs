@@ -5,6 +5,21 @@ using ZoneTree.Serializers;
 namespace ZoneTree.Analytics.Storage;
 
 /// <summary>
+/// The aggregate of one measured value.
+/// </summary>
+/// <param name="Sum">The sum of values.</param>
+/// <param name="Count">The number of values.</param>
+/// <param name="Min">The smallest value.</param>
+/// <param name="Max">The largest value.</param>
+readonly record struct MetricValue(double Sum, long Count, double Min, double Max)
+{
+  /// <summary>
+  /// The average of the values, or zero when there are none.
+  /// </summary>
+  public double Average => Count == 0 ? 0 : Sum / Count;
+}
+
+/// <summary>
 /// A stored rollup row. Instances are immutable: merges create new instances,
 /// so values held by ZoneTree segments are never modified.
 /// </summary>
@@ -128,8 +143,27 @@ sealed class RollupAccumulator
 
   static readonly Dictionary<string, MetricValue> EmptyMetrics = [];
 
-  public bool IsEmpty =>
-      Count == 0 && (visitors == null || visitors.IsEmpty) && (metrics == null || metrics.Count == 0);
+  /// <summary>
+  /// True when the accumulator holds a count, a visitor or a metric value. Groups whose deltas
+  /// cancel out, for example an exit that moved on to a later page, hold no data.
+  /// </summary>
+  public bool HasData
+  {
+    get
+    {
+      if (Count != 0 || (visitors != null && !visitors.IsEmpty))
+        return true;
+      if (metrics != null)
+      {
+        foreach (var value in metrics.Values)
+        {
+          if (value.Sum != 0 || value.Count != 0)
+            return true;
+        }
+      }
+      return false;
+    }
+  }
 
   public void AddVisitor(ulong visitorHash, int precision)
   {

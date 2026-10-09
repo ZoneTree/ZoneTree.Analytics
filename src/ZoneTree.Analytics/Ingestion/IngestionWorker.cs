@@ -76,6 +76,8 @@ sealed class IngestionWorker
 {
   readonly IngestionServices services;
 
+  readonly SessionSchema schema;
+
   readonly Channel<WorkItem> channel;
 
   readonly RollupBuffer buffer;
@@ -107,11 +109,10 @@ sealed class IngestionWorker
 
   long lastFlushTimestamp = Stopwatch.GetTimestamp();
 
+  // The Environment.TickCount64 at which the retention cutoffs are refreshed next.
+  long nextCutoffRefresh = long.MinValue;
+
   PartitionLease<Memory<byte>, Memory<byte>> rawLease;
-
-  readonly SessionSchema schema;
-
-  readonly RetentionCutoffs cutoffs;
 
   Task task;
 
@@ -120,7 +121,6 @@ sealed class IngestionWorker
     this.services = services;
     var options = services.Options;
     schema = services.Enricher.Schema;
-    cutoffs = new RetentionCutoffs(options.Retention, services.Calendar);
     channel = Channel.CreateBounded<WorkItem>(new BoundedChannelOptions(options.Ingestion.QueueCapacity)
     {
       SingleReader = true,
@@ -133,8 +133,7 @@ sealed class IngestionWorker
         options.Rollups.Granularities,
         services.Calendar,
         options.Rollups.HyperLogLogPrecision,
-        services.Enricher.Schema,
-        cutoffs);
+        schema);
     sessionTimeoutTicks = options.Sessions.Timeout.Ticks;
     flushIntervalTimestamp = (long)(options.Ingestion.FlushInterval.TotalSeconds * Stopwatch.Frequency);
     sessionsEnabled = options.Sessions.Enabled && services.Sessions != null;
@@ -186,6 +185,7 @@ sealed class IngestionWorker
 
   void Process(EventSnapshot snapshot)
   {
+    RefreshRetentionCutoffs();
     var counters = services.Counters;
     var ev = services.Enricher.Enrich(snapshot, out var reason);
     if (ev == null)
@@ -194,9 +194,6 @@ sealed class IngestionWorker
       {
         case RejectReason.Bot:
           Interlocked.Increment(ref counters.BotsExcluded);
-          break;
-        case RejectReason.Filtered:
-          Interlocked.Increment(ref counters.EventsFiltered);
           break;
         default:
           Interlocked.Increment(ref counters.EventsRejected);
@@ -241,7 +238,7 @@ sealed class IngestionWorker
     if (session != null)
       dimensions[StandardDimensions.EntryPage] = session.EntryPage;
 
-    if (storeRawEvents && cutoffs.KeepsRawEvent(ev.Ticks))
+    if (storeRawEvents && ev.Ticks >= buffer.Cutoffs.RawEvents)
       WriteRawEvent(ev, session);
 
     metricChanges.Clear();
@@ -261,6 +258,18 @@ sealed class IngestionWorker
     if (ev.Ticks > watermark)
       watermark = ev.Ticks;
     Interlocked.Increment(ref counters.EventsProcessed);
+  }
+
+  /// <summary>
+  /// Late events older than a tier's retention are not written to that tier.
+  /// </summary>
+  void RefreshRetentionCutoffs()
+  {
+    var tick = Environment.TickCount64;
+    if (tick < nextCutoffRefresh)
+      return;
+    nextCutoffRefresh = tick + 1000;
+    buffer.Cutoffs = RetentionCutoffs.Compute(services.Options.Retention, services.Calendar, DateTime.UtcNow.Ticks);
   }
 
   SessionState GetSession(ulong visitor, long ticks)
@@ -530,7 +539,8 @@ sealed class IngestionWorker
     var max = services.Options.Sessions.MaxCachedSessions;
     if (sessions.Count <= max)
       return;
-    // All sessions are persisted at this point; drop the least recently active quarter.
+    // All sessions are persisted at this point: evict the least recently active ones, down to
+    // three quarters of the limit, so eviction does not run on every flush.
     var ordered = sessions.OrderBy(x => x.Value.LastTicks).Take(sessions.Count - max * 3 / 4).ToList();
     foreach (var (visitor, session) in ordered)
     {

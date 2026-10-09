@@ -1,3 +1,4 @@
+using System.Globalization;
 using ZoneTree.Analytics.Ingestion;
 using ZoneTree.Analytics.Internal;
 using ZoneTree.Analytics.Sketches;
@@ -93,12 +94,10 @@ public sealed class StorageCodecTests
   [Test]
   public void RollupMergeNeverMutatesInputs()
   {
-    var a = new RollupAccumulator();
-    a.Count = 1;
+    var a = new RollupAccumulator { Count = 1 };
     a.AddVisitor(1, 14);
     a.AddMetric("x", 5);
-    var b = new RollupAccumulator();
-    b.Count = 2;
+    var b = new RollupAccumulator { Count = 2 };
     b.AddVisitor(2, 14);
     b.AddMetric("x", 7);
     b.AddMetric("y", 1);
@@ -262,7 +261,7 @@ public sealed class StorageCodecTests
     var scheme = new PartitionScheme(period);
     var names = scheme.NamesInRange(new DateTime(2025, 12, 31, 23, 0, 0).Ticks, new DateTime(2026, 2, 1, 0, 0, 1).Ticks).ToArray();
     var expected = period == PartitionPeriod.Day
-        ? Enumerable.Range(0, 33).Select(x => new DateTime(2025, 12, 31).AddDays(x).ToString("yyyy-MM-dd")).ToArray()
+        ? Enumerable.Range(0, 33).Select(x => new DateTime(2025, 12, 31).AddDays(x).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)).ToArray()
         : new[] { first, second, third }.Where(x => x != null).ToArray();
     Assert.Multiple(() =>
     {

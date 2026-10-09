@@ -12,3 +12,9 @@ trim_trailing_whitespace = true
 
 # CA1051: Do not declare visible instance fields
 dotnet_diagnostic.CA1051.severity = none
+
+[src/ZoneTree.Analytics.UnitTests/**.cs]
+
+# CA1861: Prefer static readonly fields over constant array arguments. Expected values in
+# assertions read best inline.
+dotnet_diagnostic.CA1861.severity = none

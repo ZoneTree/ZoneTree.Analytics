@@ -1,0 +1,9 @@
+<Project>
+
+  <!-- Shared by every project: the recommended .NET analyzers, with warnings as errors. -->
+  <PropertyGroup>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+</Project>

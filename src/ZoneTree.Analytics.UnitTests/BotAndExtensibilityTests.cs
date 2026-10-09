@@ -78,7 +78,7 @@ public sealed class BotAndExtensibilityTests
     return engine.Query(query);
   }
 
-  WebReportRequest Request() => new() { Range = Range };
+  static WebReportRequest Request() => new() { Range = Range };
 
   #region Bot traffic
 
@@ -263,7 +263,10 @@ public sealed class BotAndExtensibilityTests
     TrackTraffic();
     engine.Track(new AnalyticsEvent(StandardEvents.PageView)
     {
-      Url = "/", IpAddress = "10.0.0.9", UserAgent = UserAgents.ChromeWindows, Timestamp = Utc(T0)
+      Url = "/",
+      IpAddress = "10.0.0.9",
+      UserAgent = UserAgents.ChromeWindows,
+      Timestamp = Utc(T0)
     }.WithDimension("synthetic", "1"));
     engine.Flush();
     var summary = await engine.Web.GetSummaryAsync(Request());

@@ -1,19 +1,6 @@
-namespace ZoneTree.Analytics;
+using System.Globalization;
 
-/// <summary>
-/// The aggregate of one measured value.
-/// </summary>
-/// <param name="Sum">The sum of values.</param>
-/// <param name="Count">The number of values.</param>
-/// <param name="Min">The smallest value.</param>
-/// <param name="Max">The largest value.</param>
-readonly record struct MetricValue(double Sum, long Count, double Min, double Max)
-{
-  /// <summary>
-  /// The average of the values, or zero when there are none.
-  /// </summary>
-  public double Average => Count == 0 ? 0 : Sum / Count;
-}
+namespace ZoneTree.Analytics;
 
 /// <summary>
 /// One result row: a time bucket and group, with one value per query metric.
@@ -86,11 +73,11 @@ public sealed class AnalyticsRow
   {
     var parts = new List<string>();
     if (Bucket.HasValue)
-      parts.Add(Bucket.Value.ToString("yyyy-MM-dd HH:mm zzz", System.Globalization.CultureInfo.InvariantCulture));
+      parts.Add(Bucket.Value.ToString("yyyy-MM-dd HH:mm zzz", CultureInfo.InvariantCulture));
     if (Dimensions.Count > 0)
       parts.Add("[" + string.Join(", ", Dimensions.Select(x => x ?? "(none)")) + "]");
     for (var i = 0; i < values.Length; ++i)
-      parts.Add(shape.Metrics[i].Key + "=" + Metric.Format(values[i]));
+      parts.Add(shape.Metrics[i].Key + "=" + values[i].ToString("R", CultureInfo.InvariantCulture));
     return string.Join(" ", parts);
   }
 }

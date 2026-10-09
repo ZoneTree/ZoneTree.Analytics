@@ -1,3 +1,4 @@
+using System.Globalization;
 using ZoneTree.Analytics.Web;
 
 namespace ZoneTree.Analytics.UnitTests;
@@ -233,7 +234,7 @@ public sealed class LimitsTests
   {
     using var engine = TestEngine.Create(directory, o => o.Queries.Timeout = TimeSpan.FromTicks(1));
     for (var i = 0; i < 3000; ++i)
-      engine.Track(new AnalyticsEvent("e") { VisitorId = i.ToString(), Timestamp = Utc(T0.AddSeconds(i)) });
+      engine.Track(new AnalyticsEvent("e") { VisitorId = i.ToString(CultureInfo.InvariantCulture), Timestamp = Utc(T0.AddSeconds(i)) });
     engine.Flush();
     var query = new AnalyticsQuery { Event = "e", Range = Range, Source = QuerySource.RawEvents };
     var funnel = new FunnelQuery { Range = Range, Steps = { FunnelStep.Goal("e"), FunnelStep.Goal("f") } };

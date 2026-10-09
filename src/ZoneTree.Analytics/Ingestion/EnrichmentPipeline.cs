@@ -62,7 +62,6 @@ enum RejectReason
 {
   None,
   Invalid,
-  Filtered,
   Bot,
   FutureTimestamp,
 }
@@ -76,8 +75,6 @@ enum RejectReason
 /// </remarks>
 sealed class EnrichmentPipeline
 {
-  const int MaxNameLength = 128;
-
   static readonly SessionSchema StandardSchema = SessionSchema.Standard;
 
   static readonly int SourceIndex = StandardSchema.IndexOf(StandardDimensions.Source);
@@ -96,8 +93,6 @@ sealed class EnrichmentPipeline
   static readonly int OperatingSystemIndex = StandardSchema.IndexOf(StandardDimensions.OperatingSystem);
   static readonly int OperatingSystemVersionIndex = StandardSchema.IndexOf(StandardDimensions.OperatingSystemVersion);
   static readonly int DeviceIndex = StandardSchema.IndexOf(StandardDimensions.Device);
-
-  static readonly IReadOnlyDictionary<string, string> NoDimensions = new Dictionary<string, string>();
 
   readonly AnalyticsOptions options;
 
@@ -126,7 +121,7 @@ sealed class EnrichmentPipeline
 
   public string NormalizeSite(string site)
   {
-    var normalized = Text.Name(site, MaxNameLength);
+    var normalized = Text.Name(site);
     return normalized.Length == 0 ? options.DefaultSite : normalized;
   }
 
@@ -142,7 +137,7 @@ sealed class EnrichmentPipeline
   public EnrichedEvent Enrich(EventSnapshot e, out RejectReason reason)
   {
     var privacy = options.Privacy;
-    var name = Text.Name(e.Name, MaxNameLength);
+    var name = Text.Name(e.Name);
     if (name.Length == 0 || name[0] == '$')
     {
       reason = RejectReason.Invalid;
@@ -208,7 +203,7 @@ sealed class EnrichmentPipeline
       {
         if (rawValue == null)
           continue;
-        var key = Text.Name(rawKey, MaxNameLength);
+        var key = Text.Name(rawKey);
         if (key.Length == 0 || key.Contains(',') || key == StandardDimensions.EntryPage)
           continue;
         var value = Text.Value(rawValue, privacy.MaxValueLength);
@@ -224,11 +219,7 @@ sealed class EnrichmentPipeline
           result.Dimensions[key] = value;
           continue;
         }
-        if (privacy.DeniedDimensions != null && privacy.DeniedDimensions.Contains(key))
-          continue;
-        if (privacy.AllowedDimensions != null && !privacy.AllowedDimensions.Contains(key))
-          continue;
-        if (customCount >= privacy.MaxCustomDimensions)
+        if (!privacy.IsCustomDimensionAllowed(key) || customCount >= privacy.MaxCustomDimensions)
           continue;
         result.Dimensions[key] = value;
         ++customCount;
@@ -254,7 +245,7 @@ sealed class EnrichmentPipeline
           break;
         if (!double.IsFinite(value))
           continue;
-        var key = Text.Name(rawKey, MaxNameLength);
+        var key = Text.Name(rawKey);
         if (key.Length == 0 || key[0] == '$')
           continue;
         result.Metrics.Add(new(key, value));
@@ -285,12 +276,7 @@ sealed class EnrichmentPipeline
     context.IpAddress = e.IpAddress;
     context.UserAgent = e.UserAgent;
     context.UserAgentInfo = userAgent;
-    context.TrackedDimensions = e.Dimensions == null
-        ? NoDimensions
-        : e.Dimensions
-            .Where(x => x.Key != null && x.Value != null)
-            .GroupBy(x => x.Key, StringComparer.Ordinal)
-            .ToDictionary(x => x.Key, x => x.Last().Value, StringComparer.Ordinal);
+    context.TrackedDimensionSource = e.Dimensions;
     return context;
   }
 
@@ -399,7 +385,7 @@ sealed class EnrichmentPipeline
 
   void SetDimension(EnrichedEvent result, string dimension, string value)
   {
-    var name = Text.Name(dimension, MaxNameLength);
+    var name = Text.Name(dimension);
     if (name.Length == 0 || name.Contains(','))
       throw new ArgumentException($"'{dimension}' is not a valid dimension name.", nameof(dimension));
     if (name == StandardDimensions.EntryPage)

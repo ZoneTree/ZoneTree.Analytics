@@ -106,7 +106,7 @@ sealed class ReportingCalendar
   /// <summary>
   /// Returns the next bucket key after the given bucket key.
   /// </summary>
-  public long NextBucket(long bucket, TimeInterval interval)
+  public static long NextBucket(long bucket, TimeInterval interval)
   {
     var date = new DateTime(bucket);
     return interval switch

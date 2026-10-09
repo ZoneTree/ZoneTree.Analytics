@@ -81,7 +81,19 @@ public class EventContext
   public UserAgentInfo UserAgentInfo { get; internal set; }
 
   /// <summary>The custom dimensions of the event as tracked.</summary>
-  public IReadOnlyDictionary<string, string> TrackedDimensions { get; internal set; }
+  public IReadOnlyDictionary<string, string> TrackedDimensions =>
+      trackedDimensions ??= TrackedDimensionSource == null
+          ? EmptyDimensions
+          : TrackedDimensionSource
+              .Where(x => x.Value != null)
+              .ToDictionary(x => x.Key, x => x.Value, StringComparer.Ordinal);
+
+  // Built on first use: most extensions never read the tracked dimensions.
+  internal KeyValuePair<string, string>[] TrackedDimensionSource;
+
+  IReadOnlyDictionary<string, string> trackedDimensions;
+
+  static readonly IReadOnlyDictionary<string, string> EmptyDimensions = new Dictionary<string, string>();
 }
 
 /// <summary>
@@ -90,39 +102,6 @@ public class EventContext
 /// <param name="Name">The bot name, for example "Googlebot", "GPTBot" or "curl".</param>
 /// <param name="Category">The bot category, see <see cref="BotCategories"/>.</param>
 public sealed record BotInfo(string Name, string Category);
-
-/// <summary>
-/// Bot categories of the built-in detector. Custom detectors may use their own.
-/// </summary>
-public static class BotCategories
-{
-  /// <summary>Search engine crawlers.</summary>
-  public const string Search = "Search";
-
-  /// <summary>AI crawlers and assistants fetching pages.</summary>
-  public const string AI = "AI";
-
-  /// <summary>SEO and marketing tools.</summary>
-  public const string Seo = "SEO";
-
-  /// <summary>Link preview services of social networks and messengers.</summary>
-  public const string SocialPreview = "Social Preview";
-
-  /// <summary>Uptime monitors and performance tools.</summary>
-  public const string Monitoring = "Monitoring";
-
-  /// <summary>Headless browsers and browser automation.</summary>
-  public const string Automation = "Automation";
-
-  /// <summary>HTTP libraries, command-line tools and scripts.</summary>
-  public const string Scripts = "Scripts";
-
-  /// <summary>Web archives.</summary>
-  public const string Archiver = "Archiver";
-
-  /// <summary>Other self-identified bots.</summary>
-  public const string Other = "Other";
-}
 
 /// <summary>
 /// Recognizes bot traffic.

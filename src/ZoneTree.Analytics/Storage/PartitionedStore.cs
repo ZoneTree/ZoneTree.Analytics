@@ -252,21 +252,6 @@ sealed class PartitionedStore<TKey, TValue> : IDisposable
       CloseOrDrop(partition, drop: partition.DropRequested);
   }
 
-  /// <summary>
-  /// Merges in-memory data of all open partitions to disk segments.
-  /// </summary>
-  public void EvictAllToDisk()
-  {
-    List<IMaintainer> maintainers;
-    lock (sync)
-      maintainers = partitions.Values.Where(x => !x.Closing).Select(x => x.Maintainer).ToList();
-    foreach (var maintainer in maintainers)
-    {
-      maintainer.EvictToDisk();
-      maintainer.WaitForBackgroundThreads();
-    }
-  }
-
   void CloseOrDrop(Partition partition, bool drop)
   {
     try

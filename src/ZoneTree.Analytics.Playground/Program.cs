@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using ZoneTree.Analytics;
 using ZoneTree.Analytics.Web;
 
@@ -10,9 +11,9 @@ using ZoneTree.Analytics.Web;
 // mode can combine: noraw, nosessions, totalsonly, norollups (for profiling components).
 // Set ZT_PAUSE=1 to pause after ingestion, for example to attach dotnet-gcdump.
 
-var eventCount = args.Length > 0 ? int.Parse(args[0]) : 1_000_000;
-var days = args.Length > 1 ? int.Parse(args[1]) : 30;
-var workers = args.Length > 2 ? int.Parse(args[2]) : 1;
+var eventCount = args.Length > 0 ? int.Parse(args[0], CultureInfo.InvariantCulture) : 1_000_000;
+var days = args.Length > 1 ? int.Parse(args[1], CultureInfo.InvariantCulture) : 30;
+var workers = args.Length > 2 ? int.Parse(args[2], CultureInfo.InvariantCulture) : 1;
 var directory = Path.Combine(AppContext.BaseDirectory, "data", "playground");
 if (Directory.Exists(directory))
   Directory.Delete(directory, true);
@@ -211,7 +212,7 @@ sealed class SyntheticTraffic
     var visitor = (int)(Math.Pow(random.NextDouble(), 2) * visitorPool); // repeat visitors are common
     var ua = UserAgents[visitor % UserAgents.Length];
     var ip = $"10.{visitor / 65536 % 256}.{visitor / 256 % 256}.{visitor % 256}";
-    string referrer = null;
+    string referrer;
     int page;
     if (visitorState.TryGetValue(visitor, out var state) && timestamp - state.Last < TimeSpan.FromMinutes(20))
     {

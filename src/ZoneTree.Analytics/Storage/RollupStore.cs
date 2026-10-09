@@ -15,6 +15,11 @@ namespace ZoneTree.Analytics.Storage;
 /// </remarks>
 sealed class RollupStore : IDisposable
 {
+  /// <summary>
+  /// The rollup granularities, finest first.
+  /// </summary>
+  public static readonly Granularity[] Granularities = [Granularity.Minute, Granularity.Hour, Granularity.Day];
+
   readonly PartitionedStore<Memory<byte>, RollupValue>[] stores = new PartitionedStore<Memory<byte>, RollupValue>[3];
 
   readonly RollupDefinition[] definitions;

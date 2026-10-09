@@ -422,7 +422,7 @@ public sealed class WebAnalytics
     query.OrderBy.Add(Order.By(Metric.Events));
     var result = await engine.QueryAsync(query, cancellationToken).ConfigureAwait(false);
 
-    BotStats ToStats(AnalyticsRow row) => row == null ? null : new BotStats(
+    static BotStats ToStats(AnalyticsRow row) => row == null ? null : new BotStats(
         row.Dimensions[0],
         row.Dimensions[1],
         (long)row[Metric.Events],

@@ -8,8 +8,8 @@ namespace ZoneTree.Analytics.Storage;
 /// Order-preserving binary key layouts.
 /// </summary>
 /// <remarks>
-/// Keys are compared with ZoneTree's built-in byte-array comparer, which orders
-/// keys lexicographically. Variable-length segments are terminated by a zero byte,
+/// Keys are compared with <see cref="LexicographicByteComparer"/>, which orders keys
+/// lexicographically. Variable-length segments are terminated by a zero byte,
 /// which never occurs inside sanitized names, so a segment never prefixes another.
 /// Timestamps are big-endian so byte order equals numeric order.
 /// <code>
@@ -77,15 +77,6 @@ static class KeyCodec
     var writer = Writer;
     writer.WriteRawUtf8(site);
     writer.WriteByte(Terminator);
-    return writer.ToArray();
-  }
-
-  public static Memory<byte> RollupKey(ReadOnlySpan<byte> prefix, long bucket, string value)
-  {
-    var writer = Writer;
-    writer.WriteBytes(prefix);
-    writer.WriteUInt64BigEndian((ulong)bucket);
-    writer.WriteRawUtf8(value);
     return writer.ToArray();
   }
 

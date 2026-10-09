@@ -18,10 +18,6 @@ sealed class ByteWriter
     buffer = new byte[capacity];
   }
 
-  public int Length => length;
-
-  public ReadOnlySpan<byte> WrittenSpan => buffer.AsSpan(0, length);
-
   public void Reset() => length = 0;
 
   public byte[] ToArray() => buffer.AsSpan(0, length).ToArray();
@@ -125,10 +121,6 @@ ref struct ByteReader
     this.span = span;
     position = 0;
   }
-
-  public readonly bool IsEnd => position >= span.Length;
-
-  public readonly int Position => position;
 
   public byte ReadByte() => span[position++];
 

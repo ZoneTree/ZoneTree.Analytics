@@ -113,23 +113,17 @@ sealed class RollupBuffer
   // Per scope, per definition: whether contributions of the scope reach the definition.
   readonly bool[][] accepts;
 
-  readonly RetentionCutoffs cutoffs;
-
   public RollupBuffer(
       RollupDefinition[] definitions,
       Granularity enabled,
       ReportingCalendar calendar,
       int precision,
-      SessionSchema schema,
-      RetentionCutoffs cutoffs = null)
+      SessionSchema schema)
   {
     this.definitions = definitions;
-    granularities = new[] { Granularity.Minute, Granularity.Hour, Granularity.Day }
-        .Where(x => (enabled & x) != 0)
-        .ToArray();
+    granularities = RollupStore.Granularities.Where(x => (enabled & x) != 0).ToArray();
     dayCache = new LocalDayCache(calendar);
     this.precision = precision;
-    this.cutoffs = cutoffs;
     accepts = Enum.GetValues<DimensionScope>()
         .Select(scope => definitions
             .Select(x => schema.Accepts(x, scope, scope == DimensionScope.Bot ? StandardEvents.Bot : null))
@@ -138,6 +132,11 @@ sealed class RollupBuffer
   }
 
   public int Count => rows.Count;
+
+  /// <summary>
+  /// Rows older than these cutoffs are not buffered. Refreshed by the owning worker.
+  /// </summary>
+  public RetentionCutoffs Cutoffs { get; set; } = RetentionCutoffs.None;
 
   /// <summary>
   /// Returns the buffered rows and starts a new buffer.
@@ -179,7 +178,7 @@ sealed class RollupBuffer
     {
       var bucket = BucketOf(granularities[g], ticks);
       // A bucket beyond its granularity's retention is skipped (long.MinValue).
-      if (cutoffs == null || cutoffs.KeepsRollup(granularities[g], ticks, bucket))
+      if (Cutoffs.KeepsRollup(granularities[g], ticks, bucket))
       {
         buckets[g] = bucket;
         ++kept;

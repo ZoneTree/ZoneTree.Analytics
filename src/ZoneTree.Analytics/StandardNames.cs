@@ -46,7 +46,7 @@ public static class StandardDimensions
   /// <summary>The referrer host name. Empty for direct traffic.</summary>
   public const string Referrer = "referrer";
 
-  /// <summary>The acquisition channel, for example "Organic Search" or "Direct".</summary>
+  /// <summary>The acquisition channel, see <see cref="Channels"/>.</summary>
   public const string Channel = "channel";
 
   /// <summary>The utm_source URL parameter.</summary>
@@ -125,6 +125,78 @@ public static class StandardDimensions
     OperatingSystemVersion,
     Device
   ];
+}
+
+/// <summary>
+/// Acquisition channels assigned to sessions.
+/// </summary>
+public static class Channels
+{
+  /// <summary>No referrer and no campaign parameters.</summary>
+  public const string Direct = "Direct";
+
+  /// <summary>Unpaid search engine traffic.</summary>
+  public const string OrganicSearch = "Organic Search";
+
+  /// <summary>Paid search campaigns.</summary>
+  public const string PaidSearch = "Paid Search";
+
+  /// <summary>Unpaid social network traffic.</summary>
+  public const string OrganicSocial = "Organic Social";
+
+  /// <summary>Paid social campaigns.</summary>
+  public const string PaidSocial = "Paid Social";
+
+  /// <summary>Other paid campaigns.</summary>
+  public const string PaidOther = "Paid Other";
+
+  /// <summary>Email clients and newsletters.</summary>
+  public const string Email = "Email";
+
+  /// <summary>Affiliate campaigns.</summary>
+  public const string Affiliates = "Affiliates";
+
+  /// <summary>AI assistants and answer engines.</summary>
+  public const string AIAssistants = "AI Assistants";
+
+  /// <summary>Video platforms.</summary>
+  public const string Video = "Video";
+
+  /// <summary>Links from other websites.</summary>
+  public const string Referral = "Referral";
+}
+
+/// <summary>
+/// Bot categories of the built-in detector. Custom detectors may use their own.
+/// </summary>
+public static class BotCategories
+{
+  /// <summary>Search engine crawlers.</summary>
+  public const string Search = "Search";
+
+  /// <summary>AI crawlers and assistants fetching pages.</summary>
+  public const string AI = "AI";
+
+  /// <summary>SEO and marketing tools.</summary>
+  public const string Seo = "SEO";
+
+  /// <summary>Link preview services of social networks and messengers.</summary>
+  public const string SocialPreview = "Social Preview";
+
+  /// <summary>Uptime monitors and performance tools.</summary>
+  public const string Monitoring = "Monitoring";
+
+  /// <summary>Headless browsers and browser automation.</summary>
+  public const string Automation = "Automation";
+
+  /// <summary>HTTP libraries, command-line tools and scripts.</summary>
+  public const string Scripts = "Scripts";
+
+  /// <summary>Web archives.</summary>
+  public const string Archiver = "Archiver";
+
+  /// <summary>Other self-identified bots.</summary>
+  public const string Other = "Other";
 }
 
 /// <summary>

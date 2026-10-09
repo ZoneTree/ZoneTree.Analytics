@@ -1,28 +1,26 @@
 namespace ZoneTree.Analytics.Internal;
 
+/// <summary>
+/// Sanitization of names and values before they are stored.
+/// </summary>
 static class Text
 {
   /// <summary>
-  /// Sanitizes a name (event, site, dimension or metric name): trims, removes control
-  /// characters and truncates. Returns empty for null.
+  /// The maximum length of event, site, dimension and metric names.
   /// </summary>
-  public static string Name(string value, int maxLength)
+  public const int MaxNameLength = 128;
+
+  /// <summary>
+  /// Sanitizes a name (event, site, dimension or metric name): removes control characters,
+  /// trims and truncates. Returns empty for null.
+  /// </summary>
+  public static string Name(string value, int maxLength = MaxNameLength)
   {
     if (string.IsNullOrEmpty(value))
       return "";
-    var needsCleaning = false;
-    foreach (var c in value)
-    {
-      if (char.IsControl(c))
-      {
-        needsCleaning = true;
-        break;
-      }
-    }
-    if (needsCleaning)
+    if (ContainsControl(value))
       value = string.Concat(value.Where(c => !char.IsControl(c)));
-    value = value.Trim();
-    return Truncate(value, maxLength);
+    return Truncate(value.Trim(), maxLength);
   }
 
   /// <summary>
@@ -33,23 +31,25 @@ static class Text
   {
     if (string.IsNullOrEmpty(value))
       return "";
-    var needsCleaning = false;
-    foreach (var c in value)
+    if (ContainsControl(value))
     {
-      if (char.IsControl(c))
-      {
-        needsCleaning = true;
-        break;
-      }
-    }
-    if (needsCleaning)
       value = string.Create(value.Length, value, (span, source) =>
       {
         for (var i = 0; i < source.Length; ++i)
           span[i] = char.IsControl(source[i]) ? ' ' : source[i];
       });
-    value = value.Trim();
-    return Truncate(value, maxLength);
+    }
+    return Truncate(value.Trim(), maxLength);
+  }
+
+  static bool ContainsControl(string value)
+  {
+    foreach (var c in value)
+    {
+      if (char.IsControl(c))
+        return true;
+    }
+    return false;
   }
 
   static string Truncate(string value, int maxLength)

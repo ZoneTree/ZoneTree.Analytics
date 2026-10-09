@@ -20,14 +20,15 @@ namespace ZoneTree.Analytics;
 /// queued and processed by background workers.
 /// </para>
 /// <para>
-/// Storage layout under <see cref="AnalyticsOptions.DataDirectory"/>:
+/// Storage layout under <see cref="AnalyticsOptions.DataDirectory"/>, with the default
+/// <see cref="PartitioningOptions"/>:
 /// <code>
-/// meta/               configuration, secrets, salts (ZoneTree)
-/// sessions/           active sessions (ZoneTree)
-/// events/2026-10/     raw events, one ZoneTree per period
-/// rollups/hour/2026-10/   hourly rollups, one ZoneTree per month
-/// rollups/day/2026/       daily rollups, one ZoneTree per year
+/// meta/                       configuration, secrets, salts
+/// sessions/                   active sessions
+/// events/2026-10/             raw events, one ZoneTree per month
 /// rollups/minute/2026-10-08/  minute rollups, one ZoneTree per day
+/// rollups/hour/2026-10/       hourly rollups, one ZoneTree per month
+/// rollups/day/2026/           daily rollups, one ZoneTree per year
 /// </code>
 /// </para>
 /// </remarks>
@@ -96,7 +97,7 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
     meta = new MetaStore(factory.OpenMeta(Path.Combine(root, "meta")));
     try
     {
-      var isNew = ValidateConfiguration();
+      var isNew = ValidateConfiguration(root);
       RegisterRollupDefinitions(isNew);
       sequence = Math.Max(
           DateTime.UtcNow.Ticks,
@@ -136,26 +137,26 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
       };
       workers = new IngestionWorker[options.Ingestion.WorkerCount];
       for (var i = 0; i < workers.Length; ++i)
-      {
         workers[i] = new IngestionWorker(services);
-        workers[i].Start();
-      }
 
       queryEngine = new QueryEngine(
           options, calendar, rollups, rawEvents, definitions, GetDefinitionActiveSince, enricher);
       funnelEngine = new FunnelEngine(options, calendar, rawEvents, enricher);
       Web = new WebAnalytics(this);
-
       visitorHasher.RotateSalts(DateTime.UtcNow);
-      lastHousekeepingTicks = DateTime.UtcNow.Ticks;
-      var period = options.Ingestion.FlushInterval;
-      timer = new Timer(OnTimer, null, period, period);
     }
     catch
     {
       DisposeStorage();
       throw;
     }
+
+    // Background work starts only once the engine is fully constructed.
+    foreach (var worker in workers)
+      worker.Start();
+    lastHousekeepingTicks = DateTime.UtcNow.Ticks;
+    var period = options.Ingestion.FlushInterval;
+    timer = new Timer(OnTimer, null, period, period);
   }
 
   /// <summary>
@@ -192,7 +193,7 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
   /// <summary>
   /// Persists configuration that defines the storage format and validates it on reopen.
   /// </summary>
-  bool ValidateConfiguration()
+  bool ValidateConfiguration(string root)
   {
     var isNew = meta.Get("format-version") == null;
     void Check(string key, string expected, string description, string legacy = null, string dataDirectory = null)
@@ -213,7 +214,6 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
           $"The analytics data directory was created with {description} '{stored}', " +
           $"but the options specify '{expected}'. This setting cannot be changed for an existing data directory.");
     }
-    var root = Path.GetFullPath(options.DataDirectory);
     var partitioning = options.Storage.Partitioning;
     Check("format-version", FormatVersion, "format version");
     Check("time-zone", options.TimeZone.Id, "time zone");
@@ -240,14 +240,11 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
     {
       var key = "rollup:" + definition.Id;
       var stored = meta.Get(key);
-      long since;
-      if (stored != null && long.TryParse(stored, NumberStyles.Integer, CultureInfo.InvariantCulture, out since))
+      if (stored == null || !long.TryParse(stored, NumberStyles.Integer, CultureInfo.InvariantCulture, out var since))
       {
-        definitionActiveSince[definition.Id] = since;
-        continue;
+        since = isNewDirectory ? 0 : DateTime.UtcNow.Ticks;
+        meta.Set(key, since.ToString(CultureInfo.InvariantCulture));
       }
-      since = isNewDirectory ? 0 : DateTime.UtcNow.Ticks;
-      meta.Set(key, since.ToString(CultureInfo.InvariantCulture));
       definitionActiveSince[definition.Id] = since;
     }
   }
@@ -569,16 +566,18 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
   int ApplyRetentionCore()
   {
     var now = DateTime.UtcNow;
-    var retention = options.Retention;
+    var cutoffs = RetentionCutoffs.Compute(options.Retention, calendar, now.Ticks);
     var dropped = 0;
-    if (rawEvents != null && retention.RawEvents.HasValue)
-      dropped += rawEvents.Store.DropPartitionsEndingBefore(now.Ticks - retention.RawEvents.Value.Ticks);
-    if (rollups.IsEnabled(Granularity.Minute) && retention.MinuteRollups.HasValue)
-      dropped += rollups.GetStore(Granularity.Minute).DropPartitionsEndingBefore(now.Ticks - retention.MinuteRollups.Value.Ticks);
-    if (rollups.IsEnabled(Granularity.Hour) && retention.HourRollups.HasValue)
-      dropped += rollups.GetStore(Granularity.Hour).DropPartitionsEndingBefore(now.Ticks - retention.HourRollups.Value.Ticks);
-    if (rollups.IsEnabled(Granularity.Day) && retention.DayRollups.HasValue)
-      dropped += rollups.GetStore(Granularity.Day).DropPartitionsEndingBefore(calendar.LocalDay(now.Ticks - retention.DayRollups.Value.Ticks));
+    if (rawEvents != null && cutoffs.RawEvents != long.MinValue)
+      dropped += rawEvents.Store.DropPartitionsEndingBefore(cutoffs.RawEvents);
+    foreach (var granularity in RollupStore.Granularities)
+    {
+      if (!rollups.IsEnabled(granularity) || cutoffs.Of(granularity) == long.MinValue)
+        continue;
+      // Daily partitions are named after local days of the reporting time zone.
+      var cutoff = granularity == Granularity.Day ? cutoffs.DayRollupsLocalDay : cutoffs.Of(granularity);
+      dropped += rollups.GetStore(granularity).DropPartitionsEndingBefore(cutoff);
+    }
     visitorHasher.RotateSalts(now);
     Interlocked.Add(ref counters.PartitionsDropped, dropped);
     lastRetentionTicks = now.Ticks;
