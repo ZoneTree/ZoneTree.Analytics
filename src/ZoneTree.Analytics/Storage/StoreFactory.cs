@@ -35,14 +35,11 @@ sealed class StoreFactory
   public string WriteAheadLogDirectoryOf(string dataDirectory) =>
       writeAheadLogRoot == null || dataDirectory == null ? null : Path.Combine(writeAheadLogRoot, Path.GetRelativePath(dataRoot, dataDirectory));
 
-  ZoneTreeFactory<TKey, TValue> Create<TKey, TValue>(string directory, StoreOptions store) =>
-      Create<TKey, TValue>(directory, store, WriteAheadLogDirectoryOf(directory));
-
   /// <summary>
   /// A factory configured from the store options. Without a directory it opens nothing and only
   /// serves <see cref="Validate"/>.
   /// </summary>
-  ZoneTreeFactory<TKey, TValue> Create<TKey, TValue>(string directory, StoreOptions store, string walDirectory)
+  ZoneTreeFactory<TKey, TValue> Create<TKey, TValue>(string directory, StoreOptions store)
   {
     // The logger must be set before the data directory: the device manager captures it.
     var factory = new ZoneTreeFactory<TKey, TValue>()
@@ -73,7 +70,7 @@ sealed class StoreFactory
       factory.SetDiskSegmentMaxItemCount(diskSegmentMaxItemCount);
     if (directory != null)
       factory.SetDataDirectory(directory);
-    if (walDirectory != null)
+    if (WriteAheadLogDirectoryOf(directory) is { } walDirectory)
       factory.SetWriteAheadLogDirectory(walDirectory);
     return factory;
   }
@@ -160,58 +157,5 @@ sealed class StoreFactory
         .SetIsDeletedDelegate((in ulong _, in SessionState value) =>
             value == null || value.ExpiresAtUtcTicks <= DateTime.UtcNow.Ticks)
         .SetMarkValueDeletedDelegate((ref SessionState value) => value = null);
-  }
-
-  /// <summary>
-  /// Engine metadata: configuration, secrets and salts. Rarely written and must be durable, so
-  /// it always uses a small mutable segment and the synchronous WAL. Its log stays next to its
-  /// data: the metadata records where the other logs are, so it must never depend on it.
-  /// </summary>
-  public IZoneTree<string, string> OpenMeta(string directory)
-  {
-    var meta = new StoreOptions { WriteAheadLogMode = WriteAheadLogMode.Sync, MutableSegmentMaxItemCount = 1_000 };
-    return Create<string, string>(directory, meta, walDirectory: null).OpenOrCreate();
-  }
-}
-
-/// <summary>
-/// Engine metadata store.
-/// </summary>
-sealed class MetaStore : IDisposable
-{
-  readonly IZoneTree<string, string> tree;
-
-  readonly IMaintainer maintainer;
-
-  public MetaStore(IZoneTree<string, string> tree)
-  {
-    this.tree = tree;
-    maintainer = tree.CreateMaintainer();
-  }
-
-  public string Get(string key) => tree.TryGet(key, out var value) ? value : null;
-
-  public void Set(string key, string value) => tree.Upsert(key, value);
-
-  public void Delete(string key) => tree.ForceDelete(key);
-
-  public List<KeyValuePair<string, string>> ListByPrefix(string prefix)
-  {
-    var result = new List<KeyValuePair<string, string>>();
-    using var iterator = tree.CreateIterator();
-    iterator.Seek(prefix);
-    while (iterator.Next())
-    {
-      if (!iterator.CurrentKey.StartsWith(prefix, StringComparison.Ordinal))
-        break;
-      result.Add(iterator.Current);
-    }
-    return result;
-  }
-
-  public void Dispose()
-  {
-    maintainer.Dispose();
-    tree.Dispose();
   }
 }

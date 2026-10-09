@@ -119,18 +119,17 @@ sealed class VisitorHasher
         if (day < keepFrom)
           salts.TryRemove(day, out _);
       }
-      foreach (var (name, _) in meta.ListByPrefix(SaltPrefix))
+      var expired = meta.ListByPrefix(SaltPrefix)
+          .Select(x => x.Key)
+          .Where(name => DateTime.ParseExact(name[SaltPrefix.Length..], "yyyy-MM-dd", CultureInfo.InvariantCulture).Ticks < keepFrom)
+          .ToList();
+      if (expired.Count > 0)
       {
-        if (DateTime.TryParseExact(
-                name[SaltPrefix.Length..],
-                "yyyy-MM-dd",
-                CultureInfo.InvariantCulture,
-                DateTimeStyles.None,
-                out var date) &&
-            date.Ticks < keepFrom)
+        meta.Update(entries =>
         {
-          meta.Delete(name);
-        }
+          foreach (var name in expired)
+            entries.Remove(name);
+        });
       }
     }
   }

@@ -15,7 +15,8 @@ namespace ZoneTree.Analytics;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Create one engine per data directory and keep it for the application lifetime.
+/// Create one engine per data directory and keep it for the application lifetime; a second engine
+/// on the same directory, in this or another process, fails with an <see cref="IOException"/>.
 /// All members are thread-safe. <see cref="Track"/> never blocks by default: events are
 /// queued and processed by background workers.
 /// </para>
@@ -23,7 +24,8 @@ namespace ZoneTree.Analytics;
 /// Storage layout under <see cref="AnalyticsOptions.DataDirectory"/>, with the default
 /// <see cref="PartitioningOptions"/>:
 /// <code>
-/// meta/                       configuration, secrets, salts
+/// engine.lock                 held exclusively while the engine is open
+/// meta/                       configuration, secrets, salts (two checksummed files)
 /// sessions/                   active sessions
 /// events/2026-10/             raw events, one ZoneTree per month
 /// rollups/minute/2026-10-08/  minute rollups, one ZoneTree per day
@@ -39,6 +41,8 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
   readonly AnalyticsOptions options;
 
   readonly ILogger logger;
+
+  readonly DirectoryLock directoryLock;
 
   readonly MetaStore meta;
 
@@ -87,6 +91,9 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
   /// The engine works on a copy of <paramref name="options"/>: changes made to them afterwards
   /// have no effect. Extensions, hooks and the logger are shared, not copied.
   /// </remarks>
+  /// <exception cref="ArgumentException">The options are invalid.</exception>
+  /// <exception cref="AnalyticsConfigurationException">The options conflict with the storage format of the data directory, or its metadata is damaged.</exception>
+  /// <exception cref="IOException">Another engine has the data directory open.</exception>
   public AnalyticsEngine(AnalyticsOptions options)
   {
     ArgumentNullException.ThrowIfNull(options);
@@ -101,9 +108,10 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
     var storageLogger = new CountingLogger(logger, counters);
     var factory = new StoreFactory(options.Storage, root, storageLogger);
 
-    meta = new MetaStore(factory.OpenMeta(Path.Combine(root, "meta")));
+    directoryLock = new DirectoryLock(root);
     try
     {
+      meta = new MetaStore(Path.Combine(root, "meta"));
       var isNew = ValidateConfiguration();
       RegisterRollupDefinitions(isNew);
       sequence = Math.Max(
@@ -221,10 +229,12 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
     ];
     if (meta.Get("format-version") == null)
     {
-      foreach (var (key, value, _) in settings)
-        meta.Set(key, value);
-      // Written last, so a directory whose creation was interrupted is simply created again.
-      meta.Set("format-version", FormatVersion);
+      meta.Update(entries =>
+      {
+        foreach (var (key, value, _) in settings)
+          entries[key] = value;
+        entries["format-version"] = FormatVersion;
+      });
       return true;
     }
     Require("format-version", FormatVersion, "format version");
@@ -252,27 +262,19 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
     // A definition that is not configured is not maintained. Forget it, so that adding it
     // again starts a new activation instead of claiming coverage of the time it was missing.
     var configured = options.Rollups.Definitions.Select(RollupActivationKey).ToHashSet(StringComparer.Ordinal);
-    foreach (var (key, _) in meta.ListByPrefix(RollupActivationPrefix))
+    var activation = (isNewDirectory ? 0 : DateTime.UtcNow.Ticks).ToString(CultureInfo.InvariantCulture);
+    meta.Update(entries =>
     {
-      if (!configured.Contains(key))
-        meta.Delete(key);
-    }
+      foreach (var key in entries.Keys.Where(x => x.StartsWith(RollupActivationPrefix, StringComparison.Ordinal)).ToList())
+      {
+        if (!configured.Contains(key))
+          entries.Remove(key);
+      }
+      foreach (var key in configured)
+        entries.TryAdd(key, activation);
+    });
     foreach (var definition in options.Rollups.Definitions)
-    {
-      var key = RollupActivationKey(definition);
-      var stored = meta.Get(key);
-      long since;
-      if (stored != null)
-      {
-        since = long.Parse(stored, CultureInfo.InvariantCulture);
-      }
-      else
-      {
-        since = isNewDirectory ? 0 : DateTime.UtcNow.Ticks;
-        meta.Set(key, since.ToString(CultureInfo.InvariantCulture));
-      }
-      definitionActiveSince[definition.Id] = since;
-    }
+      definitionActiveSince[definition.Id] = long.Parse(meta.Get(RollupActivationKey(definition)), CultureInfo.InvariantCulture);
   }
 
   const string RollupActivationPrefix = "rollup:";
@@ -436,7 +438,6 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
       tasks.Add(completion.Task);
     }
     await Task.WhenAll(tasks).WaitAsync(cancellationToken).ConfigureAwait(false);
-    PersistSequence();
   }
 
   /// <summary>
@@ -684,16 +685,13 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
     });
   }
 
-  void PersistSequence()
-  {
-    try
-    {
+  /// <summary>
+  /// Persists the raw event sequence, every minute and at shutdown. On restart the sequence
+  /// resumes from the larger of the stored value and the current UTC ticks, so the stored value
+  /// only matters if the clock moves backwards between runs.
+  /// </summary>
+  void PersistSequence() =>
       meta.Set("raw-sequence", Interlocked.Read(ref sequence).ToString(CultureInfo.InvariantCulture));
-    }
-    catch (ObjectDisposedException)
-    {
-    }
-  }
 
   /// <summary>
   /// Stops accepting events, processes queued events, flushes and closes all stores.
@@ -734,7 +732,8 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
     }
     finally
     {
-      meta?.Dispose();
+      // Released last: no other engine may open the directory while stores are still closing.
+      directoryLock?.Dispose();
     }
   }
 }

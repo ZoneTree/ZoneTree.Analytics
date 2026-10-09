@@ -528,7 +528,8 @@ ZoneTree is an ordered, persistent LSM key-value engine. ZoneTree.Analytics is a
 
 ```text
 data/analytics/
-  meta/                       configuration, secrets, daily salts (synchronous WAL)
+  engine.lock                 held by the engine that has the directory open
+  meta/                       configuration, secrets, daily salts, rollup activations (two checksummed files)
   sessions/                   active sessions keyed by visitor hash (TTL deletion)
   events/2026-10/             raw events, one ZoneTree per month by default
   rollups/day/2026/           daily rollups, one ZoneTree per year by default
@@ -541,7 +542,8 @@ data/analytics/
 * **Time partitioning.** Each period is its own ZoneTree with its own maintainer; the period of every tier is configurable, see [Partitioning](#partitioning). Idle partitions are merged to disk and closed; retention drops whole partitions with `Maintenance.Drop()`.
 * **Sessions with TTL.** Expired sessions disappear through ZoneTree's deletion predicate and are removed by normal merges.
 * **Bounded memory.** Memory is governed by ZoneTree's mutable segment limits per open partition, not by the amount of data.
-* **Durability.** Data stores use ZoneTree's asynchronous compressed write-ahead log by default; the engine metadata uses the synchronous one.
+* **Durability.** Data stores use ZoneTree's asynchronous compressed write-ahead log by default. The few kilobytes of engine metadata live in two files written alternately, each flushed to disk and checksummed, so a crash during a write never loses the previous state.
+* **One engine per directory.** The engine holds `engine.lock` exclusively while the directory is open; a second engine, in this or another process, fails with an `IOException` instead of corrupting data.
 
 ---
 
@@ -579,7 +581,7 @@ Rollup query time depends on the number of rows in the range, not on the number 
 * **Durability.** After a crash, aggregates buffered since the last flush are lost, and recent records follow ZoneTree's write-ahead log guarantees. A graceful `Dispose` processes the queue and flushes everything.
 * **Statistics.** `analytics.GetStatistics()` reports accepted, dropped, processed, rejected, filtered and bot events, sessions, flushes, errors, queue length and open partitions.
 * **Logging.** Pass `Storage.Logger` (a ZoneTree `ILogger`); the ASP.NET Core package bridges to `Microsoft.Extensions.Logging`.
-* **Backups.** Every partition is a regular ZoneTree directory. For a consistent offline backup, dispose the engine and copy the data directory.
+* **Backups.** Every partition is a regular ZoneTree directory. For a consistent offline backup, dispose the engine and copy the data directory, and `Storage.WriteAheadLogDirectory` when it is set: the logs hold records that are not in disk segments yet.
 * **Retention** runs hourly by default (`Retention.CheckInterval`) and can be triggered with `ApplyRetention()`.
 
 ---

@@ -47,9 +47,8 @@ public sealed class StorageOptions
   /// <summary>
   /// A separate root directory for write-ahead logs, for example on a faster disk. Each store
   /// keeps its log under the same relative path as its data. Null (the default) keeps logs next
-  /// to the data. Engine metadata always keeps its log next to its data. It is persisted when
-  /// the data directory is created and cannot be changed afterwards, because unflushed records
-  /// live in the log.
+  /// to the data. It is persisted when the data directory is created and cannot be changed
+  /// afterwards, because unflushed records live in the log.
   /// </summary>
   public string WriteAheadLogDirectory { get; set; }
 

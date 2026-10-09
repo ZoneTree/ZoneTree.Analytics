@@ -4,6 +4,11 @@
   <PropertyGroup>
     <AnalysisLevel>latest-recommended</AnalysisLevel>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!--
+      The local ZoneTree checkout is a project reference outside this solution. Keep the
+      configuration for such references, or Release builds would use a Debug ZoneTree.
+    -->
+    <ShouldUnsetParentConfigurationAndPlatform>false</ShouldUnsetParentConfigurationAndPlatform>
   </PropertyGroup>
 
 </Project>
