@@ -113,11 +113,11 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
       }
       var definitions = options.Rollups.Definitions.ToArray();
       rollups = new RollupStore(
-          Path.Combine(root, "rollups"), options.Rollups.Granularities, definitions, factory, logger);
+          Path.Combine(root, "rollups"), options.Rollups.Granularities, options.Storage.Partitioning, definitions, factory, logger);
       if (options.Storage.StoreRawEvents)
       {
         rawEvents = new RawEventStore(
-            Path.Combine(root, "events"), options.Storage.RawEventPartitioning, factory, logger);
+            Path.Combine(root, "events"), options.Storage.Partitioning.RawEvents, factory, logger);
       }
 
       var services = new IngestionServices
@@ -193,23 +193,37 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
   bool ValidateConfiguration()
   {
     var isNew = meta.Get("format-version") == null;
-    void Check(string key, string expected, string description)
+    void Check(string key, string expected, string description, string legacy = null, string dataDirectory = null)
     {
-      var stored = meta.Get(key);
-      if (stored == null)
+      var persisted = meta.Get(key);
+      // Directories created before a setting existed were written with its legacy value.
+      var stored = persisted ?? (isNew ? null : legacy);
+      // A setting that shapes one store can change while that store holds no data.
+      var unused = dataDirectory != null &&
+          (!Directory.Exists(dataDirectory) || !Directory.EnumerateFileSystemEntries(dataDirectory).Any());
+      if (stored == null || stored == expected || unused)
       {
-        meta.Set(key, expected);
+        if (persisted != expected)
+          meta.Set(key, expected);
         return;
       }
-      if (stored != expected)
-        throw new AnalyticsConfigurationException(
-            $"The analytics data directory was created with {description} '{stored}', " +
-            $"but the options specify '{expected}'. This setting cannot be changed for an existing data directory.");
+      throw new AnalyticsConfigurationException(
+          $"The analytics data directory was created with {description} '{stored}', " +
+          $"but the options specify '{expected}'. This setting cannot be changed for an existing data directory.");
     }
+    var root = Path.GetFullPath(options.DataDirectory);
+    var partitioning = options.Storage.Partitioning;
     Check("format-version", FormatVersion, "format version");
     Check("time-zone", options.TimeZone.Id, "time zone");
     Check("hll-precision", options.Rollups.HyperLogLogPrecision.ToString(CultureInfo.InvariantCulture), "HyperLogLog precision");
-    Check("raw-partitioning", options.Storage.RawEventPartitioning.ToString(), "raw event partitioning");
+    Check("raw-partitioning", partitioning.RawEvents.ToString(), "raw event partitioning",
+        dataDirectory: Path.Combine(root, "events"));
+    Check("minute-partitioning", partitioning.MinuteRollups.ToString(), "minute rollup partitioning",
+        legacy: nameof(PartitionPeriod.Day), dataDirectory: Path.Combine(root, "rollups", "minute"));
+    Check("hour-partitioning", partitioning.HourRollups.ToString(), "hourly rollup partitioning",
+        legacy: nameof(PartitionPeriod.Month), dataDirectory: Path.Combine(root, "rollups", "hour"));
+    Check("day-partitioning", partitioning.DayRollups.ToString(), "daily rollup partitioning",
+        legacy: nameof(PartitionPeriod.Year), dataDirectory: Path.Combine(root, "rollups", "day"));
     return isNew;
   }
 

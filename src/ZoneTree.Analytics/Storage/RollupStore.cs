@@ -7,8 +7,9 @@ namespace ZoneTree.Analytics.Storage;
 /// Pre-aggregated rows of every enabled granularity.
 /// </summary>
 /// <remarks>
-/// Each granularity has its own partitioned store: minute rows are partitioned by day,
-/// hour rows by month and day rows by year, so retention can drop whole partitions.
+/// Each granularity has its own partitioned store, partitioned as configured in
+/// <see cref="PartitioningOptions"/> (by default minute rows by day, hour rows by month and
+/// day rows by year), so retention can drop whole partitions.
 /// Rows are merged with ZoneTree's atomic add-or-update, which keeps concurrent
 /// flushes from several ingestion workers consistent.
 /// </remarks>
@@ -21,17 +22,18 @@ sealed class RollupStore : IDisposable
   public RollupStore(
       string rootDirectory,
       Granularity granularities,
+      PartitioningOptions partitioning,
       RollupDefinition[] definitions,
       StoreFactory factory,
       ILogger logger)
   {
     this.definitions = definitions;
     if ((granularities & Granularity.Minute) != 0)
-      stores[0] = new(Path.Combine(rootDirectory, "minute"), new PartitionScheme(PartitionSize.Day), factory.OpenRollups, logger);
+      stores[0] = new(Path.Combine(rootDirectory, "minute"), new PartitionScheme(partitioning.MinuteRollups), factory.OpenRollups, logger);
     if ((granularities & Granularity.Hour) != 0)
-      stores[1] = new(Path.Combine(rootDirectory, "hour"), new PartitionScheme(PartitionSize.Month), factory.OpenRollups, logger);
+      stores[1] = new(Path.Combine(rootDirectory, "hour"), new PartitionScheme(partitioning.HourRollups), factory.OpenRollups, logger);
     if ((granularities & Granularity.Day) != 0)
-      stores[2] = new(Path.Combine(rootDirectory, "day"), new PartitionScheme(PartitionSize.Year), factory.OpenRollups, logger);
+      stores[2] = new(Path.Combine(rootDirectory, "day"), new PartitionScheme(partitioning.DayRollups), factory.OpenRollups, logger);
   }
 
   static int IndexOf(Granularity granularity) => granularity switch

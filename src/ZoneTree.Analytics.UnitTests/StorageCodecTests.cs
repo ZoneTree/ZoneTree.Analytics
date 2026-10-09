@@ -195,10 +195,29 @@ public sealed class StorageCodecTests
   [Test]
   public void PartitionSchemeNamesAndRanges()
   {
-    var scheme = new PartitionScheme(PartitionSize.Month);
+    var scheme = new PartitionScheme(PartitionPeriod.Month);
     var names = scheme.NamesInRange(new DateTime(2026, 1, 15).Ticks, new DateTime(2026, 3, 1).Ticks).ToArray();
     Assert.That(names, Is.EqualTo(new[] { "2026-01", "2026-02" }));
     Assert.That(scheme.TryParse("2026-02", out var start) && new DateTime(start) == new DateTime(2026, 2, 1), Is.True);
     Assert.That(scheme.TryParse("garbage", out _), Is.False);
+  }
+
+  [TestCase(PartitionPeriod.Day, "2025-12-31", "2026-01-01", "2026-01-02")]
+  [TestCase(PartitionPeriod.Month, "2025-12", "2026-01", "2026-02")]
+  [TestCase(PartitionPeriod.Year, "2025", "2026", null)]
+  public void PartitionSchemeOfEveryPeriod(PartitionPeriod period, string first, string second, string third)
+  {
+    var scheme = new PartitionScheme(period);
+    var names = scheme.NamesInRange(new DateTime(2025, 12, 31, 23, 0, 0).Ticks, new DateTime(2026, 2, 1, 0, 0, 1).Ticks).ToArray();
+    var expected = period == PartitionPeriod.Day
+        ? Enumerable.Range(0, 33).Select(x => new DateTime(2025, 12, 31).AddDays(x).ToString("yyyy-MM-dd")).ToArray()
+        : new[] { first, second, third }.Where(x => x != null).ToArray();
+    Assert.Multiple(() =>
+    {
+      Assert.That(names, Is.EqualTo(expected));
+      Assert.That(names.Take(3).Where(x => x != null), Is.EqualTo(new[] { first, second, third }.Where(x => x != null)));
+      Assert.That(scheme.TryParse(second, out var start) && scheme.NameOf(start) == second, Is.True);
+      Assert.That(scheme.NextStart(scheme.StartOf(start)), Is.GreaterThan(start));
+    });
   }
 }

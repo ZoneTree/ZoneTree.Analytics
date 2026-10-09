@@ -119,6 +119,8 @@ public sealed class AnalyticsOptions
         throw new ArgumentException(
             $"Duplicate rollup definition for dimensions '{definition.Id}'.");
     }
+    Storage.Partitioning ??= new();
+    Storage.Partitioning.Validate(Retention, Storage.StoreRawEvents, Rollups.Granularities);
     if (Privacy.MaxCustomDimensions < 0)
       throw new ArgumentException("Privacy.MaxCustomDimensions cannot be negative.");
     if (Privacy.MaxValueLength < 16)
@@ -487,10 +489,10 @@ public sealed class StorageOptions
   public bool StoreRawEvents { get; set; } = true;
 
   /// <summary>
-  /// Partitioning of raw event storage. It is persisted when the data directory is
-  /// created and cannot be changed afterwards. Default is <see cref="PartitionPeriod.Month"/>.
+  /// How many ZoneTree partitions each data tier is split into over time. It is persisted when
+  /// the data directory is created and cannot be changed afterwards.
   /// </summary>
-  public PartitionPeriod RawEventPartitioning { get; set; } = PartitionPeriod.Month;
+  public PartitioningOptions Partitioning { get; set; } = new();
 
   /// <summary>
   /// The ZoneTree write-ahead-log mode of every store. Default is
@@ -531,6 +533,76 @@ public sealed class StorageOptions
   /// Default is a console logger at warning level.
   /// </summary>
   public ILogger Logger { get; set; }
+}
+
+/// <summary>
+/// Time partitioning of each data tier. Every partition is a separate ZoneTree.
+/// </summary>
+/// <remarks>
+/// <para>
+/// Retention drops whole partitions once they end before the retention cutoff, so data is kept
+/// for up to one partition period longer than its retention. Smaller partitions make retention
+/// more precise, keep individual trees and their merges smaller and make drops cheaper; larger
+/// partitions mean fewer trees, files and directories, and fewer trees per long-range query.
+/// </para>
+/// <para>
+/// Validation rejects a partition period longer than the retention of its tier when a shorter
+/// period exists, and daily partitions of daily rollups, which would hold a single bucket each.
+/// Partitioning is persisted when the data directory is created; reopening with different
+/// values throws <see cref="AnalyticsConfigurationException"/>.
+/// </para>
+/// </remarks>
+public sealed class PartitioningOptions
+{
+  /// <summary>
+  /// Partition period of raw events (UTC). Default is <see cref="PartitionPeriod.Month"/>;
+  /// use <see cref="PartitionPeriod.Day"/> for high-volume sites or short raw event retention.
+  /// </summary>
+  public PartitionPeriod RawEvents { get; set; } = PartitionPeriod.Month;
+
+  /// <summary>
+  /// Partition period of minute rollups (UTC). Default is <see cref="PartitionPeriod.Day"/>.
+  /// </summary>
+  public PartitionPeriod MinuteRollups { get; set; } = PartitionPeriod.Day;
+
+  /// <summary>
+  /// Partition period of hourly rollups (UTC). Default is <see cref="PartitionPeriod.Month"/>.
+  /// </summary>
+  public PartitionPeriod HourRollups { get; set; } = PartitionPeriod.Month;
+
+  /// <summary>
+  /// Partition period of daily rollups, in the reporting time zone. <see cref="PartitionPeriod.Month"/>
+  /// or <see cref="PartitionPeriod.Year"/>. Default is <see cref="PartitionPeriod.Year"/>.
+  /// </summary>
+  public PartitionPeriod DayRollups { get; set; } = PartitionPeriod.Year;
+
+  internal void Validate(RetentionOptions retention, bool storeRawEvents, Granularity granularities)
+  {
+    Validate(nameof(RawEvents), RawEvents, retention.RawEvents, storeRawEvents);
+    Validate(nameof(MinuteRollups), MinuteRollups, retention.MinuteRollups, (granularities & Granularity.Minute) != 0);
+    Validate(nameof(HourRollups), HourRollups, retention.HourRollups, (granularities & Granularity.Hour) != 0);
+    Validate(nameof(DayRollups), DayRollups, retention.DayRollups, (granularities & Granularity.Day) != 0);
+    if (DayRollups == PartitionPeriod.Day)
+      throw new ArgumentException(
+          "Storage.Partitioning.DayRollups must be Month or Year: a daily partition would hold a single daily bucket.");
+  }
+
+  static void Validate(string tier, PartitionPeriod period, TimeSpan? retention, bool enabled)
+  {
+    if (!Enum.IsDefined(period))
+      throw new ArgumentException($"Storage.Partitioning.{tier} is not a valid partition period.");
+    if (!enabled || retention == null || period == PartitionPeriod.Day)
+      return;
+    var shortest = period == PartitionPeriod.Month ? TimeSpan.FromDays(28) : TimeSpan.FromDays(365);
+    if (retention.Value < shortest)
+    {
+      var unit = period.ToString().ToLowerInvariant();
+      throw new ArgumentException(
+          $"Retention.{tier} ({retention.Value.TotalDays:0.##} days) is shorter than one {unit} partition. " +
+          $"Retention drops whole partitions, so data would be kept up to a {unit} longer than intended. " +
+          $"Use a shorter Storage.Partitioning.{tier}.");
+    }
+  }
 }
 
 /// <summary>

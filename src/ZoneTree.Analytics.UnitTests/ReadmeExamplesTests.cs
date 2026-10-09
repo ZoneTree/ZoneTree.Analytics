@@ -30,6 +30,7 @@ public sealed class ReadmeExamplesTests
           HourRollups = TimeSpan.FromDays(400),
           DayRollups = null,
         },
+        Storage = { Partitioning = { RawEvents = PartitionPeriod.Day } },
         Privacy = { GeoPrecision = GeoPrecision.Country },
         Web = { GeoLocator = new StubGeoLocator() },
         Enrichers = { EventEnricher.NormalizePage(path => Regex.Replace(path, @"/\d+", "/:id")) },

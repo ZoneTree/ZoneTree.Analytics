@@ -47,13 +47,17 @@ public enum TimeInterval
 }
 
 /// <summary>
-/// Time partitioning of raw event storage.
+/// The period of one storage partition. Each partition is a separate ZoneTree; retention
+/// drops whole partitions. See <see cref="PartitioningOptions"/>.
 /// </summary>
 public enum PartitionPeriod
 {
-  /// <summary>One ZoneTree per UTC day. Recommended for high-volume sites.</summary>
+  /// <summary>One ZoneTree per day.</summary>
   Day,
 
-  /// <summary>One ZoneTree per UTC month.</summary>
+  /// <summary>One ZoneTree per month.</summary>
   Month,
+
+  /// <summary>One ZoneTree per year.</summary>
+  Year,
 }

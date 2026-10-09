@@ -2,33 +2,35 @@ using System.Globalization;
 
 namespace ZoneTree.Analytics.Storage;
 
-enum PartitionSize
-{
-  Day,
-  Month,
-  Year,
-}
-
 /// <summary>
 /// Maps bucket ticks to time partitions. Each partition is one ZoneTree directory
 /// named after its period: "2026", "2026-10" or "2026-10-08".
 /// </summary>
 sealed class PartitionScheme
 {
-  public PartitionScheme(PartitionSize size)
+  readonly string format;
+
+  public PartitionScheme(PartitionPeriod period)
   {
-    Size = size;
+    Period = period;
+    format = period switch
+    {
+      PartitionPeriod.Day => "yyyy-MM-dd",
+      PartitionPeriod.Month => "yyyy-MM",
+      PartitionPeriod.Year => "yyyy",
+      _ => throw new ArgumentOutOfRangeException(nameof(period))
+    };
   }
 
-  public PartitionSize Size { get; }
+  public PartitionPeriod Period { get; }
 
   public long StartOf(long ticks)
   {
     var date = new DateTime(ticks);
-    return Size switch
+    return Period switch
     {
-      PartitionSize.Day => date.Date.Ticks,
-      PartitionSize.Month => new DateTime(date.Year, date.Month, 1).Ticks,
+      PartitionPeriod.Day => date.Date.Ticks,
+      PartitionPeriod.Month => new DateTime(date.Year, date.Month, 1).Ticks,
       _ => new DateTime(date.Year, 1, 1).Ticks
     };
   }
@@ -36,33 +38,18 @@ sealed class PartitionScheme
   public long NextStart(long start)
   {
     var date = new DateTime(start);
-    return Size switch
+    return Period switch
     {
-      PartitionSize.Day => date.AddDays(1).Ticks,
-      PartitionSize.Month => date.AddMonths(1).Ticks,
+      PartitionPeriod.Day => date.AddDays(1).Ticks,
+      PartitionPeriod.Month => date.AddMonths(1).Ticks,
       _ => date.AddYears(1).Ticks
     };
   }
 
-  public string NameOf(long ticks)
-  {
-    var date = new DateTime(ticks);
-    return Size switch
-    {
-      PartitionSize.Day => date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
-      PartitionSize.Month => date.ToString("yyyy-MM", CultureInfo.InvariantCulture),
-      _ => date.ToString("yyyy", CultureInfo.InvariantCulture)
-    };
-  }
+  public string NameOf(long ticks) => new DateTime(ticks).ToString(format, CultureInfo.InvariantCulture);
 
   public bool TryParse(string name, out long start)
   {
-    var format = Size switch
-    {
-      PartitionSize.Day => "yyyy-MM-dd",
-      PartitionSize.Month => "yyyy-MM",
-      _ => "yyyy"
-    };
     if (DateTime.TryParseExact(
         name, format, CultureInfo.InvariantCulture, DateTimeStyles.None, out var date))
     {

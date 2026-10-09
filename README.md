@@ -414,6 +414,10 @@ var options = new AnalyticsOptions
         HourRollups = TimeSpan.FromDays(400),
         DayRollups = null,                 // keep forever
     },
+    Storage =
+    {
+        Partitioning = { RawEvents = PartitionPeriod.Day },  // one ZoneTree per day of raw events
+    },
     Privacy = { GeoPrecision = GeoPrecision.Country },
     Web =
     {
@@ -424,7 +428,20 @@ var options = new AnalyticsOptions
 };
 ```
 
-The reporting time zone, sketch precision and raw event partitioning define the storage format. They are persisted on creation; reopening with different values throws `AnalyticsConfigurationException`.
+The reporting time zone, sketch precision and partitioning define the storage format. They are persisted on creation; reopening with different values throws `AnalyticsConfigurationException`. The partitioning of a tier that holds no data yet can still change.
+
+### Partitioning
+
+Each data tier is split over time into partitions, and each partition is a separate ZoneTree. `Storage.Partitioning` sets the period per tier:
+
+| Tier | Option | Default | Allowed |
+| --- | --- | --- | --- |
+| Raw events | `RawEvents` | `Month` | `Day`, `Month`, `Year` |
+| Minute rollups | `MinuteRollups` | `Day` | `Day`, `Month`, `Year` |
+| Hourly rollups | `HourRollups` | `Month` | `Day`, `Month`, `Year` |
+| Daily rollups | `DayRollups` | `Year` | `Month`, `Year` |
+
+Retention drops whole partitions once they end before the cutoff, so a tier keeps data for up to one partition period longer than its retention. Smaller partitions make retention more precise and keep trees, merges and drops small; larger partitions mean fewer trees and directories, and fewer trees per long-range query. Use `Day` for raw events of high-volume sites or short raw retention. A partition period longer than the tier's retention is rejected, for example monthly minute rollups with two-day retention.
 
 ---
 
@@ -476,15 +493,15 @@ ZoneTree is an ordered, persistent LSM key-value engine. ZoneTree.Analytics is a
 data/analytics/
   meta/                       configuration, secrets, daily salts (synchronous WAL)
   sessions/                   active sessions keyed by visitor hash (TTL deletion)
-  events/2026-10/             raw events, one ZoneTree per month (or day)
-  rollups/day/2026/           daily rollups, one ZoneTree per year
-  rollups/hour/2026-10/       hourly rollups, one ZoneTree per month
-  rollups/minute/2026-10-08/  minute rollups, one ZoneTree per day
+  events/2026-10/             raw events, one ZoneTree per month by default
+  rollups/day/2026/           daily rollups, one ZoneTree per year by default
+  rollups/hour/2026-10/       hourly rollups, one ZoneTree per month by default
+  rollups/minute/2026-10-08/  minute rollups, one ZoneTree per day by default
 ```
 
 * **Order-preserving keys.** Rollup keys are `site · event · dimension-set · bucket · values`, so every rollup sub-query is one contiguous range scan. Raw event keys are `site · timestamp · sequence`.
 * **Pre-aggregation with atomic merges.** Workers aggregate in memory and merge rows with `TryAtomicAddOrUpdate`. Stored values are immutable; every merge creates a new value.
-* **Time partitioning.** Each period is its own ZoneTree with its own maintainer. Idle partitions are merged to disk and closed; retention drops whole partitions with `Maintenance.Drop()`.
+* **Time partitioning.** Each period is its own ZoneTree with its own maintainer; the period of every tier is configurable, see [Partitioning](#partitioning). Idle partitions are merged to disk and closed; retention drops whole partitions with `Maintenance.Drop()`.
 * **Sessions with TTL.** Expired sessions disappear through ZoneTree's deletion predicate and are removed by normal merges.
 * **Bounded memory.** Memory is governed by ZoneTree's mutable segment limits per open partition, not by the amount of data.
 * **Durability.** Data stores use ZoneTree's asynchronous compressed write-ahead log.
