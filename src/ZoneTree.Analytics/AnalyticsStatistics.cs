@@ -17,11 +17,14 @@ public sealed class AnalyticsStatistics
   /// <summary>Events rejected as invalid or with a timestamp too far in the future.</summary>
   public long EventsRejected { get; init; }
 
-  /// <summary>Events discarded by <see cref="AnalyticsOptions.EventFilter"/>.</summary>
+  /// <summary>Events discarded by <see cref="AnalyticsOptions.EventFilters"/>.</summary>
   public long EventsFiltered { get; init; }
 
-  /// <summary>Events discarded as bot traffic.</summary>
+  /// <summary>Bot events discarded (<see cref="BotTraffic.Exclude"/>).</summary>
   public long BotsExcluded { get; init; }
+
+  /// <summary>Bot events recorded separately (<see cref="BotTraffic.TrackSeparately"/>).</summary>
+  public long BotsTracked { get; init; }
 
   /// <summary>Sessions started.</summary>
   public long SessionsStarted { get; init; }
@@ -29,7 +32,7 @@ public sealed class AnalyticsStatistics
   /// <summary>Completed flushes of buffered aggregates.</summary>
   public long Flushes { get; init; }
 
-  /// <summary>Errors raised while processing or flushing. Details are logged.</summary>
+  /// <summary>Errors raised while processing or flushing, including exceptions thrown by extensions. Details are logged.</summary>
   public long Errors { get; init; }
 
   /// <summary>Events currently waiting in ingestion queues.</summary>
@@ -55,6 +58,8 @@ sealed class Counters
   public long EventsFiltered;
 
   public long BotsExcluded;
+
+  public long BotsTracked;
 
   public long SessionsStarted;
 

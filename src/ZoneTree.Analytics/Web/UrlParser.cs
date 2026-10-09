@@ -78,8 +78,6 @@ static class UrlParser
       path = path.ToLowerInvariant();
     if (!string.IsNullOrEmpty(keptQuery))
       path = path + "?" + keptQuery;
-    if (web.PathNormalizer != null)
-      path = web.PathNormalizer(path) ?? path;
     result.Path = path;
     return result;
   }

@@ -520,7 +520,7 @@ public sealed class EngineTests
     var timeseries = await engine.Web.GetTimeseriesAsync(request, TimeInterval.Hour);
     Assert.Multiple(() =>
     {
-      Assert.That(pages.Rows[0], Is.EqualTo(new PageStats("/", 2, 3, 3, 2, 2.0 / 3)));
+      Assert.That(pages.Rows[0], Is.EqualTo(new PageStats("/", 2, 3, 3, 2, 2.0 / 3, null)));
       Assert.That(pages.TotalRows, Is.EqualTo(3));
       Assert.That(exits.Rows.Select(x => x.Page), Is.EqualTo(new[] { "/", "/pricing", "/signup" }));
       Assert.That(entries.Rows.Select(x => (x.Value, x.Sessions)), Is.EqualTo(new[] { ("/", (long?)3), ("/pricing", 1) }));
@@ -608,12 +608,12 @@ public sealed class EngineTests
   {
     var callingThread = Environment.CurrentManagedThreadId;
     var filterThreads = new HashSet<int>();
-    Recreate(o => o.EventFilter = e =>
+    Recreate(o => o.EventFilters.Add(EventFilter.Create(e =>
     {
       lock (filterThreads)
         filterThreads.Add(Environment.CurrentManagedThreadId);
       return e.IpAddress != "10.0.0.2";
-    });
+    })));
     TrackScenario();
     engine.Flush();
     Assert.Multiple(() =>

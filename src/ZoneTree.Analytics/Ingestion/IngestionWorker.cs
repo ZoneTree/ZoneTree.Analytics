@@ -35,7 +35,7 @@ sealed class IngestionServices
 {
   public AnalyticsOptions Options;
 
-  public EventEnricher Enricher;
+  public EnrichmentPipeline Enricher;
 
   public RollupStore Rollups;
 
@@ -244,7 +244,11 @@ sealed class IngestionWorker
     }
     if (session != null)
       UpdateSession(ev, session, isNewSession, metricChanges);
-    buffer.Contribute(ev.Site, ev.Name, ev.Ticks, dimensions, 1, ev.Visitor, metricChanges);
+    buffer.Contribute(
+        ev.Site, ev.Name, ev.Ticks, dimensions, 1, ev.Visitor, metricChanges,
+        ev.IsBot ? DimensionScope.Bot : DimensionScope.All);
+    if (ev.IsBot)
+      Interlocked.Increment(ref counters.BotsTracked);
 
     if (ev.Ticks > watermark)
       watermark = ev.Ticks;

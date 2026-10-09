@@ -51,7 +51,7 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
 
   readonly VisitorHasher visitorHasher;
 
-  readonly EventEnricher enricher;
+  readonly EnrichmentPipeline enricher;
 
   readonly IngestionWorker[] workers;
 
@@ -104,7 +104,7 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
 
       visitorHasher = new VisitorHasher(
           options.Privacy.VisitorIdentification, options.Privacy.VisitorIdSecret, meta);
-      enricher = new EventEnricher(options, visitorHasher);
+      enricher = new EnrichmentPipeline(options, visitorHasher, logger, counters);
 
       if (options.Sessions.Enabled)
       {
@@ -261,12 +261,37 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
     item = default;
     if (IsDisposed)
       return false;
-    if (options.EventFilter != null && !options.EventFilter(analyticsEvent))
+    if (!PassesFilters(analyticsEvent))
     {
       Interlocked.Increment(ref counters.EventsFiltered);
       return false;
     }
     item = new WorkItem(analyticsEvent.Snapshot(DateTime.UtcNow.Ticks));
+    return true;
+  }
+
+  /// <summary>
+  /// Runs the event filters. A filter that throws is logged and counted, and does not discard
+  /// the event: analytics never breaks the caller.
+  /// </summary>
+  bool PassesFilters(AnalyticsEvent analyticsEvent)
+  {
+    foreach (var filter in options.EventFilters)
+    {
+      if (filter == null)
+        continue;
+      try
+      {
+        if (!filter.ShouldTrack(analyticsEvent))
+          return false;
+      }
+      catch (Exception exception)
+      {
+        Interlocked.Increment(ref counters.Errors);
+        logger.LogError(new InvalidOperationException(
+            $"The event filter {filter.GetType().Name} threw an exception; the event is tracked.", exception));
+      }
+    }
     return true;
   }
 
@@ -286,7 +311,7 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
   /// </summary>
   /// <remarks>
   /// The event is copied, so it can be modified or reused once this method returns.
-  /// <see cref="AnalyticsOptions.EventFilter"/> runs here, on the calling thread.
+  /// <see cref="AnalyticsOptions.EventFilters"/> run here, on the calling thread.
   /// </remarks>
   /// <returns>
   /// True if the event was queued. False if it was filtered out, the engine is disposed, or
@@ -537,6 +562,7 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
       EventsRejected = Interlocked.Read(ref counters.EventsRejected),
       EventsFiltered = Interlocked.Read(ref counters.EventsFiltered),
       BotsExcluded = Interlocked.Read(ref counters.BotsExcluded),
+      BotsTracked = Interlocked.Read(ref counters.BotsTracked),
       SessionsStarted = Interlocked.Read(ref counters.SessionsStarted),
       Flushes = Interlocked.Read(ref counters.Flushes),
       Errors = Interlocked.Read(ref counters.Errors),

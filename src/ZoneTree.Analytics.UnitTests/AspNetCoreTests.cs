@@ -34,6 +34,7 @@ public sealed class AspNetCoreTests
           options.DataDirectory = test.DataDirectory;
           options.Retention = test.Retention;
           options.Ingestion = test.Ingestion;
+          options.Web.Bots = BotTraffic.TrackSeparately;
         },
         web =>
         {
@@ -221,6 +222,41 @@ public sealed class AspNetCoreTests
       Assert.That(goals.GetProperty("rows")[0].GetProperty("conversionRate").GetDouble(), Is.EqualTo(0.5));
       Assert.That(series.GetArrayLength(), Is.EqualTo(24));
       Assert.That(realtime.GetProperty("visitors").GetInt32(), Is.EqualTo(2));
+    });
+  }
+
+  [Test]
+  public async Task ReportingApiServesBotsSideBySide()
+  {
+    await TrackVisitsAsync();
+    foreach (var userAgent in new[] { UserAgents.Googlebot, UserAgents.Googlebot, "curl/8.4.0" })
+    {
+      using var request = new HttpRequestMessage(HttpMethod.Get, "/");
+      request.Headers.TryAddWithoutValidation("User-Agent", userAgent);
+      await client.SendAsync(request);
+    }
+    await engine.FlushAsync();
+    var (_, summary) = await GetJson("/_analytics/api/summary?range=today");
+    var (_, pages) = await GetJson("/_analytics/api/pages?range=today");
+    var (botsStatus, bots) = await GetJson("/_analytics/api/bots?range=today");
+    var (_, segmented) = await GetJson("/_analytics/api/summary?range=today&filter=source%3D%3DGoogle");
+    var rows = bots.GetProperty("rows");
+    Assert.Multiple(() =>
+    {
+      Assert.That(summary.GetProperty("pageViews").GetInt32(), Is.EqualTo(3));
+      Assert.That(summary.GetProperty("visitors").GetInt32(), Is.EqualTo(2));
+      Assert.That(summary.GetProperty("botHits").GetInt32(), Is.EqualTo(3));
+      Assert.That(pages.GetProperty("rows")[0].GetProperty("page").GetString(), Is.EqualTo("/"));
+      Assert.That(pages.GetProperty("rows")[0].GetProperty("botHits").GetInt32(), Is.EqualTo(3));
+      Assert.That(botsStatus, Is.EqualTo(HttpStatusCode.OK));
+      Assert.That(bots.GetProperty("totalRows").GetInt32(), Is.EqualTo(2));
+      Assert.That(rows[0].GetProperty("name").GetString(), Is.EqualTo("Googlebot"));
+      Assert.That(rows[0].GetProperty("category").GetString(), Is.EqualTo(BotCategories.Search));
+      Assert.That(rows[0].GetProperty("hits").GetInt32(), Is.EqualTo(2));
+      Assert.That(rows[0].GetProperty("share").GetDouble(), Is.EqualTo(2.0 / 3).Within(1e-9));
+      Assert.That(rows[1].GetProperty("name").GetString(), Is.EqualTo("curl"));
+      // Bots have no traffic source, so a source filter leaves bot hits out.
+      Assert.That(segmented.GetProperty("botHits").ValueKind, Is.EqualTo(JsonValueKind.Null));
     });
   }
 

@@ -31,11 +31,8 @@ public sealed class ReadmeExamplesTests
           DayRollups = null,
         },
         Privacy = { GeoPrecision = GeoPrecision.Country },
-        Web =
-        {
-          GeoLocator = new StubGeoLocator(),
-          PathNormalizer = path => Regex.Replace(path, @"/\d+", "/:id"),
-        },
+        Web = { GeoLocator = new StubGeoLocator() },
+        Enrichers = { EventEnricher.NormalizePage(path => Regex.Replace(path, @"/\d+", "/:id")) },
       };
       options.Rollups.Definitions.Add(new RollupDefinition(StandardDimensions.Country, StandardDimensions.Page));
       options.Rollups.Definitions.Add(new RollupDefinition("plan") { Events = ["purchase"] });

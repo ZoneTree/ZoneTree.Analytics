@@ -35,11 +35,18 @@ public sealed class AnalyticsOptions
   public DayOfWeek FirstDayOfWeek { get; set; } = DayOfWeek.Monday;
 
   /// <summary>
-  /// An optional filter. Events for which it returns false are discarded.
-  /// It runs inside <see cref="AnalyticsEngine.Track(AnalyticsEvent)"/> on the calling thread; keep it fast.
-  /// Typical uses: excluding internal IP ranges, honoring opt-out cookies.
+  /// Filters that decide whether an event is tracked. All must pass. They run inside
+  /// <see cref="AnalyticsEngine.Track(AnalyticsEvent)"/> on the calling thread.
+  /// Create one from a lambda with <see cref="EventFilter.Create"/>.
   /// </summary>
-  public Func<AnalyticsEvent, bool> EventFilter { get; set; }
+  public List<IEventFilter> EventFilters { get; } = [];
+
+  /// <summary>
+  /// Enrichers that add, change or remove dimensions after the built-in enrichment, in order.
+  /// Create one from a lambda with <see cref="EventEnricher.Create"/> or use
+  /// <see cref="EventEnricher.NormalizePage"/>.
+  /// </summary>
+  public List<IEventEnricher> Enrichers { get; } = [];
 
   /// <summary>
   /// Ingestion pipeline options.
@@ -253,24 +260,29 @@ public sealed class RollupDefinition
     }
     Dimensions = sorted;
     Id = string.Join(",", sorted);
-    Scope = ScopeOf(sorted);
+    isSessionScoped = sorted.All(x => DimensionScopes.Contains(DimensionScope.Session, x));
+    isPageViewScoped = sorted.All(x => DimensionScopes.Contains(DimensionScope.PageView, x));
+    isBotScoped = sorted.All(x => DimensionScopes.Contains(DimensionScope.Bot, x));
   }
 
-  static DimensionScope ScopeOf(string[] dimensions)
-  {
-    static bool IsSessionScoped(string dimension) =>
-        dimension == StandardDimensions.EntryPage || StandardDimensions.SessionLevel.Contains(dimension);
-    if (dimensions.All(IsSessionScoped))
-      return DimensionScope.Session;
-    if (dimensions.All(x => IsSessionScoped(x) || x is StandardDimensions.Page or StandardDimensions.Hostname))
-      return DimensionScope.PageView;
-    return DimensionScope.All;
-  }
+  readonly bool isSessionScoped;
+
+  readonly bool isPageViewScoped;
+
+  readonly bool isBotScoped;
 
   /// <summary>
-  /// The narrowest contribution scope that carries all of this rollup's dimensions.
+  /// True when contributions of the given scope can reach this rollup. Engine-generated rows
+  /// (sessions, entrances and exits, bots) only reach rollups over dimensions they carry,
+  /// unless the rollup explicitly lists their event.
   /// </summary>
-  internal DimensionScope Scope { get; }
+  internal bool Accepts(DimensionScope scope, string eventName) => scope switch
+  {
+    DimensionScope.Session => isSessionScoped,
+    DimensionScope.PageView => isPageViewScoped,
+    DimensionScope.Bot => isBotScoped || (Events != null && Events.Contains(eventName)),
+    _ => true
+  };
 
   /// <summary>
   /// The dimensions in canonical (ordinal) order.
@@ -283,14 +295,15 @@ public sealed class RollupDefinition
   public string Id { get; }
 
   /// <summary>
-  /// Restricts the rollup to the given event names. Null means every event that
-  /// carries all of the rollup's dimensions.
+  /// Restricts the rollup to the given event names. Null means every tracked event; events
+  /// that do not carry a dimension are counted under a missing (null) value.
   /// </summary>
   public IReadOnlyCollection<string> Events { get; init; }
 
   /// <summary>
-  /// The default web analytics rollups: totals, page, hostname, entry page and every
-  /// session-level dimension except browser and OS versions.
+  /// The default web analytics rollups: totals, page, hostname, entry page, every
+  /// session-level dimension except browser and OS versions, and bot name and category
+  /// for bot events.
   /// </summary>
   public static List<RollupDefinition> WebDefaults()
   {
@@ -300,6 +313,10 @@ public sealed class RollupDefinition
       new(StandardDimensions.Page),
       new(StandardDimensions.Hostname),
       new(StandardDimensions.EntryPage),
+      new(StandardDimensions.Bot) { Events = [StandardEvents.Bot] },
+      new(StandardDimensions.BotCategory) { Events = [StandardEvents.Bot] },
+      new(StandardDimensions.Event) { Events = [StandardEvents.Bot] },
+      new(StandardDimensions.Bot, StandardDimensions.BotCategory) { Events = [StandardEvents.Bot] },
     };
     foreach (var dimension in StandardDimensions.SessionLevel)
     {
@@ -517,22 +534,51 @@ public sealed class StorageOptions
 }
 
 /// <summary>
+/// What happens to bot traffic.
+/// </summary>
+public enum BotTraffic
+{
+  /// <summary>Bot events are discarded and counted in <see cref="AnalyticsStatistics.BotsExcluded"/>.</summary>
+  Exclude,
+
+  /// <summary>
+  /// Bot events are recorded as <see cref="StandardEvents.Bot"/> events, separate from human
+  /// traffic: they carry the page, hostname, original event name, bot name and bot category,
+  /// and never a visitor or session, so human metrics are unaffected. Compare them with
+  /// <see cref="Metric.BotHits"/>.
+  /// </summary>
+  TrackSeparately,
+}
+
+/// <summary>
 /// Web enrichment options.
 /// </summary>
 public sealed class WebOptions
 {
   /// <summary>
-  /// Resolves IP addresses to locations. The library ships no geolocation database;
-  /// plug in your own (for example a MaxMind reader) or pass geography through
-  /// event dimensions, for example from a CDN header.
+  /// Resolves IP addresses to locations. Default is null: no geolocation. The library ships
+  /// no geolocation database; adapt one, or pass geography through event dimensions, for
+  /// example from a CDN header.
   /// </summary>
   public IGeoLocator GeoLocator { get; set; }
 
   /// <summary>
-  /// Discards events whose user agent belongs to a bot, crawler or HTTP library.
-  /// Events without a user agent are not considered bots. Default is true.
+  /// Parses user agents into browser, operating system and device.
+  /// Default is <see cref="ZoneTree.Analytics.UserAgentParser.Default"/>.
   /// </summary>
-  public bool ExcludeBots { get; set; } = true;
+  public IUserAgentParser UserAgentParser { get; set; } = ZoneTree.Analytics.UserAgentParser.Default;
+
+  /// <summary>
+  /// What happens to bot traffic. Default is <see cref="BotTraffic.Exclude"/>.
+  /// </summary>
+  public BotTraffic Bots { get; set; } = BotTraffic.Exclude;
+
+  /// <summary>
+  /// Bot detectors, in order; the first that recognizes a bot wins. Default is
+  /// <see cref="BotDetector.UserAgent"/>. Add detectors (for example based on IP ranges) or
+  /// clear the list to treat all traffic as human.
+  /// </summary>
+  public List<IBotDetector> BotDetectors { get; } = [BotDetector.UserAgent];
 
   /// <summary>
   /// Removes a trailing slash from page paths (except the root). Default is true.
@@ -543,12 +589,6 @@ public sealed class WebOptions
   /// Lowercases page paths. Default is false.
   /// </summary>
   public bool LowercasePaths { get; set; }
-
-  /// <summary>
-  /// Optional final normalization of page paths, for example to collapse ids:
-  /// "/users/123" to "/users/:id".
-  /// </summary>
-  public Func<string, string> PathNormalizer { get; set; }
 
   /// <summary>
   /// Additional referrer host to source name mappings, for example

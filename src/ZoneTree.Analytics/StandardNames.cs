@@ -16,6 +16,14 @@ public static class StandardEvents
   /// counts sessions.
   /// </summary>
   public const string Session = "$session";
+
+  /// <summary>
+  /// The engine-generated bot event, recorded for bot traffic when
+  /// <see cref="WebOptions.Bots"/> is <see cref="BotTraffic.TrackSeparately"/>. It carries
+  /// <see cref="StandardDimensions.Bot"/>, <see cref="StandardDimensions.BotCategory"/>,
+  /// <see cref="StandardDimensions.Event"/>, page and hostname. <see cref="Metric.BotHits"/> reads it.
+  /// </summary>
+  public const string Bot = "$bot";
 }
 
 /// <summary>
@@ -79,6 +87,20 @@ public static class StandardDimensions
 
   /// <summary>The device type: "Desktop", "Mobile" or "Tablet".</summary>
   public const string Device = "device";
+
+  /// <summary>The bot name, on <see cref="StandardEvents.Bot"/> events.</summary>
+  public const string Bot = "bot";
+
+  /// <summary>The bot category, on <see cref="StandardEvents.Bot"/> events. See <see cref="BotCategories"/>.</summary>
+  public const string BotCategory = "bot_category";
+
+  /// <summary>The original event name, on <see cref="StandardEvents.Bot"/> events.</summary>
+  public const string Event = "event";
+
+  /// <summary>
+  /// Dimensions of <see cref="StandardEvents.Bot"/> events.
+  /// </summary>
+  public static readonly IReadOnlyList<string> BotLevel = [Page, Hostname, Event, Bot, BotCategory];
 
   /// <summary>
   /// Session-level dimensions. They are captured from the first event of a

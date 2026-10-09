@@ -37,8 +37,10 @@ var bySource = await analytics.QueryAsync(new AnalyticsQuery
 * Generic events with custom dimensions and values.
 * One query model: metrics from several events joined per bucket and group, time series, filters, comparisons, paging.
 * Behavioral segments and funnels.
+* Bot traffic recognized by name and category (search, AI, SEO, previews, monitors, scripts), excluded or reported next to page views.
 * Exact-then-approximate unique visitors with mergeable HyperLogLog sketches.
 * No cookies, no stored IP addresses or user agents, daily-rotating visitor hashes, configurable retention and visitor erasure.
+* Extensible: event filters, enrichers, bot detectors, user agent parser and geolocator.
 * Time-partitioned ZoneTree storage with write-ahead logging, crash recovery and bounded memory.
 
 For ASP.NET Core, see [ZoneTree.Analytics.AspNetCore](https://www.nuget.org/packages/ZoneTree.Analytics.AspNetCore). Documentation: [github.com/ZoneTree/ZoneTree.Analytics](https://github.com/ZoneTree/ZoneTree.Analytics).

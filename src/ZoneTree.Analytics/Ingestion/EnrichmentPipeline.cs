@@ -1,6 +1,7 @@
 using ZoneTree.Analytics.Internal;
 using ZoneTree.Analytics.Privacy;
 using ZoneTree.Analytics.Web;
+using ZoneTree.Logger;
 
 namespace ZoneTree.Analytics.Ingestion;
 
@@ -20,6 +21,11 @@ sealed class EnrichedEvent
   public bool Interactive;
 
   public bool IsPageView;
+
+  /// <summary>
+  /// True for <see cref="StandardEvents.Bot"/> events.
+  /// </summary>
+  public bool IsBot;
 
   /// <summary>
   /// True when the event carries web context (URL, referrer, user agent or IP address).
@@ -64,7 +70,11 @@ enum RejectReason
 /// <summary>
 /// Validates, sanitizes and enriches incoming events. Thread-safe.
 /// </summary>
-sealed class EventEnricher
+/// <remarks>
+/// Extensions (user agent parser, bot detectors, geolocator, enrichers) fail open: an exception
+/// is logged and counted, and the event is processed as if the extension had not been there.
+/// </remarks>
+sealed class EnrichmentPipeline
 {
   const int MaxNameLength = 128;
 
@@ -91,18 +101,24 @@ sealed class EventEnricher
   static readonly int OperatingSystemVersionIndex = SessionLevelIndex[StandardDimensions.OperatingSystemVersion];
   static readonly int DeviceIndex = SessionLevelIndex[StandardDimensions.Device];
 
+  static readonly IReadOnlyDictionary<string, string> NoDimensions = new Dictionary<string, string>();
+
   readonly AnalyticsOptions options;
 
   readonly VisitorHasher visitorHasher;
 
   readonly ReferrerClassifier referrerClassifier;
 
-  readonly UserAgentParser userAgentParser = UserAgentParser.Shared;
+  readonly ILogger logger;
 
-  public EventEnricher(AnalyticsOptions options, VisitorHasher visitorHasher)
+  readonly Counters counters;
+
+  public EnrichmentPipeline(AnalyticsOptions options, VisitorHasher visitorHasher, ILogger logger, Counters counters)
   {
     this.options = options;
     this.visitorHasher = visitorHasher;
+    this.logger = logger;
+    this.counters = counters;
     referrerClassifier = new ReferrerClassifier(options.Web);
   }
 
@@ -115,6 +131,15 @@ sealed class EventEnricher
   {
     var normalized = Text.Name(site, MaxNameLength);
     return normalized.Length == 0 ? options.DefaultSite : normalized;
+  }
+
+  /// <summary>
+  /// Logs and counts an exception thrown by an extension.
+  /// </summary>
+  void ExtensionFailed(string extension, Exception exception)
+  {
+    Interlocked.Increment(ref counters.Errors);
+    logger.LogError(new InvalidOperationException($"The {extension} threw an exception; the event is processed without it.", exception));
   }
 
   public EnrichedEvent Enrich(EventSnapshot e, out RejectReason reason)
@@ -134,18 +159,34 @@ sealed class EventEnricher
       return null;
     }
 
+    var site = NormalizeSite(e.Site);
     UserAgentInfo userAgent = null;
-    if (!string.IsNullOrWhiteSpace(e.UserAgent))
+    if (!string.IsNullOrWhiteSpace(e.UserAgent) && options.Web.UserAgentParser != null)
     {
-      userAgent = userAgentParser.Parse(e.UserAgent);
-      if (userAgent.IsBot && options.Web.ExcludeBots)
+      try
+      {
+        userAgent = options.Web.UserAgentParser.Parse(e.UserAgent);
+      }
+      catch (Exception exception)
+      {
+        ExtensionFailed("user agent parser", exception);
+      }
+    }
+
+    var bot = DetectBot(e, name, site, ticks, userAgent);
+    if (bot != null)
+    {
+      if (options.Web.Bots == BotTraffic.Exclude)
       {
         reason = RejectReason.Bot;
         return null;
       }
+      var botEvent = BuildBotEvent(e, name, site, ticks, bot);
+      RunEnrichers(e, name, site, ticks, userAgent, bot, botEvent);
+      reason = RejectReason.None;
+      return botEvent;
     }
 
-    var site = NormalizeSite(e.Site);
     var result = new EnrichedEvent
     {
       Site = site,
@@ -195,7 +236,6 @@ sealed class EventEnricher
         result.Dimensions[key] = value;
         ++customCount;
       }
-      result.HasCustomDimensions = customCount > 0;
     }
 
     // Page.
@@ -206,8 +246,6 @@ sealed class EventEnricher
       result.Dimensions.TryAdd(StandardDimensions.Page, Text.Value(url.Path, privacy.MaxValueLength));
       result.Dimensions.TryAdd(StandardDimensions.Hostname, Text.Value(url.Hostname, privacy.MaxValueLength));
     }
-    result.Page = result.Dimensions.GetValueOrDefault(StandardDimensions.Page);
-    result.Hostname = result.Dimensions.GetValueOrDefault(StandardDimensions.Hostname) ?? "";
 
     // Metrics.
     if (e.Metrics != null && e.Metrics.Length > 0)
@@ -227,11 +265,162 @@ sealed class EventEnricher
     }
 
     if (result.HasWebContext || sessionOverrides != null)
-      result.SessionDimensions = BuildSessionDimensions(e, url, result.Hostname, userAgent, sessionOverrides);
+    {
+      var pageHost = result.Dimensions.GetValueOrDefault(StandardDimensions.Hostname) ?? "";
+      result.SessionDimensions = BuildSessionDimensions(e, url, pageHost, userAgent, sessionOverrides);
+    }
+
+    RunEnrichers(e, name, site, ticks, userAgent, null, result);
 
     result.Visitor = visitorHasher.Compute(site, e.VisitorId, e.IpAddress, e.UserAgent, ticks);
     reason = RejectReason.None;
     return result;
+  }
+
+  static EventContext FillContext(
+      EventContext context, EventSnapshot e, string name, string site, long ticks, UserAgentInfo userAgent)
+  {
+    context.EventName = name;
+    context.Timestamp = new DateTimeOffset(ticks, TimeSpan.Zero);
+    context.Site = site;
+    context.Url = e.Url;
+    context.Referrer = e.Referrer;
+    context.IpAddress = e.IpAddress;
+    context.UserAgent = e.UserAgent;
+    context.UserAgentInfo = userAgent;
+    context.TrackedDimensions = e.Dimensions == null
+        ? NoDimensions
+        : e.Dimensions
+            .Where(x => x.Key != null && x.Value != null)
+            .GroupBy(x => x.Key, StringComparer.Ordinal)
+            .ToDictionary(x => x.Key, x => x.Last().Value, StringComparer.Ordinal);
+    return context;
+  }
+
+  BotInfo DetectBot(EventSnapshot e, string name, string site, long ticks, UserAgentInfo userAgent)
+  {
+    var detectors = options.Web.BotDetectors;
+    if (detectors == null || detectors.Count == 0)
+      return null;
+    EventContext context = null;
+    foreach (var detector in detectors)
+    {
+      if (detector == null)
+        continue;
+      try
+      {
+        context ??= FillContext(new EventContext(), e, name, site, ticks, userAgent);
+        var bot = detector.Detect(context);
+        if (bot != null)
+          return bot;
+      }
+      catch (Exception exception)
+      {
+        ExtensionFailed("bot detector " + detector.GetType().Name, exception);
+      }
+    }
+    return null;
+  }
+
+  /// <summary>
+  /// A bot hit: the page, hostname, original event name, bot name and category. No visitor,
+  /// no session and no other dimensions, so bot traffic never affects human metrics.
+  /// </summary>
+  EnrichedEvent BuildBotEvent(EventSnapshot e, string name, string site, long ticks, BotInfo bot)
+  {
+    var maxLength = options.Privacy.MaxValueLength;
+    var result = new EnrichedEvent
+    {
+      Site = site,
+      Name = StandardEvents.Bot,
+      Ticks = ticks,
+      IsBot = true,
+      Dimensions = new(StringComparer.Ordinal)
+      {
+        [StandardDimensions.Event] = name,
+        [StandardDimensions.Bot] = Text.Value(bot.Name, maxLength),
+        [StandardDimensions.BotCategory] = Text.Value(bot.Category, maxLength)
+      }
+    };
+    if (!string.IsNullOrWhiteSpace(e.Url))
+    {
+      var url = UrlParser.Parse(e.Url, options.Web, options.Privacy.IncludeQueryString);
+      result.Dimensions[StandardDimensions.Page] = Text.Value(url.Path, maxLength);
+      result.Dimensions[StandardDimensions.Hostname] = Text.Value(url.Hostname, maxLength);
+    }
+    result.Page = result.Dimensions.GetValueOrDefault(StandardDimensions.Page);
+    result.Hostname = result.Dimensions.GetValueOrDefault(StandardDimensions.Hostname) ?? "";
+    return result;
+  }
+
+  /// <summary>
+  /// Runs the configured enrichers, then derives the page, hostname and custom-dimension flag
+  /// from the final dimensions.
+  /// </summary>
+  void RunEnrichers(
+      EventSnapshot e, string name, string site, long ticks, UserAgentInfo userAgent, BotInfo bot, EnrichedEvent result)
+  {
+    var enrichers = options.Enrichers;
+    if (enrichers != null && enrichers.Count > 0)
+    {
+      var context = (EnrichmentContext)FillContext(new EnrichmentContext(), e, name, site, ticks, userAgent);
+      context.Bot = bot;
+      context.Getter = dimension => GetDimension(result, dimension);
+      context.Setter = (dimension, value) => SetDimension(result, dimension, value);
+      foreach (var enricher in enrichers)
+      {
+        if (enricher == null)
+          continue;
+        try
+        {
+          enricher.Enrich(context);
+        }
+        catch (Exception exception)
+        {
+          ExtensionFailed("enricher " + enricher.GetType().Name, exception);
+        }
+      }
+    }
+    result.Page = result.Dimensions.GetValueOrDefault(StandardDimensions.Page);
+    result.Hostname = result.Dimensions.GetValueOrDefault(StandardDimensions.Hostname) ?? "";
+    if (!result.IsBot)
+    {
+      result.HasCustomDimensions = result.Dimensions.Keys.Any(
+          x => x is not (StandardDimensions.Page or StandardDimensions.Hostname));
+    }
+  }
+
+  static string GetDimension(EnrichedEvent result, string dimension)
+  {
+    if (string.IsNullOrEmpty(dimension))
+      return null;
+    var index = result.IsBot ? -1 : SessionLevelIndexOf(dimension);
+    if (index >= 0)
+      return result.SessionDimensions?[index];
+    return result.Dimensions.GetValueOrDefault(dimension);
+  }
+
+  void SetDimension(EnrichedEvent result, string dimension, string value)
+  {
+    var name = Text.Name(dimension, MaxNameLength);
+    if (name.Length == 0 || name.Contains(','))
+      throw new ArgumentException($"'{dimension}' is not a valid dimension name.", nameof(dimension));
+    if (name == StandardDimensions.EntryPage)
+      throw new ArgumentException("The entry page is maintained by the engine; set the page instead.", nameof(dimension));
+    if (result.IsBot && name is StandardDimensions.Bot or StandardDimensions.BotCategory or StandardDimensions.Event)
+      throw new ArgumentException($"'{name}' is maintained by the engine on bot events.", nameof(dimension));
+    var sanitized = value == null ? null : Text.Value(value, options.Privacy.MaxValueLength);
+    var index = result.IsBot ? -1 : SessionLevelIndexOf(name);
+    if (index >= 0)
+    {
+      result.SessionDimensions ??= new string[StandardDimensions.SessionLevel.Count];
+      result.SessionDimensions[index] = sanitized;
+      return;
+    }
+    if (sanitized == null)
+      result.Dimensions.Remove(name);
+    else
+      result.Dimensions[name] = sanitized;
   }
 
   string[] BuildSessionDimensions(
@@ -279,9 +468,9 @@ sealed class EventEnricher
         {
           location = options.Web.GeoLocator.Locate(e.IpAddress);
         }
-        catch
+        catch (Exception exception)
         {
-          // Geolocation is best effort.
+          ExtensionFailed("geolocator", exception);
         }
       }
       values[CountryIndex] = Pick(CountryIndex, location?.Country);

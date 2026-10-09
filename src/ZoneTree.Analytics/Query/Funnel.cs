@@ -153,10 +153,10 @@ namespace ZoneTree.Analytics.Query
 
     readonly RawEventStore rawEvents;
 
-    readonly EventEnricher enricher;
+    readonly EnrichmentPipeline enricher;
 
     public FunnelEngine(
-        AnalyticsOptions options, ReportingCalendar storageCalendar, RawEventStore rawEvents, EventEnricher enricher)
+        AnalyticsOptions options, ReportingCalendar storageCalendar, RawEventStore rawEvents, EnrichmentPipeline enricher)
     {
       this.options = options;
       this.storageCalendar = storageCalendar;

@@ -76,8 +76,28 @@ enum DimensionScope
   /// <summary>Session scope plus page and hostname (entrance and exit rows).</summary>
   PageView,
 
+  /// <summary>Page, hostname, original event, bot name and category (bot rows).</summary>
+  Bot,
+
   /// <summary>Any dimension (tracked events).</summary>
   All,
+}
+
+static class DimensionScopes
+{
+  /// <summary>
+  /// True when rows of the scope can carry the dimension.
+  /// </summary>
+  public static bool Contains(DimensionScope scope, string dimension) => scope switch
+  {
+    DimensionScope.Session =>
+        dimension == StandardDimensions.EntryPage || EnrichmentPipeline.IsSessionLevel(dimension),
+    DimensionScope.PageView =>
+        dimension is StandardDimensions.EntryPage or StandardDimensions.Page or StandardDimensions.Hostname ||
+        EnrichmentPipeline.IsSessionLevel(dimension),
+    DimensionScope.Bot => StandardDimensions.BotLevel.Contains(dimension),
+    _ => true
+  };
 }
 
 /// <summary>
@@ -164,7 +184,7 @@ sealed class RollupBuffer
     for (var d = 0; d < definitions.Length; ++d)
     {
       var definition = definitions[d];
-      if (definition.Scope > scope)
+      if (!definition.Accepts(scope, eventName))
         continue;
       if (definition.Events != null && !definition.Events.Contains(eventName))
         continue;

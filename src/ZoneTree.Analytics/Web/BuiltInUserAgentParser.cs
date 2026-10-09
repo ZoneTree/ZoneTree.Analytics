@@ -3,27 +3,10 @@ using System.Collections.Concurrent;
 namespace ZoneTree.Analytics.Web;
 
 /// <summary>
-/// Browser, operating system and device information parsed from a user agent.
+/// The built-in, dependency-free user agent parser. It covers the browsers and operating
+/// systems that make up practically all web traffic. Results are cached.
 /// </summary>
-/// <param name="Browser">The browser name, or empty when unknown.</param>
-/// <param name="BrowserVersion">The browser major version, or empty.</param>
-/// <param name="OperatingSystem">The operating system name, or empty when unknown.</param>
-/// <param name="OperatingSystemVersion">The operating system version, or empty.</param>
-/// <param name="Device">"Desktop", "Mobile", "Tablet" or "Bot".</param>
-/// <param name="IsBot">True for bots, crawlers, monitors and HTTP libraries.</param>
-sealed record UserAgentInfo(
-    string Browser,
-    string BrowserVersion,
-    string OperatingSystem,
-    string OperatingSystemVersion,
-    string Device,
-    bool IsBot);
-
-/// <summary>
-/// A small dependency-free user agent parser covering the browsers, operating systems
-/// and bots that make up practically all web traffic. Results are cached.
-/// </summary>
-sealed class UserAgentParser
+sealed class BuiltInUserAgentParser : IUserAgentParser
 {
   const int MaxCacheSize = 10_000;
 
@@ -31,34 +14,12 @@ sealed class UserAgentParser
 
   readonly ConcurrentDictionary<string, UserAgentInfo> cache = new(StringComparer.Ordinal);
 
-  /// <summary>
-  /// A shared parser instance.
-  /// </summary>
-  public static UserAgentParser Shared { get; } = new();
+  public static BuiltInUserAgentParser Instance { get; } = new();
 
-  static readonly string[] BotTokens =
-  [
-    "bot", "crawl", "spider", "slurp", "scrape", "headless", "lighthouse",
-    "pingdom", "uptime", "monitor", "facebookexternalhit", "facebookcatalog",
-    "embedly", "preview", "curl/", "wget/", "python-requests", "python-urllib",
-    "aiohttp", "httpx", "go-http-client", "java/", "okhttp", "apache-httpclient",
-    "axios/", "node-fetch", "undici", "libwww", "phantomjs", "selenium",
-    "puppeteer", "playwright", "feedfetcher", "mediapartners", "gtmetrix",
-    "semrush", "ahrefs", "mj12", "petalbot", "yandex.com/bots", "baiduspider",
-    "bytespider", "ccbot", "gptbot", "chatgpt-user", "claude-web", "claudebot",
-    "anthropic-ai", "perplexity", "amazonbot", "applebot", "dataforseo",
-    "postman", "insomnia", "http_request", "nutch", "scrapy", "wordpress/",
-    "whatsapp", "telegrambot", "discordbot", "slackbot", "skypeuripreview",
-    "vercel-screenshot", "statuscake", "site24x7", "newrelic", "datadog",
-  ];
-
-  /// <summary>
-  /// Parses a user agent string.
-  /// </summary>
   public UserAgentInfo Parse(string userAgent)
   {
     if (string.IsNullOrWhiteSpace(userAgent))
-      return Unknown;
+      return null;
     if (userAgent.Length > MaxUserAgentLength)
       userAgent = userAgent[..MaxUserAgentLength];
     if (cache.TryGetValue(userAgent, out var cached))
@@ -70,28 +31,13 @@ sealed class UserAgentParser
     return info;
   }
 
-  static readonly UserAgentInfo Unknown = new("", "", "", "", "Desktop", false);
-
   static UserAgentInfo ParseCore(string ua)
   {
     var lower = ua.ToLowerInvariant();
-    foreach (var token in BotTokens)
-    {
-      if (lower.Contains(token, StringComparison.Ordinal))
-        return new UserAgentInfo("Bot", "", "", "", "Bot", true);
-    }
-    if (!lower.StartsWith("mozilla/", StringComparison.Ordinal) &&
-        !lower.StartsWith("opera/", StringComparison.Ordinal) &&
-        !lower.Contains("applewebkit", StringComparison.Ordinal))
-    {
-      // Real browsers always identify as Mozilla-compatible.
-      return new UserAgentInfo("Bot", "", "", "", "Bot", true);
-    }
-
     var (os, osVersion) = DetectOperatingSystem(ua);
     var (browser, browserVersion) = DetectBrowser(ua);
     var device = DetectDevice(lower, os);
-    return new UserAgentInfo(browser, browserVersion, os, osVersion, device, false);
+    return new UserAgentInfo(browser, browserVersion, os, osVersion, device);
   }
 
   static (string, string) DetectBrowser(string ua)

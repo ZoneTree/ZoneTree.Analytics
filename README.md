@@ -33,6 +33,8 @@ var summary = await analytics.Web.GetSummaryAsync(new WebReportRequest { Range =
 * **Accurate unique counts.** Exact up to 4,096 visitors per row, about 0.8% error beyond, correctly de-duplicated across any range.
 * **Privacy by design.** No cookies, no stored IP addresses or user agents, daily-rotating visitor hashes, configurable data minimization and retention, visitor erasure.
 * **Embedded and reliable.** One thread-safe engine per data directory, background ingestion that never blocks request threads, write-ahead logging, crash recovery and bounded memory.
+* **Bot traffic, kept apart.** Search engines, AI crawlers, SEO tools, link previews, monitors and scripts are recognized and either excluded or reported next to page views, by bot and category.
+* **Extensible.** Plug in event filters, enrichers, bot detectors, a user agent parser and a geolocator through one consistent model.
 * **Multi-site.** One engine serves many sites, apps or tenants with isolated data.
 
 ---
@@ -162,10 +164,11 @@ A query has a base `Event` (page views by default), a `Range`, an optional `Inte
 | `Sum(v)`, `Average(v)`, `Min(v)`, `Max(v)`, `Count(v)` | base event, or `Sum(v, e)` | aggregates of a tracked value |
 | `Conversions(goal)`, `ConversionRate(goal)` | goal event | goal visitors, and goal visitors ÷ base visitors |
 | `PercentOfTotal(m)` | as `m` | each row's share of the total |
+| `BotHits` | bot events | bot requests, see [Bot traffic](#bot-traffic) |
 
 The engine runs one sub-query per event the metrics read and joins them on the time bucket and group values. A row is returned for every group that has data for any metric; set `IncludeRowsWithoutBaseEvent = false` to keep only groups with base events. Filters apply to every sub-query.
 
-Session metrics can only be grouped and filtered by session-level dimensions and the entry page; entrances and exits also by page and hostname. Use a segment to select sessions by anything else.
+Session metrics can only be grouped and filtered by session-level dimensions and the entry page; entrances and exits also by page and hostname. Use a segment to select sessions by anything else. Bot metrics can only be grouped and filtered by page, hostname, `event`, `bot` and `bot_category`, and cannot be combined with segments.
 
 Every metric has a stable key, for example `visitors`, `bounce_rate`, `sum:revenue`, `avg:duration_ms@job_completed`, `conversion_rate:signup` or `percent:visitors`; `Metric.Parse` turns keys back into metrics.
 
@@ -270,13 +273,44 @@ A rollup added to an existing data directory covers data from that moment on; ea
 | `channel` | Direct, Organic Search, Paid Search, Organic Social, Paid Social, Email, Affiliates, AI Assistants, Video, Referral or Paid Other. |
 | `utm_source`, `utm_medium`, `utm_campaign`, `utm_term`, `utm_content` | Campaign parameters of the landing URL. |
 | `country`, `region`, `city` | Your `IGeoLocator`, or values you pass as dimensions (for example from a CDN header). |
-| `browser`, `os`, `device` (+ `browser_version`, `os_version`) | Built-in, dependency-free user agent parser. |
+| `browser`, `os`, `device` (+ `browser_version`, `os_version`) | Built-in, dependency-free user agent parser, or your `IUserAgentParser`. |
+| `bot`, `bot_category`, `event` | On bot events only: the bot, its category and the original event name. |
 
 Source, campaign, geography and device are **session-level**: captured from the first event of a session and attached to every event of the session, so all page views and goals of a visit share them. Standard dimensions can be overridden per event, for example `Dimensions = { [StandardDimensions.Country] = cdnCountry }`.
 
 ### Sessions
 
 A session is a sequence of events from one visitor with no gap longer than `Sessions.Timeout` (30 minutes by default). A session bounces when it has at most one interactive event; page views and custom events are interactive unless `NonInteractive` is set. Session metrics are attributed to the session start; entrances and exits to their page views. Sessions are maintained incrementally, so session metrics are real-time.
+
+### Bot traffic
+
+Every event goes through the bot detectors (`Web.BotDetectors`). The built-in detector recognizes bots by user agent and names them, for example `Googlebot`, `GPTBot`, `ClaudeBot`, `AhrefsBot`, `facebookexternalhit`, `UptimeRobot`, `HeadlessChrome` or `curl`, in the categories of `BotCategories`: Search, AI, SEO, Social Preview, Monitoring, Automation, Scripts, Archiver and Other.
+
+`Web.Bots` decides what happens to bot traffic:
+
+* `BotTraffic.Exclude` (default): bot events are discarded and counted in `BotsExcluded`.
+* `BotTraffic.TrackSeparately`: bot events are stored as `$bot` events with the dimensions `bot`, `bot_category`, `event` (the original event name), `page` and `hostname`. They never count as visitors, page views, sessions or goals, and they have no visitor identity.
+
+With `TrackSeparately`, the web reports show bot hits next to human traffic:
+
+```csharp
+options.Web.Bots = BotTraffic.TrackSeparately;
+
+var summary = await analytics.Web.GetSummaryAsync(request);   // summary.BotHits next to summary.PageViews
+var pages   = await analytics.Web.GetPagesAsync(request);     // PageStats.BotHits per page
+var bots    = await analytics.Web.GetBotsAsync(request);      // name, category, hits and share
+
+// Which pages do AI crawlers read?
+var ai = await analytics.QueryAsync(new AnalyticsQuery
+{
+    Event = StandardEvents.Bot,
+    GroupBy = { StandardDimensions.Page },
+    Filters = { Filter.Equal(StandardDimensions.BotCategory, BotCategories.AI) },
+    Metrics = { Metric.Events },
+});
+```
+
+`BotHits` is null in web reports whose filters or segments do not apply to bots, for example a country filter. Bots that run JavaScript rarely load the tracker script, so server-side tracking with `UseZoneTreeAnalytics()` sees far more bot traffic than the script.
 
 ---
 
@@ -319,11 +353,12 @@ Use one of the two page view options, not both. The tracker follows single-page-
 | `GET breakdown?dimension=source` | rows with visitors, page views, share and session metrics |
 | `GET pages`, `GET exit-pages` | page statistics |
 | `GET goals` | custom events with conversion rates |
+| `GET bots` | bots with category, hits and share (with `BotTraffic.TrackSeparately`) |
 | `GET realtime?minutes=5` | current visitors |
 | `POST query` | any query, as JSON |
 | `POST funnel` | a funnel, as JSON |
 
-Common parameters: `site`, `range` (`today`, `yesterday`, `7d`, `30d`, `month`, `last-month`, `year`, `30m`, `12h`) or `from` and `to`, `tz`, `filter` (repeatable, `Filter.Parse` syntax), `compare` (`previous` or `year`), `limit`, `offset`.
+Summary, time series and page rows include `botHits` (null unless bots are tracked separately). Common parameters: `site`, `range` (`today`, `yesterday`, `7d`, `30d`, `month`, `last-month`, `year`, `30m`, `12h`) or `from` and `to`, `tz`, `filter` (repeatable, `Filter.Parse` syntax), `compare` (`previous` or `year`), `limit`, `offset`.
 
 ```json
 POST /_analytics/api/query
@@ -353,7 +388,7 @@ The API exposes analytics data: protect it with authorization, and restrict site
   * `None`: no visitor tracking, no sessions or unique counts.
 * **Secret management.** Supply `Privacy.VisitorIdSecret` from your secret store to keep the hashing key away from the data files.
 * **Data minimization.** `GeoPrecision`, `CollectUserAgentDetails`, `CollectVersions`, `IncludeQueryString` (off by default), `AllowedDimensions`, `DeniedDimensions`, `MaxCustomDimensions`, `MaxValueLength`.
-* **Filtering.** `EventFilter` drops events before they are queued, for example internal traffic or visitors who opted out. Bots, crawlers, monitors and HTTP libraries are excluded by default.
+* **Filtering.** `EventFilters` drop events before they are queued, for example internal traffic or visitors who opted out. Bot traffic is excluded by default.
 * **Retention** per data tier, see below.
 * **Erasure.** `await analytics.EraseVisitorAsync(userId)` deletes the raw events and the session of an explicitly identified visitor. Rollups contain only aggregates and sketches, never identifiers.
 
@@ -383,12 +418,53 @@ var options = new AnalyticsOptions
     Web =
     {
         GeoLocator = myGeoLocator,         // e.g. a MaxMind reader adapter
-        PathNormalizer = path => Regex.Replace(path, @"/\d+", "/:id"),
+        Bots = BotTraffic.TrackSeparately,
     },
+    Enrichers = { EventEnricher.NormalizePage(path => Regex.Replace(path, @"/\d+", "/:id")) },
 };
 ```
 
 The reporting time zone, sketch precision and raw event partitioning define the storage format. They are persisted on creation; reopening with different values throws `AnalyticsConfigurationException`.
+
+---
+
+## Extending
+
+Every extension point follows the same model: a single-method interface, a static class of the same name without the `I` that offers the built-in implementation and a `Create` factory for lambdas, and an option to plug it in.
+
+| Interface | Plugged in at | Built-in | Runs | Purpose |
+| --- | --- | --- | --- | --- |
+| `IEventFilter` | `EventFilters` | none | on the calling thread, before queueing | drop events: internal traffic, opt-outs |
+| `IBotDetector` | `Web.BotDetectors` | `BotDetector.UserAgent` | on workers; first match wins | recognize bots by user agent, IP, header-derived dimensions |
+| `IUserAgentParser` | `Web.UserAgentParser` | `UserAgentParser.Default` | on workers | browser, OS and device |
+| `IGeoLocator` | `Web.GeoLocator` | none | on workers, once per session | country, region and city |
+| `IEventEnricher` | `Enrichers` | `EventEnricher.NormalizePage(...)` | on workers, last, in order | add, change or remove dimensions |
+
+```csharp
+// Exclude office traffic.
+options.EventFilters.Add(EventFilter.Create(e => e.IpAddress?.StartsWith("10.") != true));
+
+// Treat your own load tests as bots, before the built-in detector.
+options.Web.BotDetectors.Insert(0, BotDetector.Create(context =>
+    context.TrackedDimensions.ContainsKey("load_test") ? new BotInfo("Load test", BotCategories.Automation) : null));
+
+// Use a third-party parser.
+options.Web.UserAgentParser = UserAgentParser.Create(ua => MyParser.Parse(ua) is { } r
+    ? new UserAgentInfo(r.Browser, r.BrowserMajor, r.Os, r.OsVersion, r.DeviceType)
+    : null);
+
+// Collapse ids and derive a content section.
+options.Enrichers.Add(EventEnricher.NormalizePage(path => Regex.Replace(path, @"/\d+", "/:id")));
+options.Enrichers.Add(EventEnricher.Create(context =>
+    context.SetDimension("section", context.GetDimension(StandardDimensions.Page)?.Split('/')[1])));
+```
+
+Rules that hold for all of them:
+
+* **Thread safety.** Extensions are called concurrently; implementations must be thread-safe.
+* **Fail open.** An exception thrown by an extension is logged and counted in `GetStatistics().Errors`, and the event is processed as if the extension were not there. Analytics never breaks the host application.
+* **Privacy.** Extensions see the IP address and user agent in memory (`EventContext`); neither is stored.
+* **Enrichers see final values.** `GetDimension` and `SetDimension` work on page, hostname, custom and session-level dimensions after built-in enrichment, for human and bot events (`context.Bot`). A session-level value set on the first event of a session applies to the whole session. The entry page follows the page and cannot be set directly, and the bot dimensions of bot events are fixed.
 
 ---
 

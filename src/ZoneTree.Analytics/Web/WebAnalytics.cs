@@ -41,13 +41,17 @@ public sealed class WebReportRequest
 /// <param name="BounceRate">Share of sessions with at most one interactive event, 0 to 1.</param>
 /// <param name="AverageSessionDuration">Average session duration.</param>
 /// <param name="PageViewsPerSession">Average page views per session.</param>
+/// <param name="BotHits">Bot requests, side by side with page views. Null unless
+/// <see cref="WebOptions.Bots"/> is <see cref="BotTraffic.TrackSeparately"/>, and null when the
+/// request has segments or filters other than page and hostname.</param>
 public sealed record WebSummary(
     long Visitors,
     long PageViews,
     long? Sessions,
     double? BounceRate,
     TimeSpan? AverageSessionDuration,
-    double? PageViewsPerSession)
+    double? PageViewsPerSession,
+    long? BotHits)
 {
   /// <summary>The comparison period, when requested.</summary>
   public WebSummary Previous { get; init; }
@@ -92,13 +96,16 @@ public sealed record WebBreakdownRow(
 /// <param name="Entrances">Sessions that started on the page. Null when filtered by custom dimensions.</param>
 /// <param name="Exits">Sessions that ended on the page.</param>
 /// <param name="ExitRate">Exits per page view, 0 to 1.</param>
+/// <param name="BotHits">Bot requests of the page. Null unless bots are tracked separately, and
+/// null when the request has segments or filters other than page and hostname.</param>
 public sealed record PageStats(
     string Page,
     long Visitors,
     long PageViews,
     long? Entrances,
     long? Exits,
-    double? ExitRate)
+    double? ExitRate,
+    long? BotHits)
 {
   /// <summary>The same page in the comparison period, when requested.</summary>
   public PageStats Previous { get; init; }
@@ -112,6 +119,19 @@ public sealed record PageStats(
 /// <param name="Events">Number of events.</param>
 /// <param name="ConversionRate">Goal visitors divided by visitors with a page view, 0 to 1.</param>
 public sealed record GoalStats(string Name, long Visitors, long Events, double ConversionRate);
+
+/// <summary>
+/// Bot statistics.
+/// </summary>
+/// <param name="Name">The bot name, for example "Googlebot" or "GPTBot".</param>
+/// <param name="Category">The bot category, see <see cref="BotCategories"/>.</param>
+/// <param name="Hits">Requests made by the bot.</param>
+/// <param name="Share">This bot's share of all bot requests, 0 to 1.</param>
+public sealed record BotStats(string Name, string Category, long Hits, double Share)
+{
+  /// <summary>The same bot in the comparison period, when requested.</summary>
+  public BotStats Previous { get; init; }
+}
 
 /// <summary>
 /// A list report.
@@ -131,6 +151,11 @@ public sealed record WebReport<T>(IReadOnlyList<T> Rows, int TotalRows, QueryPla
 /// view, so numbers add up across reports. Session metrics (sessions, bounce rate, duration) are
 /// reported when the breakdown dimension and filters are session-level (source, campaign,
 /// geography, device, entry page); otherwise they are null.
+/// </para>
+/// <para>
+/// When <see cref="WebOptions.Bots"/> is <see cref="BotTraffic.TrackSeparately"/>, the summary,
+/// time series and page reports carry bot hits next to page views, and
+/// <see cref="GetBotsAsync"/> lists the bots. Bot traffic never counts as visitors or page views.
 /// </para>
 /// <para>
 /// Reports are built on <see cref="AnalyticsEngine.QueryAsync"/>; use it directly for anything
@@ -159,16 +184,21 @@ public sealed class WebAnalytics
     if (!engine.Options.Sessions.Enabled)
       return false;
     static bool IsSessionLevel(string name) =>
-        name == StandardDimensions.EntryPage || EventEnricher.IsSessionLevel(name);
+        name == StandardDimensions.EntryPage || EnrichmentPipeline.IsSessionLevel(name);
     return (dimension == null || IsSessionLevel(dimension)) &&
         request.Filters.All(x => x == null || IsSessionLevel(x.Dimension));
   }
+
+  bool BotMetricsAvailable(WebReportRequest request) =>
+      engine.Options.Web.Bots == BotTraffic.TrackSeparately &&
+      request.Segments.Count == 0 &&
+      request.Filters.All(x => x == null || x.Dimension is StandardDimensions.Page or StandardDimensions.Hostname);
 
   static bool PageMetricsAvailable(WebReportRequest request)
   {
     static bool IsPageLevel(string name) =>
         name is StandardDimensions.EntryPage or StandardDimensions.Page or StandardDimensions.Hostname ||
-        EventEnricher.IsSessionLevel(name);
+        EnrichmentPipeline.IsSessionLevel(name);
     return request.Filters.All(x => x == null || IsPageLevel(x.Dimension));
   }
 
@@ -194,7 +224,17 @@ public sealed class WebAnalytics
     return query;
   }
 
-  static WebSummary ToSummary(AnalyticsRow row, bool sessions)
+  static void AddSummaryMetrics(AnalyticsQuery query, bool sessions, bool bots)
+  {
+    query.Metrics.Add(Metric.Visitors);
+    query.Metrics.Add(Metric.PageViews);
+    if (sessions)
+      query.Metrics.AddRange(SessionMetrics);
+    if (bots)
+      query.Metrics.Add(Metric.BotHits);
+  }
+
+  static WebSummary ToSummary(AnalyticsRow row, bool sessions, bool bots)
   {
     if (row == null)
       return null;
@@ -204,9 +244,10 @@ public sealed class WebAnalytics
         sessions ? (long)row[Metric.Sessions] : null,
         sessions ? row[Metric.BounceRate] : null,
         sessions ? TimeSpan.FromSeconds(row[Metric.AverageSessionDuration]) : null,
-        sessions ? row[Metric.PageViewsPerSession] : null)
+        sessions ? row[Metric.PageViewsPerSession] : null,
+        bots ? (long)row[Metric.BotHits] : null)
     {
-      Previous = ToSummary(row.Previous, sessions)
+      Previous = ToSummary(row.Previous, sessions, bots)
     };
   }
 
@@ -216,13 +257,11 @@ public sealed class WebAnalytics
   public async Task<WebSummary> GetSummaryAsync(WebReportRequest request, CancellationToken cancellationToken = default)
   {
     var sessions = SessionMetricsAvailable(request);
+    var bots = BotMetricsAvailable(request);
     var query = NewQuery(request, paged: false);
-    query.Metrics.Add(Metric.Visitors);
-    query.Metrics.Add(Metric.PageViews);
-    if (sessions)
-      query.Metrics.AddRange(SessionMetrics);
+    AddSummaryMetrics(query, sessions, bots);
     var result = await engine.QueryAsync(query, cancellationToken).ConfigureAwait(false);
-    return ToSummary(result.Totals, sessions);
+    return ToSummary(result.Totals, sessions, bots);
   }
 
   /// <summary>
@@ -234,14 +273,12 @@ public sealed class WebAnalytics
     if (interval == TimeInterval.None)
       throw new ArgumentException("A time series interval is required.", nameof(interval));
     var sessions = SessionMetricsAvailable(request);
+    var bots = BotMetricsAvailable(request);
     var query = NewQuery(request, paged: false);
     query.Interval = interval;
-    query.Metrics.Add(Metric.Visitors);
-    query.Metrics.Add(Metric.PageViews);
-    if (sessions)
-      query.Metrics.AddRange(SessionMetrics);
+    AddSummaryMetrics(query, sessions, bots);
     var result = await engine.QueryAsync(query, cancellationToken).ConfigureAwait(false);
-    return result.Rows.Select(x => new WebTimeseriesPoint(x.Bucket.Value, ToSummary(x, sessions))).ToList();
+    return result.Rows.Select(x => new WebTimeseriesPoint(x.Bucket.Value, ToSummary(x, sessions, bots))).ToList();
   }
 
   /// <summary>
@@ -287,7 +324,8 @@ public sealed class WebAnalytics
   }
 
   /// <summary>
-  /// Pages ordered by page views, with entrances, exits and exit rate.
+  /// Pages ordered by page views, with entrances, exits, exit rate and, when bots are tracked
+  /// separately, bot hits. Pages visited only by bots are not listed.
   /// </summary>
   public Task<WebReport<PageStats>> GetPagesAsync(WebReportRequest request, CancellationToken cancellationToken = default) =>
       GetPagesAsync(request, Metric.PageViews, cancellationToken);
@@ -302,6 +340,7 @@ public sealed class WebAnalytics
       WebReportRequest request, Metric order, CancellationToken cancellationToken)
   {
     var pageMetrics = PageMetricsAvailable(request);
+    var bots = BotMetricsAvailable(request);
     if (!pageMetrics && order == Metric.Exits)
       throw new ArgumentException("Exit pages cannot be filtered by custom dimensions.", nameof(request));
     var query = NewQuery(request, paged: true);
@@ -314,6 +353,8 @@ public sealed class WebAnalytics
       query.Metrics.Add(Metric.Exits);
       query.Metrics.Add(Metric.ExitRate);
     }
+    if (bots)
+      query.Metrics.Add(Metric.BotHits);
     query.OrderBy.Add(Order.By(order));
     query.OrderBy.Add(Order.By(Metric.Visitors));
     var result = await engine.QueryAsync(query, cancellationToken).ConfigureAwait(false);
@@ -324,7 +365,8 @@ public sealed class WebAnalytics
         (long)row[Metric.PageViews],
         pageMetrics ? (long)row[Metric.Entrances] : null,
         pageMetrics ? (long)row[Metric.Exits] : null,
-        pageMetrics ? row[Metric.ExitRate] : null)
+        pageMetrics ? row[Metric.ExitRate] : null,
+        bots ? (long)row[Metric.BotHits] : null)
     {
       Previous = ToStats(row.Previous)
     };
@@ -341,7 +383,7 @@ public sealed class WebAnalytics
   {
     ArgumentNullException.ThrowIfNull(request);
     var goals = engine.GetEventNames(request.Range, request.Site, request.TimeZone)
-        .Where(x => x != StandardEvents.PageView && x != StandardEvents.Session)
+        .Where(x => x is not (StandardEvents.PageView or StandardEvents.Session or StandardEvents.Bot))
         .ToList();
     var query = NewQuery(request, paged: false);
     query.Compare = null;
@@ -367,6 +409,34 @@ public sealed class WebAnalytics
         .ToList();
     return new WebReport<GoalStats>(
         rows.Skip(request.Offset).Take(request.Limit).ToList(), rows.Count, result.Plan);
+  }
+
+  /// <summary>
+  /// Bots ordered by hits, with their category and share of all bot hits. Requires
+  /// <see cref="WebOptions.Bots"/> to be <see cref="BotTraffic.TrackSeparately"/>; otherwise the
+  /// report is empty. Filters can use page, hostname, bot and bot_category; segments are not
+  /// supported because bot events carry no visitor.
+  /// </summary>
+  public async Task<WebReport<BotStats>> GetBotsAsync(WebReportRequest request, CancellationToken cancellationToken = default)
+  {
+    var query = NewQuery(request, paged: true);
+    query.Event = StandardEvents.Bot;
+    query.GroupBy.Add(StandardDimensions.Bot);
+    query.GroupBy.Add(StandardDimensions.BotCategory);
+    query.Metrics.Add(Metric.Events);
+    query.Metrics.Add(Metric.PercentOfTotal(Metric.Events));
+    query.OrderBy.Add(Order.By(Metric.Events));
+    var result = await engine.QueryAsync(query, cancellationToken).ConfigureAwait(false);
+
+    BotStats ToStats(AnalyticsRow row) => row == null ? null : new BotStats(
+        row.Dimensions[0],
+        row.Dimensions[1],
+        (long)row[Metric.Events],
+        row[Metric.PercentOfTotal(Metric.Events)])
+    {
+      Previous = ToStats(row.Previous)
+    };
+    return new WebReport<BotStats>(result.Rows.Select(ToStats).ToList(), result.TotalRows, result.Plan);
   }
 
   /// <summary>

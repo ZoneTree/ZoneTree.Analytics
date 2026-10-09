@@ -83,6 +83,13 @@ public sealed class Metric : IEquatable<Metric>
   /// <summary>Number of page views.</summary>
   public static Metric PageViews { get; } = new(Kind.Events, "pageviews", eventName: StandardEvents.PageView);
 
+  /// <summary>
+  /// Number of bot hits (<see cref="StandardEvents.Bot"/> events), recorded when
+  /// <see cref="WebOptions.Bots"/> is <see cref="BotTraffic.TrackSeparately"/>. Group it by page or
+  /// hostname to compare with page views.
+  /// </summary>
+  public static Metric BotHits { get; } = new(Kind.Events, "bot_hits", eventName: StandardEvents.Bot);
+
   /// <summary>Sessions started in the range.</summary>
   public static Metric Sessions { get; } = new(Kind.Sessions, "sessions");
 
@@ -186,6 +193,7 @@ public sealed class Metric : IEquatable<Metric>
       case "events": return Events;
       case "visitors": return Visitors;
       case "pageviews": return PageViews;
+      case "bot_hits": return BotHits;
       case "sessions": return Sessions;
       case "bounces": return Bounces;
       case "bounce_rate": return BounceRate;
@@ -253,9 +261,12 @@ public sealed class Metric : IEquatable<Metric>
   }
 
   /// <summary>
-  /// The widest set of dimensions this metric's rows carry.
+  /// The widest set of dimensions the rows this metric reads carry, for a base event.
   /// </summary>
-  internal DimensionScope Scope => MetricKind switch
+  internal DimensionScope ScopeFor(string baseEvent) =>
+      Sources(baseEvent).Contains(StandardEvents.Bot) ? DimensionScope.Bot : Scope;
+
+  DimensionScope Scope => MetricKind switch
   {
     Kind.Sessions or Kind.Bounces or Kind.BounceRate or Kind.SessionDuration or
         Kind.AverageSessionDuration or Kind.PageViewsPerSession => DimensionScope.Session,

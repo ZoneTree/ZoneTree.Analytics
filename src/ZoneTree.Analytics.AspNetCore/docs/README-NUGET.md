@@ -26,4 +26,4 @@ app.MapZoneTreeAnalyticsApi()           // JSON reporting API under /_analytics/
 
 * `AddZoneTreeAnalytics` registers a singleton `AnalyticsEngine`, resolves the data directory against the content root and routes engine logs to `Microsoft.Extensions.Logging`.
 * The tracker is cookie-less, follows single-page-app navigation and uses `sendBeacon`.
-* The reporting API serves summaries, time series, breakdowns, pages, goals, real-time visitors, arbitrary queries and funnels as JSON.
+* The reporting API serves summaries, time series, breakdowns, pages, goals, bots, real-time visitors, arbitrary queries and funnels as JSON.

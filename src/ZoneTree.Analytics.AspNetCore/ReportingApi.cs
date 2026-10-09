@@ -18,7 +18,7 @@ public static class AnalyticsReportingApiExtensions
   /// (default "{PathPrefix}/api"):
   /// <list type="bullet">
   /// <item><c>GET summary</c>, <c>GET timeseries?interval=day</c>, <c>GET breakdown?dimension=source</c>,
-  /// <c>GET pages</c>, <c>GET exit-pages</c>, <c>GET goals</c>, <c>GET realtime</c></item>
+  /// <c>GET pages</c>, <c>GET exit-pages</c>, <c>GET goals</c>, <c>GET bots</c>, <c>GET realtime</c></item>
   /// <item><c>POST query</c> with a JSON query, <c>POST funnel</c> with a JSON funnel</item>
   /// </list>
   /// Common parameters: <c>site</c>, <c>range</c> (today, yesterday, 7d, 30d, month, last-month,
@@ -43,6 +43,7 @@ public static class AnalyticsReportingApiExtensions
     group.MapGet("/pages", (RequestDelegate)(context => ReportingApi.Run(context, (c, r, w, t) => ReportingApi.PagesAsync(c, r, w, false, t))));
     group.MapGet("/exit-pages", (RequestDelegate)(context => ReportingApi.Run(context, (c, r, w, t) => ReportingApi.PagesAsync(c, r, w, true, t))));
     group.MapGet("/goals", (RequestDelegate)(context => ReportingApi.Run(context, ReportingApi.GoalsAsync)));
+    group.MapGet("/bots", (RequestDelegate)(context => ReportingApi.Run(context, ReportingApi.BotsAsync)));
     group.MapGet("/realtime", (RequestDelegate)(context => ReportingApi.Run(context, ReportingApi.RealtimeAsync)));
     group.MapPost("/query", (RequestDelegate)(context => ReportingApi.Run(context, ReportingApi.QueryAsync)));
     group.MapPost("/funnel", (RequestDelegate)(context => ReportingApi.Run(context, ReportingApi.FunnelAsync)));
@@ -355,6 +356,12 @@ static class ReportingApi
     });
   }
 
+  public static async Task BotsAsync(HttpContext context, ApiParameters parameters, Utf8JsonWriter writer, CancellationToken cancellationToken)
+  {
+    var report = await Engine(context).Web.GetBotsAsync(ParseRequest(parameters), cancellationToken);
+    WriteReport(writer, report, WriteBotStats);
+  }
+
   public static Task RealtimeAsync(HttpContext context, ApiParameters parameters, Utf8JsonWriter writer, CancellationToken cancellationToken)
   {
     var minutes = parameters.GetInt("minutes") ?? 5;
@@ -474,6 +481,7 @@ static class ReportingApi
     WriteNullable(writer, "bounceRate", summary.BounceRate);
     WriteNullable(writer, "averageSessionDuration", summary.AverageSessionDuration?.TotalSeconds);
     WriteNullable(writer, "pageViewsPerSession", summary.PageViewsPerSession);
+    WriteNullable(writer, "botHits", summary.BotHits);
     if (summary.Previous != null)
     {
       writer.WritePropertyName("previous");
@@ -509,10 +517,26 @@ static class ReportingApi
     WriteNullable(writer, "entrances", page.Entrances);
     WriteNullable(writer, "exits", page.Exits);
     WriteNullable(writer, "exitRate", page.ExitRate);
+    WriteNullable(writer, "botHits", page.BotHits);
     if (page.Previous != null)
     {
       writer.WritePropertyName("previous");
       WritePageStats(writer, page.Previous);
+    }
+    writer.WriteEndObject();
+  }
+
+  static void WriteBotStats(Utf8JsonWriter writer, BotStats bot)
+  {
+    writer.WriteStartObject();
+    writer.WriteString("name", bot.Name);
+    writer.WriteString("category", bot.Category);
+    writer.WriteNumber("hits", bot.Hits);
+    writer.WriteNumber("share", bot.Share);
+    if (bot.Previous != null)
+    {
+      writer.WritePropertyName("previous");
+      WriteBotStats(writer, bot.Previous);
     }
     writer.WriteEndObject();
   }

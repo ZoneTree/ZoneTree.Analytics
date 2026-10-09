@@ -51,7 +51,7 @@ sealed class QueryEngine
 
   readonly Func<string, long> definitionActiveSince;
 
-  readonly EventEnricher enricher;
+  readonly EnrichmentPipeline enricher;
 
   public QueryEngine(
       AnalyticsOptions options,
@@ -60,7 +60,7 @@ sealed class QueryEngine
       RawEventStore rawEvents,
       RollupDefinition[] definitions,
       Func<string, long> definitionActiveSince,
-      EventEnricher enricher)
+      EnrichmentPipeline enricher)
   {
     this.options = options;
     this.storageCalendar = storageCalendar;
@@ -220,7 +220,12 @@ sealed class QueryEngine
 
     var dimensions = groupBy.Concat(filters.Select(x => x.Dimension)).Distinct(StringComparer.Ordinal).ToArray();
     foreach (var metric in metrics)
-      ValidateScope(metric, dimensions);
+    {
+      ValidateScope(metric, baseEvent, dimensions);
+      if (segments.Length > 0 && metric.ScopeFor(baseEvent) == DimensionScope.Bot)
+        throw new AnalyticsQueryException(
+            $"The metric '{metric.Key}' cannot be combined with segments: bot events carry no visitor.");
+    }
     foreach (var order in query.OrderBy)
     {
       if (order == null)
@@ -274,23 +279,29 @@ sealed class QueryEngine
     return context;
   }
 
-  static void ValidateScope(Metric metric, string[] dimensions)
+  static void ValidateScope(Metric metric, string baseEvent, string[] dimensions)
   {
-    var scope = metric.Scope;
+    var scope = metric.ScopeFor(baseEvent);
     if (scope == DimensionScope.All)
       return;
     foreach (var dimension in dimensions)
     {
-      var isSessionLevel = dimension == StandardDimensions.EntryPage || EventEnricher.IsSessionLevel(dimension);
-      var isPageLevel = dimension is StandardDimensions.Page or StandardDimensions.Hostname;
-      if (isSessionLevel || (scope == DimensionScope.PageView && isPageLevel))
+      if (DimensionScopes.Contains(scope, dimension))
         continue;
-      var allowed = scope == DimensionScope.Session
-          ? "session-level dimensions and the entry page"
-          : "session-level dimensions, the entry page, page and hostname";
+      var (allowed, hint) = scope switch
+      {
+        DimensionScope.Session => (
+            "session-level dimensions and the entry page",
+            "Use a Segment to select sessions or visitors by other conditions."),
+        DimensionScope.PageView => (
+            "session-level dimensions, the entry page, page and hostname",
+            "Use a Segment to select sessions or visitors by other conditions."),
+        _ => (
+            "page, hostname, event, bot and bot_category",
+            "Bot events carry no visitor, session or custom dimensions.")
+      };
       throw new AnalyticsQueryException(
-          $"The metric '{metric.Key}' can only be grouped and filtered by {allowed}, not by '{dimension}'. " +
-          "Use a Segment to select sessions or visitors by other conditions.");
+          $"The metric '{metric.Key}' can only be grouped and filtered by {allowed}, not by '{dimension}'. {hint}");
     }
   }
 
@@ -611,7 +622,13 @@ sealed class QueryEngine
   {
     var eventSources = sources.Where(x => x.Event != StandardEvents.Session).ToList();
     var sessionSource = sources.FirstOrDefault(x => x.Event == StandardEvents.Session);
-    var pageViewSource = sources.FirstOrDefault(x => x.Event == StandardEvents.PageView);
+    // Entrances and exits are only replayed when a metric reads them; like their rollups, they
+    // carry page-view-level dimensions only.
+    var pageViewSource = context.Metrics.Any(UsesPageFlow) &&
+        context.GroupBy.Concat(context.Filters.Select(x => x.Dimension))
+            .All(x => DimensionScopes.Contains(DimensionScope.PageView, x))
+        ? sources.FirstOrDefault(x => x.Event == StandardEvents.PageView)
+        : null;
     var trackSessions = options.Sessions.Enabled && (sessionSource != null || pageViewSource != null);
     var onlyEvent = eventSources.Count == 1 && !trackSessions ? eventSources[0] : null;
 
@@ -670,6 +687,13 @@ sealed class QueryEngine
     }
   }
 
+  static bool UsesPageFlow(Metric metric) => metric.MetricKind switch
+  {
+    Metric.Kind.Entrances or Metric.Kind.Exits or Metric.Kind.ExitRate => true,
+    Metric.Kind.PercentOfTotal => UsesPageFlow(metric.Inner),
+    _ => false
+  };
+
   void AddRawEvent(QueryContext context, SourceContext source, RawEvent rawEvent, string[] groupValues)
   {
     foreach (var filter in context.Filters)
@@ -709,7 +733,7 @@ sealed class QueryEngine
       var dimensions = new Dictionary<string, string>(StringComparer.Ordinal);
       foreach (var (key, value) in rawEvent.Dimensions)
       {
-        if (key == StandardDimensions.EntryPage || EventEnricher.IsSessionLevel(key))
+        if (key == StandardDimensions.EntryPage || EnrichmentPipeline.IsSessionLevel(key))
           dimensions[key] = value;
       }
       session.Dimensions = dimensions;
