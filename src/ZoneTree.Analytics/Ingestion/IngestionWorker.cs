@@ -11,23 +11,19 @@ namespace ZoneTree.Analytics.Ingestion;
 /// </summary>
 readonly struct WorkItem
 {
-  public readonly AnalyticsEvent Event;
-
-  public readonly long ReceivedTicks;
+  public readonly EventSnapshot Event;
 
   public readonly TaskCompletionSource Flush;
 
-  public WorkItem(AnalyticsEvent analyticsEvent, long receivedTicks)
+  public WorkItem(EventSnapshot snapshot)
   {
-    Event = analyticsEvent;
-    ReceivedTicks = receivedTicks;
+    Event = snapshot;
     Flush = null;
   }
 
   public WorkItem(TaskCompletionSource flush)
   {
     Event = null;
-    ReceivedTicks = 0;
     Flush = flush;
   }
 }
@@ -165,7 +161,7 @@ sealed class IngestionWorker
         }
         try
         {
-          Process(item.Event, item.ReceivedTicks);
+          Process(item.Event);
         }
         catch (Exception e)
         {
@@ -180,10 +176,10 @@ sealed class IngestionWorker
     Flush();
   }
 
-  void Process(AnalyticsEvent analyticsEvent, long receivedTicks)
+  void Process(EventSnapshot snapshot)
   {
     var counters = services.Counters;
-    var ev = services.Enricher.Enrich(analyticsEvent, receivedTicks, out var reason);
+    var ev = services.Enricher.Enrich(snapshot, out var reason);
     if (ev == null)
     {
       switch (reason)
@@ -372,7 +368,8 @@ sealed class IngestionWorker
           WithPage(sessionDimensions, session.LastPage, session.LastHostname),
           0,
           0,
-          metricChangesForSession);
+          metricChangesForSession,
+          DimensionScope.PageView);
     }
     var isEntrance = isNewSession && session.Events == 1;
     if (ev.HasCustomDimensions)
@@ -389,7 +386,8 @@ sealed class IngestionWorker
           WithPage(sessionDimensions, ev.Page, ev.Hostname),
           0,
           0,
-          metricChangesForSession);
+          metricChangesForSession,
+          DimensionScope.PageView);
     }
     else
     {
@@ -426,7 +424,8 @@ sealed class IngestionWorker
         GetSessionDimensions(session),
         session.PendingStart ? 1 : 0,
         session.PendingStart ? session.PendingVisitor : 0,
-        metricChangesForSession);
+        metricChangesForSession,
+        DimensionScope.Session);
     session.ClearPendingDeltas();
   }
 

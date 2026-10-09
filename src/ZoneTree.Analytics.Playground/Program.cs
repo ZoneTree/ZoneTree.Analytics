@@ -79,39 +79,52 @@ using (var engine = new AnalyticsEngine(options))
   }
 
   Console.WriteLine("Query latency (average of 5 runs):");
-  var summary = Measure("Summary (30 days)", () => engine.Web.GetSummary(from, to));
-  var timeseries = Measure("Daily time series (30 days)", () => engine.Web.GetTimeseries(from, to, TimeInterval.Day));
-  Measure("Hourly time series (7 days)", () => engine.Web.GetTimeseries(to.AddDays(-7), to, TimeInterval.Hour));
-  var pages = Measure("Top pages (30 days)", () => engine.Web.GetTopPages(from, to, 10));
-  var sources = Measure("Top sources (30 days)", () => engine.Web.GetSources(from, to, 10));
-  var countries = Measure("Countries (30 days)", () => engine.Web.GetCountries(from, to, 10));
-  Measure("Devices (30 days)", () => engine.Web.GetDevices(from, to));
-  Measure("Unaligned range (rollups + raw edges)", () => engine.Web.GetSummary(from.AddHours(7.5), to.AddHours(-3.25)));
-  Measure("Ad-hoc: pages where country=DE, device=Mobile (1 day, raw)", () => engine.Query(new AnalyticsQuery()
-      .Between(to.AddDays(-1), to)
-      .GroupBy(StandardDimensions.Page)
-      .Where(StandardDimensions.Country, "DE")
-      .Where(StandardDimensions.Device, "Mobile")
-      .Top(10)));
-  Measure("Ad-hoc: same query over 30 days (raw)", () => engine.Query(new AnalyticsQuery()
-      .Between(from, to)
-      .GroupBy(StandardDimensions.Page)
-      .Where(StandardDimensions.Country, "DE")
-      .Where(StandardDimensions.Device, "Mobile")
-      .Top(10)));
+  DateRange Range(DateTime start, DateTime end) =>
+      DateRange.Between(new DateTimeOffset(start, TimeSpan.Zero), new DateTimeOffset(end, TimeSpan.Zero));
+  WebReportRequest Request(DateTime start, DateTime end) => new() { Range = Range(start, end) };
+  var month = Request(from, to);
+  var summary = Measure("Summary (30 days)", () => engine.Web.GetSummaryAsync(month).Result);
+  Measure("Summary vs previous period", () => engine.Web.GetSummaryAsync(new WebReportRequest { Range = month.Range, Compare = Comparison.PreviousPeriod }).Result);
+  var timeseries = Measure("Daily time series (30 days)", () => engine.Web.GetTimeseriesAsync(month, TimeInterval.Day).Result);
+  Measure("Hourly time series (7 days)", () => engine.Web.GetTimeseriesAsync(Request(to.AddDays(-7), to), TimeInterval.Hour).Result);
+  var pages = Measure("Top pages (30 days)", () => engine.Web.GetPagesAsync(month).Result);
+  var sources = Measure("Top sources (30 days)", () => engine.Web.GetBreakdownAsync(month, StandardDimensions.Source).Result);
+  var countries = Measure("Countries (30 days)", () => engine.Web.GetBreakdownAsync(month, StandardDimensions.Country).Result);
+  Measure("Devices (30 days)", () => engine.Web.GetBreakdownAsync(month, StandardDimensions.Device).Result);
+  Measure("Unaligned range (rollups + raw edges)", () => engine.Web.GetSummaryAsync(Request(from.AddHours(7.5), to.AddHours(-3.25))).Result);
+  AnalyticsQuery AdHoc(DateTime start) => new()
+  {
+    Range = Range(start, to),
+    GroupBy = { StandardDimensions.Page },
+    Filters = { Filter.Equal(StandardDimensions.Country, "DE"), Filter.Equal(StandardDimensions.Device, "Mobile") },
+    Limit = 10
+  };
+  Measure("Ad-hoc: pages where country=DE, device=Mobile (1 day, raw)", () => engine.Query(AdHoc(to.AddDays(-1))));
+  Measure("Ad-hoc: same query over 30 days (raw)", () => engine.Query(AdHoc(from)));
+  Measure("Segment: visitors who viewed /pricing (7 days, raw)", () => engine.Query(new AnalyticsQuery
+  {
+    Range = Range(to.AddDays(-7), to),
+    Segments = { Segment.VisitorsWhoViewed("/pricing") },
+    Metrics = { Metric.Visitors, Metric.PageViews }
+  }));
+  Measure("Funnel: / -> /pricing -> /signup (7 days, raw)", () => engine.QueryFunnelAsync(new FunnelQuery
+  {
+    Range = Range(to.AddDays(-7), to),
+    Steps = { FunnelStep.Page("Home", "/"), FunnelStep.Page("Pricing", "/pricing"), FunnelStep.Page("Signup", "/signup") }
+  }).Result);
 
   Console.WriteLine();
   Console.WriteLine($"Visitors {summary.Visitors:N0} | Page views {summary.PageViews:N0} | Sessions {summary.Sessions:N0} | " +
       $"Bounce rate {summary.BounceRate:P1} | Avg. duration {summary.AverageSessionDuration:mm\\:ss} | Pages/session {summary.PageViewsPerSession:F2}");
   Console.WriteLine();
   Console.WriteLine("Top pages:");
-  foreach (var page in pages)
+  foreach (var page in pages.Rows)
     Console.WriteLine($"  {page.Page,-24} {page.PageViews,10:N0} views {page.Visitors,9:N0} visitors  exit rate {page.ExitRate:P0}");
   Console.WriteLine("Top sources:");
-  foreach (var source in sources)
+  foreach (var source in sources.Rows)
     Console.WriteLine($"  {source.Value,-24} {source.Visitors,10:N0} visitors  bounce {source.BounceRate:P0}");
   Console.WriteLine("Countries:");
-  foreach (var country in countries)
+  foreach (var country in countries.Rows)
     Console.WriteLine($"  {country.Value,-24} {country.Visitors,10:N0} visitors");
   Console.WriteLine("Last 7 days:");
   foreach (var point in timeseries.TakeLast(7))

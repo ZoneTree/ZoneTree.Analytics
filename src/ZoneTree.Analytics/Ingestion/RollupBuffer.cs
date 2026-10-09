@@ -65,6 +65,22 @@ readonly struct RollupBufferKey : IEquatable<RollupBufferKey>
 }
 
 /// <summary>
+/// Which rollups a contribution can reach. Engine-generated rows carry a known, limited set of
+/// dimensions and skip rollups over dimensions they never have.
+/// </summary>
+enum DimensionScope
+{
+  /// <summary>Session-level dimensions and the entry page only (session rows).</summary>
+  Session,
+
+  /// <summary>Session scope plus page and hostname (entrance and exit rows).</summary>
+  PageView,
+
+  /// <summary>Any dimension (tracked events).</summary>
+  All,
+}
+
+/// <summary>
 /// One metric change applied to a rollup row.
 /// </summary>
 readonly record struct MetricChange(string Name, double Value, bool IsDelta);
@@ -135,7 +151,8 @@ sealed class RollupBuffer
       IReadOnlyDictionary<string, string> dimensions,
       long count,
       ulong visitor,
-      IReadOnlyList<MetricChange> metrics)
+      IReadOnlyList<MetricChange> metrics,
+      DimensionScope scope = DimensionScope.All)
   {
     if (granularities.Length == 0)
       return;
@@ -147,10 +164,11 @@ sealed class RollupBuffer
     for (var d = 0; d < definitions.Length; ++d)
     {
       var definition = definitions[d];
+      if (definition.Scope > scope)
+        continue;
       if (definition.Events != null && !definition.Events.Contains(eventName))
         continue;
-      if (!TryBuildValue(definition, dimensions, out var value))
-        continue;
+      var value = BuildValue(definition, dimensions);
       var valueHash = value.GetHashCode();
       for (var g = 0; g < granularities.Length; ++g)
       {
@@ -176,35 +194,24 @@ sealed class RollupBuffer
     }
   }
 
-  bool TryBuildValue(
-      RollupDefinition definition,
-      IReadOnlyDictionary<string, string> dimensions,
-      out string value)
+  /// <summary>
+  /// Builds the stored value of a row. A dimension the event does not carry is stored as
+  /// <see cref="KeyCodec.MissingValue"/>, so every event is counted in every rollup and
+  /// grouped totals always equal ungrouped totals.
+  /// </summary>
+  string BuildValue(RollupDefinition definition, IReadOnlyDictionary<string, string> dimensions)
   {
     var names = definition.Dimensions;
     switch (names.Count)
     {
       case 0:
-        value = "";
-        return true;
+        return "";
       case 1:
-        return dimensions.TryGetValue(names[0], out value);
+        return dimensions.TryGetValue(names[0], out var single) ? single : KeyCodec.MissingValue;
     }
-    if (names.Count > valueParts.Length)
-    {
-      value = null;
-      return false;
-    }
+    var parts = names.Count <= valueParts.Length ? valueParts : new string[names.Count];
     for (var i = 0; i < names.Count; ++i)
-    {
-      if (!dimensions.TryGetValue(names[i], out var part))
-      {
-        value = null;
-        return false;
-      }
-      valueParts[i] = part;
-    }
-    value = string.Join(KeyCodec.ValueSeparator, valueParts, 0, names.Count);
-    return true;
+      parts[i] = dimensions.TryGetValue(names[i], out var part) ? part : KeyCodec.MissingValue;
+    return string.Join(KeyCodec.ValueSeparator, parts, 0, names.Count);
   }
 }

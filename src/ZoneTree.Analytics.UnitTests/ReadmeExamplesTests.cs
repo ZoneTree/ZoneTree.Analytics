@@ -1,6 +1,5 @@
 using System.Text.RegularExpressions;
 using ZoneTree.Analytics.Web;
-using ZoneTree.Options;
 
 namespace ZoneTree.Analytics.UnitTests;
 
@@ -10,29 +9,20 @@ namespace ZoneTree.Analytics.UnitTests;
 public sealed class ReadmeExamplesTests
 {
   [Test]
-  public async Task QuickStartAndQueries()
+  public async Task ReadmeExamples()
   {
     var directory = TestEngine.NewDirectory("readme");
     try
     {
+      // Configuration
       var options = new AnalyticsOptions
       {
         DataDirectory = directory,
         DefaultSite = "example.com",
-        TimeZone = TimeZoneInfo.FindSystemTimeZoneById("America/New_York"),
-        Ingestion =
-        {
-          WorkerCount = 2,
-          QueueCapacity = 100_000,
-          QueueFullBehavior = QueueFullBehavior.Drop,
-          FlushInterval = TimeSpan.FromSeconds(2),
-        },
+        TimeZone = TimeZoneInfo.FindSystemTimeZoneById("Europe/Berlin"),
+        Ingestion = { WorkerCount = 2, QueueFullBehavior = QueueFullBehavior.Drop },
         Sessions = { Timeout = TimeSpan.FromMinutes(30) },
-        Rollups =
-        {
-          Granularities = Granularity.Minute | Granularity.Hour | Granularity.Day,
-          HyperLogLogPrecision = 14,
-        },
+        Rollups = { Granularities = Granularity.Minute | Granularity.Hour | Granularity.Day },
         Retention =
         {
           RawEvents = TimeSpan.FromDays(90),
@@ -45,19 +35,14 @@ public sealed class ReadmeExamplesTests
         {
           GeoLocator = new StubGeoLocator(),
           PathNormalizer = path => Regex.Replace(path, @"/\d+", "/:id"),
-          ReferrerSources = new Dictionary<string, string> { ["lobste.rs"] = "Lobsters" },
-        },
-        Storage =
-        {
-          StoreRawEvents = true,
-          RawEventPartitioning = PartitionPeriod.Month,
-          WriteAheadLogMode = WriteAheadLogMode.AsyncCompressed,
         },
       };
       options.Rollups.Definitions.Add(new RollupDefinition(StandardDimensions.Country, StandardDimensions.Page));
       options.Rollups.Definitions.Add(new RollupDefinition("plan") { Events = ["purchase"] });
 
       await using var analytics = new AnalyticsEngine(options);
+
+      // Tracking
       analytics.Track(AnalyticsEvent.PageView(
           url: "https://example.com/pricing?utm_source=newsletter",
           referrer: "https://www.google.com/",
@@ -66,46 +51,69 @@ public sealed class ReadmeExamplesTests
       analytics.Track(new AnalyticsEvent("purchase")
       {
         VisitorId = "user-1",
-        Url = "https://shop.example.com/checkout",
-      }
-      .WithDimension("plan", "pro")
-      .WithMetric("revenue", 49.0));
+        Url = "https://example.com/checkout",
+        Dimensions = { ["plan"] = "pro" },
+        Metrics = { ["revenue"] = 49.0 },
+      });
       analytics.Track(new AnalyticsEvent("job_completed")
           .WithDimension("queue", "emails")
           .WithMetric("duration_ms", 812));
       await analytics.FlushAsync();
 
-      var from = DateTime.UtcNow.AddDays(-30);
-      var to = DateTime.UtcNow.AddMinutes(1);
-      var summary = analytics.Web.GetSummary(from, to);
-      var germanMobile = analytics.Web.GetSummary(from, to, filters:
-      [
-        DimensionFilter.Equal(StandardDimensions.Country, "DE"),
-        DimensionFilter.Equal(StandardDimensions.Device, "Desktop"),
-      ]);
-      var result = analytics.Query(new AnalyticsQuery()
-          .ForEvent("purchase")
-          .Between(from, to)
-          .Every(TimeInterval.Week)
-          .GroupBy("plan")
-          .Order(QueryOrder.ByMetricSum("revenue"))
-          .Top(10));
-      var bySource = analytics.Query(new AnalyticsQuery()
-          .ForEvent(StandardEvents.Session)
-          .Between(from, to)
-          .GroupBy(StandardDimensions.Source));
+      // Web reports
+      var request = new WebReportRequest { Range = DateRange.LastDays(30), Compare = Comparison.PreviousPeriod };
+      var summary = await analytics.Web.GetSummaryAsync(request);
+      var sources = await analytics.Web.GetBreakdownAsync(request, StandardDimensions.Source);
+      var pages = await analytics.Web.GetPagesAsync(request);
+      var goals = await analytics.Web.GetGoalsAsync(request);
+      var german = new WebReportRequest { Filters = { Filter.Equal(StandardDimensions.Country, "DE") } };
+      var germanSummary = await analytics.Web.GetSummaryAsync(german);
+
+      // Queries
+      var result = await analytics.QueryAsync(new AnalyticsQuery
+      {
+        Range = DateRange.LastDays(30),
+        GroupBy = { StandardDimensions.Source },
+        Metrics = { Metric.Visitors, Metric.BounceRate, Metric.ConversionRate("purchase") },
+        OrderBy = { Order.By(Metric.Visitors) },
+        Limit = 10,
+      });
+      var revenue = await analytics.QueryAsync(new AnalyticsQuery
+      {
+        Event = "purchase",
+        Range = DateRange.ThisMonth,
+        Interval = TimeInterval.Week,
+        GroupBy = { "plan" },
+        Metrics = { Metric.Sum("revenue"), Metric.Visitors },
+      });
+      var converted = await analytics.QueryAsync(new AnalyticsQuery
+      {
+        Segments = { Segment.VisitorsWho("purchase") },
+        Metrics = { Metric.PageViews, Metric.Visitors },
+      });
+      var funnel = await analytics.QueryFunnelAsync(new FunnelQuery
+      {
+        Steps =
+        {
+          FunnelStep.Page("Pricing", "/pricing"),
+          FunnelStep.Goal("purchase"),
+        },
+        Window = TimeSpan.FromDays(1),
+      });
 
       Assert.Multiple(() =>
       {
         Assert.That(summary.PageViews, Is.EqualTo(1));
         Assert.That(summary.Visitors, Is.EqualTo(1));
-        Assert.That(germanMobile.PageViews, Is.EqualTo(1));
-        Assert.That(result.Rows.Single().Dimensions[0], Is.EqualTo("pro"));
-        Assert.That(result.Rows.Single().Sum("revenue"), Is.EqualTo(49));
-        Assert.That(result.Totals.Visitors, Is.EqualTo(1));
-        Assert.That(bySource.Rows.Select(x => x.Dimensions[0]), Does.Contain("Newsletter"));
-        Assert.That(analytics.Web.GetCustomEvents(from, to).Select(x => x.Name),
-            Is.EquivalentTo(new[] { "purchase", "job_completed" }));
+        Assert.That(summary.Previous.PageViews, Is.EqualTo(0));
+        Assert.That(sources.Rows.Single().Value, Is.EqualTo("Newsletter"));
+        Assert.That(pages.Rows.Single().Page, Is.EqualTo("/pricing"));
+        Assert.That(goals.Rows.Select(x => x.Name), Is.EquivalentTo(new[] { "purchase", "job_completed" }));
+        Assert.That(germanSummary.PageViews, Is.EqualTo(1));
+        Assert.That(result.Rows[0][StandardDimensions.Source], Is.EqualTo("Newsletter"));
+        Assert.That(revenue.Rows.Single(x => x["plan"] == "pro")[Metric.Sum("revenue")], Is.EqualTo(49));
+        Assert.That(converted.Totals[Metric.PageViews], Is.EqualTo(0));
+        Assert.That(funnel.Steps.Select(x => x.Visitors), Is.EqualTo(new long[] { 1, 0 }));
         Assert.That(analytics.Web.GetCurrentVisitors(), Is.EqualTo(2));
       });
     }

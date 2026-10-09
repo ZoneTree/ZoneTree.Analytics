@@ -25,6 +25,22 @@ static class KeyCodec
 
   public const char ValueSeparator = '\u001F';
 
+  /// <summary>
+  /// Stored in place of a dimension the event does not carry. Control characters never occur
+  /// in sanitized values, so it cannot collide with real data.
+  /// </summary>
+  public const string MissingValue = "\u0001";
+
+  /// <summary>
+  /// Converts a stored value part to its public form: null for a missing dimension.
+  /// </summary>
+  public static string Public(string part) => part == MissingValue ? null : part;
+
+  /// <summary>
+  /// Converts a public value to its stored form.
+  /// </summary>
+  public static string Stored(string value) => value ?? MissingValue;
+
   [ThreadStatic]
   static ByteWriter threadWriter;
 

@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Http.Extensions;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 
 namespace ZoneTree.Analytics.AspNetCore;
 
@@ -16,7 +17,9 @@ public static class AnalyticsServiceCollectionExtensions
   /// <summary>
   /// Registers a singleton <see cref="AnalyticsEngine"/> and the web integration options.
   /// The engine is disposed (and flushed) when the host shuts down. A relative
-  /// <see cref="AnalyticsOptions.DataDirectory"/> is resolved against the content root.
+  /// <see cref="AnalyticsOptions.DataDirectory"/> is resolved against the content root, and engine
+  /// logs go to Microsoft.Extensions.Logging under the "ZoneTree.Analytics" category unless
+  /// <see cref="StorageOptions.Logger"/> is set.
   /// </summary>
   public static IServiceCollection AddZoneTreeAnalytics(
       this IServiceCollection services,
@@ -34,6 +37,8 @@ public static class AnalyticsServiceCollectionExtensions
       var environment = provider.GetService<IHostEnvironment>();
       if (environment != null && !Path.IsPathRooted(options.DataDirectory))
         options.DataDirectory = Path.Combine(environment.ContentRootPath, options.DataDirectory);
+      if (options.Storage.Logger == null && provider.GetService<ILoggerFactory>() is { } loggerFactory)
+        options.Storage.Logger = new LoggerAdapter(loggerFactory.CreateLogger("ZoneTree.Analytics"));
       return new AnalyticsEngine(options);
     });
     return services;

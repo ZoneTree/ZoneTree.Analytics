@@ -4,73 +4,84 @@ namespace ZoneTree.Analytics;
 /// An event to record.
 /// </summary>
 /// <remarks>
+/// <para>
 /// Only <see cref="Name"/> is required. Everything else is optional context:
 /// <list type="bullet">
-/// <item><see cref="Url"/> and <see cref="Referrer"/> are turned into page, hostname,
-/// UTM, source and channel dimensions.</item>
-/// <item><see cref="IpAddress"/> and <see cref="UserAgent"/> are used to derive an anonymous
-/// visitor hash, geography and browser, OS and device dimensions. They are never stored.</item>
-/// <item><see cref="VisitorId"/> identifies a visitor explicitly, for example a logged-in user.
-/// It is stored only as a keyed hash.</item>
+/// <item><see cref="Url"/> and <see cref="Referrer"/> become page, hostname, UTM, source and
+/// channel dimensions.</item>
+/// <item><see cref="IpAddress"/> and <see cref="UserAgent"/> are used for anonymous visitor
+/// hashing, geolocation and browser, OS and device detection. They are never stored.</item>
+/// <item><see cref="VisitorId"/> identifies a visitor explicitly, for example a signed-in user.
+/// Only a keyed hash of it is stored.</item>
 /// </list>
-/// An event instance must not be modified after it is passed to the engine.
+/// </para>
+/// <para>
+/// <see cref="AnalyticsEngine.Track(AnalyticsEvent)"/> copies the event, so an instance can be
+/// modified or reused as soon as <c>Track</c> returns.
+/// </para>
 /// </remarks>
+/// <example>
+/// <code>
+/// analytics.Track(new AnalyticsEvent("purchase")
+/// {
+///     VisitorId = user.Id,
+///     Dimensions = { ["plan"] = "pro" },
+///     Metrics = { ["revenue"] = 49.0 },
+/// });
+/// </code>
+/// </example>
 public sealed class AnalyticsEvent
 {
-  /// <summary>
-  /// Creates an empty event. Set <see cref="Name"/> before tracking it.
-  /// </summary>
-  public AnalyticsEvent()
-  {
-  }
+  Dictionary<string, string> dimensions;
+
+  Dictionary<string, double> metrics;
 
   /// <summary>
-  /// Creates an event with the given name.
+  /// Creates an event.
   /// </summary>
+  /// <param name="name">
+  /// The event name, for example "pageview", "signup" or "order_completed".
+  /// Names starting with '$' are reserved.
+  /// </param>
   public AnalyticsEvent(string name)
   {
     Name = name;
   }
 
   /// <summary>
-  /// The event name, for example "pageview", "signup" or "order_completed".
-  /// Names starting with '$' are reserved for engine-generated events.
+  /// The event name. Names starting with '$' are reserved for engine-generated events.
   /// </summary>
   public string Name { get; set; }
 
   /// <summary>
-  /// The time the event happened. Defaults to the current UTC time.
-  /// Local and unspecified times are converted to UTC.
+  /// When the event happened. Defaults to the time it is tracked.
   /// </summary>
-  public DateTime? Timestamp { get; set; }
+  public DateTimeOffset? Timestamp { get; set; }
 
   /// <summary>
-  /// The site, application or tenant the event belongs to.
+  /// The site, application or tenant of the event.
   /// Defaults to <see cref="AnalyticsOptions.DefaultSite"/>.
   /// </summary>
   public string Site { get; set; }
 
   /// <summary>
   /// An explicit, stable visitor identifier such as a user id or a first-party cookie value.
-  /// When set, it takes precedence over IP and user-agent based anonymous hashing.
-  /// The identifier itself is never stored; only a keyed hash is.
+  /// It takes precedence over anonymous hashing. Only a keyed hash is stored.
   /// </summary>
   public string VisitorId { get; set; }
 
   /// <summary>
-  /// The client IP address. Used only in memory for anonymous visitor hashing
-  /// and geolocation. It is never stored.
+  /// The client IP address. Used in memory only; never stored.
   /// </summary>
   public string IpAddress { get; set; }
 
   /// <summary>
-  /// The client user agent. Used only in memory for anonymous visitor hashing,
-  /// bot filtering and browser, OS and device detection. It is never stored.
+  /// The client user agent. Used in memory only; never stored.
   /// </summary>
   public string UserAgent { get; set; }
 
   /// <summary>
-  /// The page URL the event happened on. Absolute URLs and paths are accepted.
+  /// The page URL. Absolute URLs and paths are accepted.
   /// </summary>
   public string Url { get; set; }
 
@@ -80,24 +91,30 @@ public sealed class AnalyticsEvent
   public string Referrer { get; set; }
 
   /// <summary>
-  /// Custom dimensions (properties) of the event. Values set here for standard
-  /// dimensions (for example "country") override automatic enrichment.
-  /// </summary>
-  public IDictionary<string, string> Dimensions { get; set; }
-
-  /// <summary>
-  /// Custom numeric measurements of the event, for example "revenue" or "duration_ms".
-  /// </summary>
-  public IDictionary<string, double> Metrics { get; set; }
-
-  /// <summary>
-  /// Marks a custom event as non-interactive. Non-interactive events extend
-  /// sessions but do not prevent a bounce. Page views are always interactive.
+  /// Marks a custom event as non-interactive: it extends the session but does not prevent
+  /// a bounce. Page views are always interactive.
   /// </summary>
   public bool NonInteractive { get; set; }
 
   /// <summary>
-  /// Creates a page view event.
+  /// Custom dimensions (properties). Values for standard dimensions, for example
+  /// <see cref="StandardDimensions.Country"/>, override automatic enrichment.
+  /// </summary>
+  public IDictionary<string, string> Dimensions =>
+      dimensions ??= new Dictionary<string, string>(StringComparer.Ordinal);
+
+  /// <summary>
+  /// Custom numeric measurements, for example "revenue" or "duration_ms".
+  /// </summary>
+  public IDictionary<string, double> Metrics =>
+      metrics ??= new Dictionary<string, double>(StringComparer.Ordinal);
+
+  internal bool HasDimensions => dimensions != null && dimensions.Count > 0;
+
+  internal bool HasMetrics => metrics != null && metrics.Count > 0;
+
+  /// <summary>
+  /// Creates a page view.
   /// </summary>
   public static AnalyticsEvent PageView(
       string url,
@@ -117,22 +134,82 @@ public sealed class AnalyticsEvent
   }
 
   /// <summary>
-  /// Adds or replaces a dimension and returns this event.
+  /// Sets a dimension and returns this event.
   /// </summary>
   public AnalyticsEvent WithDimension(string name, string value)
   {
-    Dimensions ??= new Dictionary<string, string>(StringComparer.Ordinal);
     Dimensions[name] = value;
     return this;
   }
 
   /// <summary>
-  /// Adds or replaces a metric and returns this event.
+  /// Sets a metric and returns this event.
   /// </summary>
   public AnalyticsEvent WithMetric(string name, double value)
   {
-    Metrics ??= new Dictionary<string, double>(StringComparer.Ordinal);
     Metrics[name] = value;
     return this;
   }
+
+  /// <summary>
+  /// Validates the event shape. Called on the tracking thread so mistakes surface immediately.
+  /// </summary>
+  internal void Validate()
+  {
+    if (string.IsNullOrWhiteSpace(Name))
+      throw new ArgumentException("The event name is required.", nameof(Name));
+    if (Name.TrimStart()[0] == '$')
+      throw new ArgumentException(
+          $"The event name '{Name}' is reserved: names starting with '$' are generated by the engine.",
+          nameof(Name));
+  }
+
+  internal EventSnapshot Snapshot(long receivedUtcTicks)
+  {
+    return new EventSnapshot
+    {
+      Name = Name,
+      UtcTicks = Timestamp?.UtcTicks ?? receivedUtcTicks,
+      ReceivedUtcTicks = receivedUtcTicks,
+      Site = Site,
+      VisitorId = VisitorId,
+      IpAddress = IpAddress,
+      UserAgent = UserAgent,
+      Url = Url,
+      Referrer = Referrer,
+      NonInteractive = NonInteractive,
+      Dimensions = HasDimensions ? [.. dimensions] : null,
+      Metrics = HasMetrics ? [.. metrics] : null
+    };
+  }
+}
+
+/// <summary>
+/// An immutable copy of a tracked event, processed by the ingestion workers.
+/// </summary>
+sealed class EventSnapshot
+{
+  public string Name;
+
+  public long UtcTicks;
+
+  public long ReceivedUtcTicks;
+
+  public string Site;
+
+  public string VisitorId;
+
+  public string IpAddress;
+
+  public string UserAgent;
+
+  public string Url;
+
+  public string Referrer;
+
+  public bool NonInteractive;
+
+  public KeyValuePair<string, string>[] Dimensions;
+
+  public KeyValuePair<string, double>[] Metrics;
 }

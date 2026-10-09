@@ -117,7 +117,7 @@ sealed class EventEnricher
     return normalized.Length == 0 ? options.DefaultSite : normalized;
   }
 
-  public EnrichedEvent Enrich(AnalyticsEvent e, long receivedUtcTicks, out RejectReason reason)
+  public EnrichedEvent Enrich(EventSnapshot e, out RejectReason reason)
   {
     var privacy = options.Privacy;
     var name = Text.Name(e.Name, MaxNameLength);
@@ -127,23 +127,10 @@ sealed class EventEnricher
       return null;
     }
 
-    var ticks = receivedUtcTicks;
-    if (e.Timestamp.HasValue)
+    var ticks = e.UtcTicks;
+    if (ticks > e.ReceivedUtcTicks + options.Ingestion.MaxFutureSkew.Ticks)
     {
-      var timestamp = e.Timestamp.Value;
-      ticks = timestamp.Kind == DateTimeKind.Local
-          ? timestamp.ToUniversalTime().Ticks
-          : timestamp.Ticks;
-      if (ticks > receivedUtcTicks + options.Ingestion.MaxFutureSkew.Ticks)
-      {
-        reason = RejectReason.FutureTimestamp;
-        return null;
-      }
-    }
-
-    if (options.EventFilter != null && !options.EventFilter(e))
-    {
-      reason = RejectReason.Filtered;
+      reason = RejectReason.FutureTimestamp;
       return null;
     }
 
@@ -223,9 +210,9 @@ sealed class EventEnricher
     result.Hostname = result.Dimensions.GetValueOrDefault(StandardDimensions.Hostname) ?? "";
 
     // Metrics.
-    if (e.Metrics != null && e.Metrics.Count > 0)
+    if (e.Metrics != null && e.Metrics.Length > 0)
     {
-      result.Metrics = new(Math.Min(e.Metrics.Count, MaxMetrics));
+      result.Metrics = new(Math.Min(e.Metrics.Length, MaxMetrics));
       foreach (var (rawKey, value) in e.Metrics)
       {
         if (result.Metrics.Count >= MaxMetrics)
@@ -248,7 +235,7 @@ sealed class EventEnricher
   }
 
   string[] BuildSessionDimensions(
-      AnalyticsEvent e,
+      EventSnapshot e,
       ParsedUrl url,
       string pageHost,
       UserAgentInfo userAgent,

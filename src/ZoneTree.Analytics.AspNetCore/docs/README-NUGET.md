@@ -3,18 +3,17 @@
 ASP.NET Core integration for [ZoneTree.Analytics](https://github.com/ZoneTree/ZoneTree.Analytics), the embedded, privacy-conscious analytics engine for .NET.
 
 ```csharp
-builder.Services.AddZoneTreeAnalytics(options =>
-{
-    options.DataDirectory = "data/analytics";
-});
+builder.Services.AddZoneTreeAnalytics(
+    options => options.DataDirectory = "data/analytics",
+    web => web.AuthorizeSite = (context, site) => context.User.IsInRole("analytics"));
 
 var app = builder.Build();
+app.UseForwardedHeaders();
 
-// Either track page views on the server...
-app.UseZoneTreeAnalytics();
-
-// ...or serve the cookie-less JavaScript tracker and its beacon endpoint.
-app.MapZoneTreeAnalytics();
+app.UseZoneTreeAnalytics();             // track HTML page views on the server, or...
+app.MapZoneTreeAnalytics();             // ...serve /_analytics/script.js and its beacon endpoint
+app.MapZoneTreeAnalyticsApi()           // JSON reporting API under /_analytics/api
+   .RequireAuthorization();
 ```
 
 ```html
@@ -25,10 +24,6 @@ app.MapZoneTreeAnalytics();
 </script>
 ```
 
-Query the injected `AnalyticsEngine` anywhere:
-
-```csharp
-app.MapGet("/stats", (AnalyticsEngine analytics) =>
-    analytics.Web.GetSummary(DateTime.UtcNow.AddDays(-7), DateTime.UtcNow))
-   .RequireAuthorization();
-```
+* `AddZoneTreeAnalytics` registers a singleton `AnalyticsEngine`, resolves the data directory against the content root and routes engine logs to `Microsoft.Extensions.Logging`.
+* The tracker is cookie-less, follows single-page-app navigation and uses `sendBeacon`.
+* The reporting API serves summaries, time series, breakdowns, pages, goals, real-time visitors, arbitrary queries and funnels as JSON.

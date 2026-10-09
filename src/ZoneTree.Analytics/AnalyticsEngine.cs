@@ -57,6 +57,8 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
 
   readonly QueryEngine queryEngine;
 
+  readonly FunnelEngine funnelEngine;
+
   readonly ReportingCalendar calendar;
 
   readonly Counters counters = new();
@@ -141,6 +143,7 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
 
       queryEngine = new QueryEngine(
           options, calendar, rollups, rawEvents, definitions, GetDefinitionActiveSince, enricher);
+      funnelEngine = new FunnelEngine(options, calendar, rawEvents, enricher);
       Web = new WebAnalytics(this);
 
       visitorHasher.RotateSalts(DateTime.UtcNow);
@@ -165,10 +168,17 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
     return new AnalyticsEngine(options);
   }
 
+  internal AnalyticsOptions Options => options;
+
   /// <summary>
-  /// The engine options. Do not modify them after the engine is created.
+  /// The default reporting time zone.
   /// </summary>
-  public AnalyticsOptions Options => options;
+  public TimeZoneInfo TimeZone => options.TimeZone;
+
+  /// <summary>
+  /// The site used when events and queries do not specify one.
+  /// </summary>
+  public string DefaultSite => options.DefaultSite;
 
   /// <summary>
   /// Web analytics reports: summaries, time series and breakdowns.
@@ -192,7 +202,7 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
         return;
       }
       if (stored != expected)
-        throw new InvalidOperationException(
+        throw new AnalyticsConfigurationException(
             $"The analytics data directory was created with {description} '{stored}', " +
             $"but the options specify '{expected}'. This setting cannot be changed for an existing data directory.");
     }
@@ -244,7 +254,23 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
   long GetDefinitionActiveSince(string id) =>
       definitionActiveSince.TryGetValue(id, out var since) ? since : long.MaxValue;
 
-  IngestionWorker Route(AnalyticsEvent analyticsEvent)
+  bool TryCreateWorkItem(AnalyticsEvent analyticsEvent, out WorkItem item)
+  {
+    ArgumentNullException.ThrowIfNull(analyticsEvent);
+    analyticsEvent.Validate();
+    item = default;
+    if (IsDisposed)
+      return false;
+    if (options.EventFilter != null && !options.EventFilter(analyticsEvent))
+    {
+      Interlocked.Increment(ref counters.EventsFiltered);
+      return false;
+    }
+    item = new WorkItem(analyticsEvent.Snapshot(DateTime.UtcNow.Ticks));
+    return true;
+  }
+
+  IngestionWorker Route(EventSnapshot analyticsEvent)
   {
     if (workers.Length == 1)
       return workers[0];
@@ -256,16 +282,22 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
   }
 
   /// <summary>
-  /// Queues an event for processing. Returns false if the engine is disposed or, with
-  /// <see cref="QueueFullBehavior.Drop"/>, if the queue is full.
+  /// Queues an event for processing and returns immediately.
   /// </summary>
+  /// <remarks>
+  /// The event is copied, so it can be modified or reused once this method returns.
+  /// <see cref="AnalyticsOptions.EventFilter"/> runs here, on the calling thread.
+  /// </remarks>
+  /// <returns>
+  /// True if the event was queued. False if it was filtered out, the engine is disposed, or
+  /// the queue is full and <see cref="QueueFullBehavior.Drop"/> is configured.
+  /// </returns>
+  /// <exception cref="ArgumentException">The event name is missing or reserved.</exception>
   public bool Track(AnalyticsEvent analyticsEvent)
   {
-    ArgumentNullException.ThrowIfNull(analyticsEvent);
-    if (IsDisposed)
+    if (!TryCreateWorkItem(analyticsEvent, out var item))
       return false;
-    var item = new WorkItem(analyticsEvent, DateTime.UtcNow.Ticks);
-    var writer = Route(analyticsEvent).Writer;
+    var writer = Route(item.Event).Writer;
     if (writer.TryWrite(item))
     {
       Interlocked.Increment(ref counters.EventsAccepted);
@@ -290,17 +322,16 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
 
   /// <summary>
   /// Queues an event, waiting asynchronously for queue space when the queue is full.
-  /// Returns false if the engine is disposed.
   /// </summary>
+  /// <returns>True if the event was queued; false if it was filtered out or the engine is disposed.</returns>
+  /// <exception cref="ArgumentException">The event name is missing or reserved.</exception>
   public async ValueTask<bool> TrackAsync(AnalyticsEvent analyticsEvent, CancellationToken cancellationToken = default)
   {
-    ArgumentNullException.ThrowIfNull(analyticsEvent);
-    if (IsDisposed)
+    if (!TryCreateWorkItem(analyticsEvent, out var item))
       return false;
-    var item = new WorkItem(analyticsEvent, DateTime.UtcNow.Ticks);
     try
     {
-      await Route(analyticsEvent).Writer.WriteAsync(item, cancellationToken).ConfigureAwait(false);
+      await Route(item.Event).Writer.WriteAsync(item, cancellationToken).ConfigureAwait(false);
       Interlocked.Increment(ref counters.EventsAccepted);
       return true;
     }
@@ -354,37 +385,42 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
   /// <see cref="IngestionOptions.FlushInterval"/>). Call <see cref="FlushAsync"/> first
   /// when the result must include every tracked event.
   /// </remarks>
-  public AnalyticsResult Query(AnalyticsQuery query)
+  /// <exception cref="AnalyticsQueryException">The query is invalid or cannot be answered.</exception>
+  public AnalyticsResult Query(AnalyticsQuery query, CancellationToken cancellationToken = default)
   {
     ObjectDisposedException.ThrowIf(IsDisposed, this);
-    return queryEngine.Execute(query);
+    return queryEngine.Execute(query, cancellationToken);
   }
 
   /// <summary>
-  /// Lists the event names recorded for a site in the given range, including
-  /// <see cref="StandardEvents.Session"/>.
+  /// Executes a query on a thread-pool thread.
   /// </summary>
-  public IReadOnlyList<string> GetEventNames(DateTime from, DateTime to, string site = null)
+  /// <inheritdoc cref="Query(AnalyticsQuery, CancellationToken)"/>
+  public Task<AnalyticsResult> QueryAsync(AnalyticsQuery query, CancellationToken cancellationToken = default)
   {
     ObjectDisposedException.ThrowIf(IsDisposed, this);
-    site = enricher.NormalizeSite(site);
-    var fromTicks = from.Kind == DateTimeKind.Local ? from.ToUniversalTime().Ticks : from.Ticks;
-    var toTicks = to.Kind == DateTimeKind.Local ? to.ToUniversalTime().Ticks : to.Ticks;
-    var names = new SortedSet<string>(StringComparer.Ordinal);
-    if (rollups.IsEnabled(Granularity.Day))
-    {
-      names.UnionWith(rollups.ListEventNames(
-          Granularity.Day, site, calendar.LocalDay(fromTicks), calendar.LocalDay(toTicks) + TimeSpan.TicksPerDay));
-    }
-    else if (rollups.IsEnabled(Granularity.Hour))
-    {
-      names.UnionWith(rollups.ListEventNames(Granularity.Hour, site, fromTicks, toTicks + TimeSpan.TicksPerHour));
-    }
-    else if (rollups.IsEnabled(Granularity.Minute))
-    {
-      names.UnionWith(rollups.ListEventNames(Granularity.Minute, site, fromTicks, toTicks + TimeSpan.TicksPerMinute));
-    }
-    return [.. names];
+    ArgumentNullException.ThrowIfNull(query);
+    return Task.Run(() => queryEngine.Execute(query, cancellationToken), cancellationToken);
+  }
+
+  /// <summary>
+  /// Analyzes a funnel: how many visitors completed each step, in order.
+  /// </summary>
+  /// <exception cref="AnalyticsQueryException">The funnel is invalid or raw events are not available.</exception>
+  public Task<FunnelResult> QueryFunnelAsync(FunnelQuery funnel, CancellationToken cancellationToken = default)
+  {
+    ObjectDisposedException.ThrowIf(IsDisposed, this);
+    ArgumentNullException.ThrowIfNull(funnel);
+    return Task.Run(() => funnelEngine.Execute(funnel, cancellationToken), cancellationToken);
+  }
+
+  /// <summary>
+  /// Lists the event names recorded for a site in a range, including <see cref="StandardEvents.Session"/>.
+  /// </summary>
+  public IReadOnlyList<string> GetEventNames(DateRange range, string site = null, TimeZoneInfo timeZone = null)
+  {
+    ObjectDisposedException.ThrowIf(IsDisposed, this);
+    return queryEngine.GetEventNames(range, site, timeZone);
   }
 
   /// <summary>
@@ -392,7 +428,7 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
   /// Raw events are written immediately, so the count is real-time. Returns null when raw
   /// events are not stored.
   /// </summary>
-  public long? GetCurrentVisitors(TimeSpan window, string site = null)
+  internal long? GetCurrentVisitors(TimeSpan window, string site = null)
   {
     ObjectDisposedException.ThrowIf(IsDisposed, this);
     if (rawEvents == null)

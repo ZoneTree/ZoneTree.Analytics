@@ -1,3 +1,4 @@
+using ZoneTree.Analytics.Ingestion;
 using ZoneTree.Analytics.Sketches;
 using ZoneTree.Analytics.Web;
 using ZoneTree.Logger;
@@ -35,7 +36,7 @@ public sealed class AnalyticsOptions
 
   /// <summary>
   /// An optional filter. Events for which it returns false are discarded.
-  /// It runs on the ingestion thread before enrichment; keep it fast.
+  /// It runs inside <see cref="AnalyticsEngine.Track(AnalyticsEvent)"/> on the calling thread; keep it fast.
   /// Typical uses: excluding internal IP ranges, honoring opt-out cookies.
   /// </summary>
   public Func<AnalyticsEvent, bool> EventFilter { get; set; }
@@ -252,7 +253,24 @@ public sealed class RollupDefinition
     }
     Dimensions = sorted;
     Id = string.Join(",", sorted);
+    Scope = ScopeOf(sorted);
   }
+
+  static DimensionScope ScopeOf(string[] dimensions)
+  {
+    static bool IsSessionScoped(string dimension) =>
+        dimension == StandardDimensions.EntryPage || StandardDimensions.SessionLevel.Contains(dimension);
+    if (dimensions.All(IsSessionScoped))
+      return DimensionScope.Session;
+    if (dimensions.All(x => IsSessionScoped(x) || x is StandardDimensions.Page or StandardDimensions.Hostname))
+      return DimensionScope.PageView;
+    return DimensionScope.All;
+  }
+
+  /// <summary>
+  /// The narrowest contribution scope that carries all of this rollup's dimensions.
+  /// </summary>
+  internal DimensionScope Scope { get; }
 
   /// <summary>
   /// The dimensions in canonical (ordinal) order.
@@ -271,8 +289,8 @@ public sealed class RollupDefinition
   public IReadOnlyCollection<string> Events { get; init; }
 
   /// <summary>
-  /// The default web analytics rollups: totals, page, hostname, entry page (sessions only)
-  /// and every session-level dimension except browser and OS versions.
+  /// The default web analytics rollups: totals, page, hostname, entry page and every
+  /// session-level dimension except browser and OS versions.
   /// </summary>
   public static List<RollupDefinition> WebDefaults()
   {
@@ -281,7 +299,7 @@ public sealed class RollupDefinition
       new(),
       new(StandardDimensions.Page),
       new(StandardDimensions.Hostname),
-      new(StandardDimensions.EntryPage) { Events = [StandardEvents.Session] },
+      new(StandardDimensions.EntryPage),
     };
     foreach (var dimension in StandardDimensions.SessionLevel)
     {

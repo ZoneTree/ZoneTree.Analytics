@@ -11,7 +11,7 @@ namespace ZoneTree.Analytics.Web;
 /// <param name="OperatingSystemVersion">The operating system version, or empty.</param>
 /// <param name="Device">"Desktop", "Mobile", "Tablet" or "Bot".</param>
 /// <param name="IsBot">True for bots, crawlers, monitors and HTTP libraries.</param>
-public sealed record UserAgentInfo(
+sealed record UserAgentInfo(
     string Browser,
     string BrowserVersion,
     string OperatingSystem,
@@ -23,7 +23,7 @@ public sealed record UserAgentInfo(
 /// A small dependency-free user agent parser covering the browsers, operating systems
 /// and bots that make up practically all web traffic. Results are cached.
 /// </summary>
-public sealed class UserAgentParser
+sealed class UserAgentParser
 {
   const int MaxCacheSize = 10_000;
 

@@ -3,12 +3,42 @@ using ZoneTree.Analytics.Ingestion;
 namespace ZoneTree.Analytics.Web;
 
 /// <summary>
-/// Headline web metrics for a range.
+/// The scope of a web report.
+/// </summary>
+public sealed class WebReportRequest
+{
+  /// <summary>The site. Defaults to <see cref="AnalyticsOptions.DefaultSite"/>.</summary>
+  public string Site { get; set; }
+
+  /// <summary>The time range. Default is the last 30 days including today.</summary>
+  public DateRange Range { get; set; } = DateRange.LastDays(30);
+
+  /// <summary>The time zone. Defaults to the engine's reporting time zone.</summary>
+  public TimeZoneInfo TimeZone { get; set; }
+
+  /// <summary>Dimension filters.</summary>
+  public List<Filter> Filters { get; } = [];
+
+  /// <summary>Behavioral segments, for example visitors who signed up.</summary>
+  public List<Segment> Segments { get; } = [];
+
+  /// <summary>An optional comparison period. Results then carry <c>Previous</c> values.</summary>
+  public Comparison Compare { get; set; }
+
+  /// <summary>Maximum number of rows of list reports. Default is 10.</summary>
+  public int Limit { get; set; } = 10;
+
+  /// <summary>Rows to skip, for paging list reports.</summary>
+  public int Offset { get; set; }
+}
+
+/// <summary>
+/// Headline web metrics.
 /// </summary>
 /// <param name="Visitors">Unique visitors with at least one page view.</param>
 /// <param name="PageViews">Page views.</param>
-/// <param name="Sessions">Sessions started in the range. Null when sessions are unavailable for the filters.</param>
-/// <param name="BounceRate">Share of single-interaction sessions, 0 to 1.</param>
+/// <param name="Sessions">Sessions started. Null when the filters exclude session metrics.</param>
+/// <param name="BounceRate">Share of sessions with at most one interactive event, 0 to 1.</param>
 /// <param name="AverageSessionDuration">Average session duration.</param>
 /// <param name="PageViewsPerSession">Average page views per session.</param>
 public sealed record WebSummary(
@@ -17,14 +47,41 @@ public sealed record WebSummary(
     long? Sessions,
     double? BounceRate,
     TimeSpan? AverageSessionDuration,
-    double? PageViewsPerSession);
+    double? PageViewsPerSession)
+{
+  /// <summary>The comparison period, when requested.</summary>
+  public WebSummary Previous { get; init; }
+}
 
 /// <summary>
-/// One time series point of headline web metrics.
+/// One time series point.
 /// </summary>
-/// <param name="Bucket">Bucket start.</param>
-/// <param name="Summary">Metrics of the bucket.</param>
+/// <param name="Bucket">The bucket start.</param>
+/// <param name="Summary">The metrics of the bucket.</param>
 public sealed record WebTimeseriesPoint(DateTimeOffset Bucket, WebSummary Summary);
+
+/// <summary>
+/// A breakdown row.
+/// </summary>
+/// <param name="Value">The dimension value. Null means the page views do not carry the dimension.</param>
+/// <param name="Visitors">Unique visitors with a page view.</param>
+/// <param name="PageViews">Page views.</param>
+/// <param name="VisitorShare">This row's share of all visitors, 0 to 1.</param>
+/// <param name="Sessions">Sessions. Null when the dimension or filters are not session-level.</param>
+/// <param name="BounceRate">Bounce rate, 0 to 1.</param>
+/// <param name="AverageSessionDuration">Average session duration.</param>
+public sealed record WebBreakdownRow(
+    string Value,
+    long Visitors,
+    long PageViews,
+    double VisitorShare,
+    long? Sessions,
+    double? BounceRate,
+    TimeSpan? AverageSessionDuration)
+{
+  /// <summary>The same row of the comparison period, when requested.</summary>
+  public WebBreakdownRow Previous { get; init; }
+}
 
 /// <summary>
 /// Page statistics.
@@ -32,46 +89,53 @@ public sealed record WebTimeseriesPoint(DateTimeOffset Bucket, WebSummary Summar
 /// <param name="Page">The page path.</param>
 /// <param name="Visitors">Unique visitors of the page.</param>
 /// <param name="PageViews">Page views.</param>
-/// <param name="Entrances">Sessions that started on the page.</param>
+/// <param name="Entrances">Sessions that started on the page. Null when filtered by custom dimensions.</param>
 /// <param name="Exits">Sessions that ended on the page.</param>
-public sealed record PageStats(string Page, long Visitors, long PageViews, long Entrances, long Exits)
+/// <param name="ExitRate">Exits per page view, 0 to 1.</param>
+public sealed record PageStats(
+    string Page,
+    long Visitors,
+    long PageViews,
+    long? Entrances,
+    long? Exits,
+    double? ExitRate)
 {
-  /// <summary>Exits per page view, 0 to 1.</summary>
-  public double ExitRate => PageViews == 0 ? 0 : Math.Min(1, (double)Exits / PageViews);
+  /// <summary>The same page in the comparison period, when requested.</summary>
+  public PageStats Previous { get; init; }
 }
 
 /// <summary>
-/// Session statistics grouped by a dimension value.
-/// </summary>
-/// <param name="Value">The dimension value. Empty means a known empty value, for example direct traffic.</param>
-/// <param name="Visitors">Unique visitors who started sessions.</param>
-/// <param name="Sessions">Sessions.</param>
-/// <param name="BounceRate">Share of single-interaction sessions, 0 to 1.</param>
-/// <param name="AverageSessionDuration">Average session duration.</param>
-/// <param name="PageViewsPerSession">Average page views per session.</param>
-public sealed record SessionBreakdownRow(
-    string Value,
-    long Visitors,
-    long Sessions,
-    double BounceRate,
-    TimeSpan AverageSessionDuration,
-    double PageViewsPerSession);
-
-/// <summary>
-/// Custom event statistics.
+/// Goal (custom event) statistics.
 /// </summary>
 /// <param name="Name">The event name.</param>
+/// <param name="Visitors">Unique visitors who completed the goal.</param>
 /// <param name="Events">Number of events.</param>
-/// <param name="Visitors">Unique visitors.</param>
-public sealed record EventStats(string Name, long Events, long Visitors);
+/// <param name="ConversionRate">Goal visitors divided by visitors with a page view, 0 to 1.</param>
+public sealed record GoalStats(string Name, long Visitors, long Events, double ConversionRate);
 
 /// <summary>
-/// Ready-made web analytics reports built on <see cref="AnalyticsEngine.Query"/>.
+/// A list report.
+/// </summary>
+/// <typeparam name="T">The row type.</typeparam>
+/// <param name="Rows">The rows after offset and limit.</param>
+/// <param name="TotalRows">The number of rows before offset and limit.</param>
+/// <param name="Plan">How the report was answered.</param>
+public sealed record WebReport<T>(IReadOnlyList<T> Rows, int TotalRows, QueryPlan Plan);
+
+/// <summary>
+/// Ready-made web analytics reports.
 /// </summary>
 /// <remarks>
-/// Every method accepts optional filters. Session metrics (sessions, bounce rate,
-/// duration) can only be filtered by session-level dimensions and the entry page;
-/// with other filters they are reported as null or omitted.
+/// <para>
+/// Every report uses the same definitions: visitors are unique visitors with at least one page
+/// view, so numbers add up across reports. Session metrics (sessions, bounce rate, duration) are
+/// reported when the breakdown dimension and filters are session-level (source, campaign,
+/// geography, device, entry page); otherwise they are null.
+/// </para>
+/// <para>
+/// Reports are built on <see cref="AnalyticsEngine.QueryAsync"/>; use it directly for anything
+/// these reports do not cover.
+/// </para>
 /// </remarks>
 public sealed class WebAnalytics
 {
@@ -82,260 +146,233 @@ public sealed class WebAnalytics
     this.engine = engine;
   }
 
-  static bool IsSessionFilterable(IEnumerable<DimensionFilter> filters) =>
-      filters == null || filters.All(x =>
-          x.Dimension == StandardDimensions.EntryPage || EventEnricher.IsSessionLevel(x.Dimension));
+  static readonly Metric[] SessionMetrics =
+  [
+    Metric.Sessions,
+    Metric.BounceRate,
+    Metric.AverageSessionDuration,
+    Metric.PageViewsPerSession,
+  ];
 
-  static AnalyticsQuery NewQuery(
-      string eventName, DateTime from, DateTime to, string site, IEnumerable<DimensionFilter> filters)
+  bool SessionMetricsAvailable(WebReportRequest request, string dimension = null)
   {
+    if (!engine.Options.Sessions.Enabled)
+      return false;
+    static bool IsSessionLevel(string name) =>
+        name == StandardDimensions.EntryPage || EventEnricher.IsSessionLevel(name);
+    return (dimension == null || IsSessionLevel(dimension)) &&
+        request.Filters.All(x => x == null || IsSessionLevel(x.Dimension));
+  }
+
+  static bool PageMetricsAvailable(WebReportRequest request)
+  {
+    static bool IsPageLevel(string name) =>
+        name is StandardDimensions.EntryPage or StandardDimensions.Page or StandardDimensions.Hostname ||
+        EventEnricher.IsSessionLevel(name);
+    return request.Filters.All(x => x == null || IsPageLevel(x.Dimension));
+  }
+
+  static AnalyticsQuery NewQuery(WebReportRequest request, bool paged)
+  {
+    ArgumentNullException.ThrowIfNull(request);
     var query = new AnalyticsQuery
     {
-      Site = site,
-      Event = eventName,
-      From = from,
-      To = to
+      Site = request.Site,
+      Event = StandardEvents.PageView,
+      Range = request.Range,
+      TimeZone = request.TimeZone,
+      Compare = request.Compare,
+      IncludeRowsWithoutBaseEvent = false
     };
-    if (filters != null)
-      query.Filters.AddRange(filters);
+    query.Filters.AddRange(request.Filters);
+    query.Segments.AddRange(request.Segments);
+    if (paged)
+    {
+      query.Limit = request.Limit;
+      query.Offset = request.Offset;
+    }
     return query;
   }
 
-  static WebSummary ToSummary(AnalyticsRow pageViews, AnalyticsRow sessions)
+  static WebSummary ToSummary(AnalyticsRow row, bool sessions)
   {
-    long? sessionCount = null;
-    double? bounceRate = null;
-    TimeSpan? duration = null;
-    double? perSession = null;
-    if (sessions != null)
-    {
-      sessionCount = sessions.Events;
-      if (sessions.Events > 0)
-      {
-        bounceRate = Math.Clamp(sessions.Sum(StandardMetrics.Bounces) / sessions.Events, 0, 1);
-        duration = TimeSpan.FromSeconds(Math.Max(0, sessions.Sum(StandardMetrics.Duration) / sessions.Events));
-        perSession = sessions.Sum(StandardMetrics.SessionPageViews) / sessions.Events;
-      }
-      else
-      {
-        bounceRate = 0;
-        duration = TimeSpan.Zero;
-        perSession = 0;
-      }
-    }
+    if (row == null)
+      return null;
     return new WebSummary(
-        pageViews?.Visitors ?? 0,
-        pageViews?.Events ?? 0,
-        sessionCount,
-        bounceRate,
-        duration,
-        perSession);
+        (long)row[Metric.Visitors],
+        (long)row[Metric.PageViews],
+        sessions ? (long)row[Metric.Sessions] : null,
+        sessions ? row[Metric.BounceRate] : null,
+        sessions ? TimeSpan.FromSeconds(row[Metric.AverageSessionDuration]) : null,
+        sessions ? row[Metric.PageViewsPerSession] : null)
+    {
+      Previous = ToSummary(row.Previous, sessions)
+    };
   }
 
   /// <summary>
-  /// Returns headline metrics for [from, to).
+  /// Headline metrics of the range.
   /// </summary>
-  public WebSummary GetSummary(
-      DateTime from, DateTime to, string site = null, IEnumerable<DimensionFilter> filters = null)
+  public async Task<WebSummary> GetSummaryAsync(WebReportRequest request, CancellationToken cancellationToken = default)
   {
-    var filterList = filters?.ToList();
-    var pageViews = engine.Query(NewQuery(StandardEvents.PageView, from, to, site, filterList)).Totals;
-    AnalyticsRow sessions = null;
-    if (engine.Options.Sessions.Enabled && IsSessionFilterable(filterList))
-      sessions = engine.Query(NewQuery(StandardEvents.Session, from, to, site, filterList)).Totals;
-    return ToSummary(pageViews, sessions);
+    var sessions = SessionMetricsAvailable(request);
+    var query = NewQuery(request, paged: false);
+    query.Metrics.Add(Metric.Visitors);
+    query.Metrics.Add(Metric.PageViews);
+    if (sessions)
+      query.Metrics.AddRange(SessionMetrics);
+    var result = await engine.QueryAsync(query, cancellationToken).ConfigureAwait(false);
+    return ToSummary(result.Totals, sessions);
   }
 
   /// <summary>
-  /// Returns headline metrics per bucket of [from, to).
+  /// Headline metrics per time bucket.
   /// </summary>
-  public IReadOnlyList<WebTimeseriesPoint> GetTimeseries(
-      DateTime from,
-      DateTime to,
-      TimeInterval interval,
-      string site = null,
-      IEnumerable<DimensionFilter> filters = null)
+  public async Task<IReadOnlyList<WebTimeseriesPoint>> GetTimeseriesAsync(
+      WebReportRequest request, TimeInterval interval, CancellationToken cancellationToken = default)
   {
     if (interval == TimeInterval.None)
       throw new ArgumentException("A time series interval is required.", nameof(interval));
-    var filterList = filters?.ToList();
-    var pageViewQuery = NewQuery(StandardEvents.PageView, from, to, site, filterList);
-    pageViewQuery.Interval = interval;
-    var pageViews = engine.Query(pageViewQuery).Rows;
-    Dictionary<DateTimeOffset, AnalyticsRow> sessions = null;
-    if (engine.Options.Sessions.Enabled && IsSessionFilterable(filterList))
-    {
-      var sessionQuery = NewQuery(StandardEvents.Session, from, to, site, filterList);
-      sessionQuery.Interval = interval;
-      sessions = engine.Query(sessionQuery).Rows.ToDictionary(x => x.Bucket.Value);
-    }
-    var result = new List<WebTimeseriesPoint>(pageViews.Count);
-    foreach (var row in pageViews)
-    {
-      AnalyticsRow sessionRow = null;
-      if (sessions != null && !sessions.TryGetValue(row.Bucket.Value, out sessionRow))
-        sessionRow = EmptyRow;
-      result.Add(new WebTimeseriesPoint(row.Bucket.Value, ToSummary(row, sessionRow)));
-    }
-    return result;
-  }
-
-  static readonly AnalyticsRow EmptyRow = new(null, [], 0, 0, null);
-
-  /// <summary>
-  /// Returns the most viewed pages.
-  /// </summary>
-  public IReadOnlyList<PageStats> GetTopPages(
-      DateTime from,
-      DateTime to,
-      int limit = 10,
-      string site = null,
-      IEnumerable<DimensionFilter> filters = null)
-  {
-    var query = NewQuery(StandardEvents.PageView, from, to, site, filters)
-        .GroupBy(StandardDimensions.Page)
-        .Order(QueryOrder.ByEvents())
-        .Top(limit);
-    return engine.Query(query).Rows.Select(ToPageStats).ToList();
+    var sessions = SessionMetricsAvailable(request);
+    var query = NewQuery(request, paged: false);
+    query.Interval = interval;
+    query.Metrics.Add(Metric.Visitors);
+    query.Metrics.Add(Metric.PageViews);
+    if (sessions)
+      query.Metrics.AddRange(SessionMetrics);
+    var result = await engine.QueryAsync(query, cancellationToken).ConfigureAwait(false);
+    return result.Rows.Select(x => new WebTimeseriesPoint(x.Bucket.Value, ToSummary(x, sessions))).ToList();
   }
 
   /// <summary>
-  /// Returns the pages where most sessions ended.
+  /// Visitors, page views and, for session-level dimensions, session metrics grouped by a dimension,
+  /// ordered by visitors. Typical dimensions: <see cref="StandardDimensions.Source"/>,
+  /// <see cref="StandardDimensions.Channel"/>, <see cref="StandardDimensions.Referrer"/>,
+  /// <see cref="StandardDimensions.UtmCampaign"/>, <see cref="StandardDimensions.Country"/>,
+  /// <see cref="StandardDimensions.Device"/>, <see cref="StandardDimensions.Browser"/>,
+  /// <see cref="StandardDimensions.EntryPage"/> or any custom dimension.
   /// </summary>
-  public IReadOnlyList<PageStats> GetExitPages(
-      DateTime from,
-      DateTime to,
-      int limit = 10,
-      string site = null,
-      IEnumerable<DimensionFilter> filters = null)
+  public async Task<WebReport<WebBreakdownRow>> GetBreakdownAsync(
+      WebReportRequest request, string dimension, CancellationToken cancellationToken = default)
   {
-    var query = NewQuery(StandardEvents.PageView, from, to, site, filters)
-        .GroupBy(StandardDimensions.Page)
-        .Order(QueryOrder.ByMetricSum(StandardMetrics.Exits));
-    return engine.Query(query).Rows
-        .Select(ToPageStats)
-        .Where(x => x.Exits > 0)
-        .Take(limit)
+    ArgumentException.ThrowIfNullOrWhiteSpace(dimension);
+    var sessions = SessionMetricsAvailable(request, dimension);
+    var query = NewQuery(request, paged: true);
+    query.GroupBy.Add(dimension);
+    query.Metrics.Add(Metric.Visitors);
+    query.Metrics.Add(Metric.PageViews);
+    query.Metrics.Add(Metric.PercentOfTotal(Metric.Visitors));
+    if (sessions)
+    {
+      query.Metrics.Add(Metric.Sessions);
+      query.Metrics.Add(Metric.BounceRate);
+      query.Metrics.Add(Metric.AverageSessionDuration);
+    }
+    query.OrderBy.Add(Order.By(Metric.Visitors));
+    query.OrderBy.Add(Order.By(Metric.PageViews));
+    var result = await engine.QueryAsync(query, cancellationToken).ConfigureAwait(false);
+
+    WebBreakdownRow ToRow(AnalyticsRow row) => row == null ? null : new WebBreakdownRow(
+        row.Dimensions[0],
+        (long)row[Metric.Visitors],
+        (long)row[Metric.PageViews],
+        row[Metric.PercentOfTotal(Metric.Visitors)],
+        sessions ? (long)row[Metric.Sessions] : null,
+        sessions ? row[Metric.BounceRate] : null,
+        sessions ? TimeSpan.FromSeconds(row[Metric.AverageSessionDuration]) : null)
+    {
+      Previous = ToRow(row.Previous)
+    };
+    return new WebReport<WebBreakdownRow>(result.Rows.Select(ToRow).ToList(), result.TotalRows, result.Plan);
+  }
+
+  /// <summary>
+  /// Pages ordered by page views, with entrances, exits and exit rate.
+  /// </summary>
+  public Task<WebReport<PageStats>> GetPagesAsync(WebReportRequest request, CancellationToken cancellationToken = default) =>
+      GetPagesAsync(request, Metric.PageViews, cancellationToken);
+
+  /// <summary>
+  /// Pages where most sessions ended.
+  /// </summary>
+  public Task<WebReport<PageStats>> GetExitPagesAsync(WebReportRequest request, CancellationToken cancellationToken = default) =>
+      GetPagesAsync(request, Metric.Exits, cancellationToken);
+
+  async Task<WebReport<PageStats>> GetPagesAsync(
+      WebReportRequest request, Metric order, CancellationToken cancellationToken)
+  {
+    var pageMetrics = PageMetricsAvailable(request);
+    if (!pageMetrics && order == Metric.Exits)
+      throw new ArgumentException("Exit pages cannot be filtered by custom dimensions.", nameof(request));
+    var query = NewQuery(request, paged: true);
+    query.GroupBy.Add(StandardDimensions.Page);
+    query.Metrics.Add(Metric.Visitors);
+    query.Metrics.Add(Metric.PageViews);
+    if (pageMetrics)
+    {
+      query.Metrics.Add(Metric.Entrances);
+      query.Metrics.Add(Metric.Exits);
+      query.Metrics.Add(Metric.ExitRate);
+    }
+    query.OrderBy.Add(Order.By(order));
+    query.OrderBy.Add(Order.By(Metric.Visitors));
+    var result = await engine.QueryAsync(query, cancellationToken).ConfigureAwait(false);
+
+    PageStats ToStats(AnalyticsRow row) => row == null ? null : new PageStats(
+        row.Dimensions[0],
+        (long)row[Metric.Visitors],
+        (long)row[Metric.PageViews],
+        pageMetrics ? (long)row[Metric.Entrances] : null,
+        pageMetrics ? (long)row[Metric.Exits] : null,
+        pageMetrics ? row[Metric.ExitRate] : null)
+    {
+      Previous = ToStats(row.Previous)
+    };
+    var rows = result.Rows.Where(x => x.Dimensions[0] != null);
+    if (order == Metric.Exits)
+      rows = rows.Where(x => x[Metric.Exits] > 0);
+    return new WebReport<PageStats>(rows.Select(ToStats).ToList(), result.TotalRows, result.Plan);
+  }
+
+  /// <summary>
+  /// Custom events with visitors, events and conversion rate, ordered by visitors.
+  /// </summary>
+  public async Task<WebReport<GoalStats>> GetGoalsAsync(WebReportRequest request, CancellationToken cancellationToken = default)
+  {
+    ArgumentNullException.ThrowIfNull(request);
+    var goals = engine.GetEventNames(request.Range, request.Site, request.TimeZone)
+        .Where(x => x != StandardEvents.PageView && x != StandardEvents.Session)
         .ToList();
-  }
-
-  static PageStats ToPageStats(AnalyticsRow row) => new(
-      row.Dimensions[0],
-      row.Visitors,
-      row.Events,
-      (long)Math.Round(row.Sum(StandardMetrics.Entrances)),
-      (long)Math.Round(row.Sum(StandardMetrics.Exits)));
-
-  /// <summary>
-  /// Returns session statistics grouped by a session-level dimension or the entry page.
-  /// </summary>
-  public IReadOnlyList<SessionBreakdownRow> GetSessionBreakdown(
-      string dimension,
-      DateTime from,
-      DateTime to,
-      int limit = 10,
-      string site = null,
-      IEnumerable<DimensionFilter> filters = null)
-  {
-    if (dimension != StandardDimensions.EntryPage && !EventEnricher.IsSessionLevel(dimension))
-      throw new ArgumentException(
-          $"'{dimension}' is not a session-level dimension. Use AnalyticsEngine.Query for event-level breakdowns.",
-          nameof(dimension));
-    var filterList = filters?.ToList();
-    if (!IsSessionFilterable(filterList))
-      throw new ArgumentException("Session breakdowns can only be filtered by session-level dimensions.", nameof(filters));
-    var query = NewQuery(StandardEvents.Session, from, to, site, filterList)
-        .GroupBy(dimension)
-        .Order(QueryOrder.ByVisitors())
-        .Top(limit);
-    return engine.Query(query).Rows.Select(row =>
+    var query = NewQuery(request, paged: false);
+    query.Compare = null;
+    query.Metrics.Add(Metric.Visitors);
+    foreach (var goal in goals)
     {
-      var sessions = row.Events;
-      return new SessionBreakdownRow(
-          row.Dimensions[0],
-          row.Visitors,
-          sessions,
-          sessions == 0 ? 0 : Math.Clamp(row.Sum(StandardMetrics.Bounces) / sessions, 0, 1),
-          sessions == 0 ? TimeSpan.Zero : TimeSpan.FromSeconds(Math.Max(0, row.Sum(StandardMetrics.Duration) / sessions)),
-          sessions == 0 ? 0 : row.Sum(StandardMetrics.SessionPageViews) / sessions);
-    }).ToList();
-  }
-
-  /// <summary>Top entry pages.</summary>
-  public IReadOnlyList<SessionBreakdownRow> GetEntryPages(DateTime from, DateTime to, int limit = 10, string site = null, IEnumerable<DimensionFilter> filters = null) =>
-      GetSessionBreakdown(StandardDimensions.EntryPage, from, to, limit, site, filters);
-
-  /// <summary>Top traffic sources.</summary>
-  public IReadOnlyList<SessionBreakdownRow> GetSources(DateTime from, DateTime to, int limit = 10, string site = null, IEnumerable<DimensionFilter> filters = null) =>
-      GetSessionBreakdown(StandardDimensions.Source, from, to, limit, site, filters);
-
-  /// <summary>Top referrer hosts.</summary>
-  public IReadOnlyList<SessionBreakdownRow> GetReferrers(DateTime from, DateTime to, int limit = 10, string site = null, IEnumerable<DimensionFilter> filters = null) =>
-      GetSessionBreakdown(StandardDimensions.Referrer, from, to, limit, site, filters);
-
-  /// <summary>Acquisition channels.</summary>
-  public IReadOnlyList<SessionBreakdownRow> GetChannels(DateTime from, DateTime to, int limit = 20, string site = null, IEnumerable<DimensionFilter> filters = null) =>
-      GetSessionBreakdown(StandardDimensions.Channel, from, to, limit, site, filters);
-
-  /// <summary>Top campaigns by a UTM dimension, for example <see cref="StandardDimensions.UtmCampaign"/>.</summary>
-  public IReadOnlyList<SessionBreakdownRow> GetCampaigns(string utmDimension, DateTime from, DateTime to, int limit = 10, string site = null, IEnumerable<DimensionFilter> filters = null) =>
-      GetSessionBreakdown(utmDimension, from, to, limit, site, filters);
-
-  /// <summary>Top countries.</summary>
-  public IReadOnlyList<SessionBreakdownRow> GetCountries(DateTime from, DateTime to, int limit = 10, string site = null, IEnumerable<DimensionFilter> filters = null) =>
-      GetSessionBreakdown(StandardDimensions.Country, from, to, limit, site, filters);
-
-  /// <summary>Top regions.</summary>
-  public IReadOnlyList<SessionBreakdownRow> GetRegions(DateTime from, DateTime to, int limit = 10, string site = null, IEnumerable<DimensionFilter> filters = null) =>
-      GetSessionBreakdown(StandardDimensions.Region, from, to, limit, site, filters);
-
-  /// <summary>Top cities.</summary>
-  public IReadOnlyList<SessionBreakdownRow> GetCities(DateTime from, DateTime to, int limit = 10, string site = null, IEnumerable<DimensionFilter> filters = null) =>
-      GetSessionBreakdown(StandardDimensions.City, from, to, limit, site, filters);
-
-  /// <summary>Browsers.</summary>
-  public IReadOnlyList<SessionBreakdownRow> GetBrowsers(DateTime from, DateTime to, int limit = 10, string site = null, IEnumerable<DimensionFilter> filters = null) =>
-      GetSessionBreakdown(StandardDimensions.Browser, from, to, limit, site, filters);
-
-  /// <summary>Operating systems.</summary>
-  public IReadOnlyList<SessionBreakdownRow> GetOperatingSystems(DateTime from, DateTime to, int limit = 10, string site = null, IEnumerable<DimensionFilter> filters = null) =>
-      GetSessionBreakdown(StandardDimensions.OperatingSystem, from, to, limit, site, filters);
-
-  /// <summary>Device types.</summary>
-  public IReadOnlyList<SessionBreakdownRow> GetDevices(DateTime from, DateTime to, int limit = 10, string site = null, IEnumerable<DimensionFilter> filters = null) =>
-      GetSessionBreakdown(StandardDimensions.Device, from, to, limit, site, filters);
-
-  /// <summary>
-  /// Returns custom events (every event except page views and sessions) with counts and visitors.
-  /// </summary>
-  public IReadOnlyList<EventStats> GetCustomEvents(
-      DateTime from,
-      DateTime to,
-      int limit = 20,
-      string site = null,
-      IEnumerable<DimensionFilter> filters = null)
-  {
-    var filterList = filters?.ToList();
-    var result = new List<EventStats>();
-    foreach (var name in engine.GetEventNames(from, to, site))
-    {
-      if (name is StandardEvents.PageView or StandardEvents.Session)
-        continue;
-      var totals = engine.Query(NewQuery(name, from, to, site, filterList)).Totals;
-      if (totals.Events > 0)
-        result.Add(new EventStats(name, totals.Events, totals.Visitors));
+      query.Metrics.Add(Metric.Conversions(goal));
+      query.Metrics.Add(Metric.EventsOf(goal));
+      query.Metrics.Add(Metric.ConversionRate(goal));
     }
-    return result
-        .OrderByDescending(x => x.Events)
+    var result = await engine.QueryAsync(query, cancellationToken).ConfigureAwait(false);
+    var totals = result.Totals;
+    var rows = goals
+        .Select(x => new GoalStats(
+            x,
+            (long)totals[Metric.Conversions(x)],
+            (long)totals[Metric.EventsOf(x)],
+            totals[Metric.ConversionRate(x)]))
+        .Where(x => x.Events > 0)
+        .OrderByDescending(x => x.Visitors)
+        .ThenByDescending(x => x.Events)
         .ThenBy(x => x.Name, StringComparer.Ordinal)
-        .Take(limit)
         .ToList();
+    return new WebReport<GoalStats>(
+        rows.Skip(request.Offset).Take(request.Limit).ToList(), rows.Count, result.Plan);
   }
 
   /// <summary>
-  /// Distinct visitors active in the last <paramref name="window"/> (default 5 minutes).
+  /// Unique visitors active in the last <paramref name="window"/> (default 5 minutes).
   /// Real-time; requires raw event storage. Returns null when raw events are not stored.
   /// </summary>
-  public long? GetCurrentVisitors(TimeSpan? window = null, string site = null) =>
+  public long? GetCurrentVisitors(string site = null, TimeSpan? window = null) =>
       engine.GetCurrentVisitors(window ?? TimeSpan.FromMinutes(5), site);
 }

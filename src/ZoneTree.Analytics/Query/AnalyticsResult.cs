@@ -1,92 +1,138 @@
 namespace ZoneTree.Analytics;
 
 /// <summary>
-/// The aggregate of one metric.
+/// The aggregate of one measured value.
 /// </summary>
-/// <remarks>
-/// <see cref="Count"/> is the number of measured values. Engine-generated session
-/// metrics are maintained with additive deltas, so only their <see cref="Sum"/>
-/// is meaningful.
-/// </remarks>
 /// <param name="Sum">The sum of values.</param>
-/// <param name="Count">The number of measured values.</param>
-/// <param name="Min">The smallest value. Zero when <paramref name="Count"/> is zero.</param>
-/// <param name="Max">The largest value. Zero when <paramref name="Count"/> is zero.</param>
-public readonly record struct MetricValue(double Sum, long Count, double Min, double Max)
+/// <param name="Count">The number of values.</param>
+/// <param name="Min">The smallest value.</param>
+/// <param name="Max">The largest value.</param>
+readonly record struct MetricValue(double Sum, long Count, double Min, double Max)
 {
   /// <summary>
-  /// The average of the measured values, or zero when there are none.
+  /// The average of the values, or zero when there are none.
   /// </summary>
   public double Average => Count == 0 ? 0 : Sum / Count;
 }
 
 /// <summary>
-/// One result row.
+/// One result row: a time bucket and group, with one value per query metric.
 /// </summary>
 public sealed class AnalyticsRow
 {
-  static readonly IReadOnlyDictionary<string, MetricValue> NoMetrics =
-      new Dictionary<string, MetricValue>();
+  readonly AnalyticsResultShape shape;
 
-  internal AnalyticsRow(
-      DateTimeOffset? bucket,
-      string[] dimensions,
-      long events,
-      long visitors,
-      IReadOnlyDictionary<string, MetricValue> metrics)
+  readonly double[] values;
+
+  internal AnalyticsRow(AnalyticsResultShape shape, DateTimeOffset? bucket, string[] dimensions, double[] values)
   {
+    this.shape = shape;
     Bucket = bucket;
     Dimensions = dimensions;
-    Events = events;
-    Visitors = visitors;
-    Metrics = metrics ?? NoMetrics;
+    this.values = values;
   }
 
   /// <summary>
-  /// Start of the time bucket, or null when the query has no interval.
-  /// Minute and hour buckets are UTC; day and coarser buckets carry the
-  /// reporting time zone offset.
+  /// Start of the time bucket, or null without an interval. Minute and hour buckets are UTC;
+  /// day and coarser buckets carry the offset of the query's time zone.
   /// </summary>
   public DateTimeOffset? Bucket { get; }
 
   /// <summary>
-  /// Group-by dimension values, in the order of the query's group-by dimensions.
-  /// An empty string is a known empty value, for example direct traffic.
+  /// Group-by values, in the order of the query's group-by dimensions. Null means the events
+  /// of this row do not carry the dimension.
   /// </summary>
   public IReadOnlyList<string> Dimensions { get; }
 
   /// <summary>
-  /// Number of events. For <see cref="StandardEvents.Session"/> rows it is the number of sessions.
+  /// Metric values, in the order of the query's metrics.
   /// </summary>
-  public long Events { get; }
+  public IReadOnlyList<double> Values => values;
 
   /// <summary>
-  /// Unique visitors. Exact for small sets, estimated with about 0.8% standard
-  /// error for large sets at the default sketch precision.
+  /// The same row of the comparison period, when the query has a <see cref="Comparison"/>.
+  /// Null when the comparison period has no such row.
   /// </summary>
-  public long Visitors { get; }
+  public AnalyticsRow Previous { get; internal set; }
 
   /// <summary>
-  /// Metric aggregates by name.
+  /// The value of a query metric.
   /// </summary>
-  public IReadOnlyDictionary<string, MetricValue> Metrics { get; }
+  /// <exception cref="ArgumentException">The metric is not part of the query.</exception>
+  public double this[Metric metric] => values[shape.IndexOf(metric)];
 
   /// <summary>
-  /// Returns the sum of a metric, or zero.
+  /// The value of a group-by dimension, or null when missing.
   /// </summary>
-  public double Sum(string metric) => Metrics.TryGetValue(metric, out var value) ? value.Sum : 0;
+  /// <exception cref="ArgumentException">The dimension is not a group-by dimension.</exception>
+  public string this[string dimension] => Dimensions[shape.IndexOfDimension(dimension)];
 
   /// <summary>
-  /// Returns the aggregate of a metric, or an empty aggregate.
+  /// The relative change of a metric from the comparison period: (current - previous) / previous.
+  /// Null without a comparison row or when the previous value is zero.
   /// </summary>
-  public MetricValue Metric(string metric) => Metrics.TryGetValue(metric, out var value) ? value : default;
+  public double? Change(Metric metric)
+  {
+    if (Previous == null)
+      return null;
+    var previous = Previous[metric];
+    if (previous == 0)
+      return null;
+    return (this[metric] - previous) / previous;
+  }
 
   /// <inheritdoc/>
   public override string ToString()
   {
-    var bucket = Bucket.HasValue ? Bucket.Value.ToString("u") + " " : "";
-    var dimensions = Dimensions.Count > 0 ? "[" + string.Join(", ", Dimensions) + "] " : "";
-    return $"{bucket}{dimensions}events={Events} visitors={Visitors}";
+    var parts = new List<string>();
+    if (Bucket.HasValue)
+      parts.Add(Bucket.Value.ToString("yyyy-MM-dd HH:mm zzz", System.Globalization.CultureInfo.InvariantCulture));
+    if (Dimensions.Count > 0)
+      parts.Add("[" + string.Join(", ", Dimensions.Select(x => x ?? "(none)")) + "]");
+    for (var i = 0; i < values.Length; ++i)
+      parts.Add(shape.Metrics[i].Key + "=" + Metric.Format(values[i]));
+    return string.Join(" ", parts);
+  }
+}
+
+/// <summary>
+/// Column layout shared by the rows of one result.
+/// </summary>
+sealed class AnalyticsResultShape
+{
+  readonly Dictionary<string, int> metricIndexes;
+
+  readonly Dictionary<string, int> dimensionIndexes;
+
+  public AnalyticsResultShape(IReadOnlyList<Metric> metrics, IReadOnlyList<string> groupBy)
+  {
+    Metrics = metrics;
+    GroupBy = groupBy;
+    metricIndexes = new(StringComparer.Ordinal);
+    for (var i = 0; i < metrics.Count; ++i)
+      metricIndexes.TryAdd(metrics[i].Key, i);
+    dimensionIndexes = new(StringComparer.Ordinal);
+    for (var i = 0; i < groupBy.Count; ++i)
+      dimensionIndexes.TryAdd(groupBy[i], i);
+  }
+
+  public IReadOnlyList<Metric> Metrics { get; }
+
+  public IReadOnlyList<string> GroupBy { get; }
+
+  public int IndexOf(Metric metric)
+  {
+    ArgumentNullException.ThrowIfNull(metric);
+    return metricIndexes.TryGetValue(metric.Key, out var index)
+        ? index
+        : throw new ArgumentException($"The metric '{metric.Key}' is not part of the query.", nameof(metric));
+  }
+
+  public int IndexOfDimension(string dimension)
+  {
+    return dimension != null && dimensionIndexes.TryGetValue(dimension, out var index)
+        ? index
+        : throw new ArgumentException($"'{dimension}' is not a group-by dimension of the query.", nameof(dimension));
   }
 }
 
@@ -96,68 +142,119 @@ public sealed class AnalyticsRow
 public sealed class AnalyticsResult
 {
   internal AnalyticsResult(
-      IReadOnlyList<string> groupBy,
+      AnalyticsResultShape shape,
       TimeInterval interval,
+      DateTimeOffset from,
+      DateTimeOffset to,
+      TimeZoneInfo timeZone,
       IReadOnlyList<AnalyticsRow> rows,
+      int totalRows,
       AnalyticsRow totals,
-      bool usedRollups,
-      bool usedRawEvents,
-      bool mayBeIncomplete,
-      DateTime from,
-      DateTime to)
+      QueryPlan plan)
   {
-    GroupBy = groupBy;
+    Metrics = shape.Metrics;
+    GroupBy = shape.GroupBy;
     Interval = interval;
-    Rows = rows;
-    Totals = totals;
-    UsedRollups = usedRollups;
-    UsedRawEvents = usedRawEvents;
-    MayBeIncomplete = mayBeIncomplete;
     From = from;
     To = to;
+    TimeZone = timeZone;
+    Rows = rows;
+    TotalRows = totalRows;
+    Totals = totals;
+    Plan = plan;
   }
 
-  /// <summary>The group-by dimensions.</summary>
+  /// <summary>The metrics, in column order.</summary>
+  public IReadOnlyList<Metric> Metrics { get; }
+
+  /// <summary>The group-by dimensions, in column order.</summary>
   public IReadOnlyList<string> GroupBy { get; }
 
   /// <summary>The time series interval.</summary>
   public TimeInterval Interval { get; }
 
-  /// <summary>The rows after ordering and limit.</summary>
+  /// <summary>The resolved inclusive start of the range, in the query's time zone.</summary>
+  public DateTimeOffset From { get; }
+
+  /// <summary>The resolved exclusive end of the range, in the query's time zone.</summary>
+  public DateTimeOffset To { get; }
+
+  /// <summary>The time zone of the query.</summary>
+  public TimeZoneInfo TimeZone { get; }
+
+  /// <summary>The rows after ordering, offset and limit.</summary>
   public IReadOnlyList<AnalyticsRow> Rows { get; }
 
+  /// <summary>The number of rows before offset and limit, for paging.</summary>
+  public int TotalRows { get; }
+
   /// <summary>
-  /// Totals over every matching row before the limit is applied. Unique visitors
-  /// are de-duplicated across rows and buckets.
+  /// Totals over the whole range and every group, before offset and limit. Unique visitors are
+  /// de-duplicated across rows and buckets. With a comparison, <see cref="AnalyticsRow.Previous"/>
+  /// holds the totals of the comparison period.
   /// </summary>
   public AnalyticsRow Totals { get; }
 
-  /// <summary>True when rollups contributed to the result.</summary>
-  public bool UsedRollups { get; }
+  /// <summary>How the query was answered.</summary>
+  public QueryPlan Plan { get; }
 
-  /// <summary>True when raw events contributed to the result.</summary>
-  public bool UsedRawEvents { get; }
-
-  /// <summary>
-  /// True when part of the range is outside the configured retention, or could only be
-  /// answered by widening it to coarser bucket boundaries.
-  /// </summary>
-  public bool MayBeIncomplete { get; }
-
-  /// <summary>The effective inclusive start (UTC).</summary>
-  public DateTime From { get; }
-
-  /// <summary>The effective exclusive end (UTC).</summary>
-  public DateTime To { get; }
+  /// <summary>The comparison result, when the query has a <see cref="Comparison"/>.</summary>
+  public AnalyticsResult Comparison { get; internal set; }
 }
 
 /// <summary>
-/// Raised when a query is invalid or cannot be answered with the configured storage.
+/// The data a part of a query was answered from.
 /// </summary>
-public sealed class AnalyticsQueryException : Exception
+public enum PlanSource
 {
-  /// <summary>Creates the exception.</summary>
-  public AnalyticsQueryException(string message) : base(message)
+  /// <summary>Daily rollups.</summary>
+  DayRollups,
+
+  /// <summary>Hourly rollups.</summary>
+  HourRollups,
+
+  /// <summary>Minute rollups.</summary>
+  MinuteRollups,
+
+  /// <summary>Raw events.</summary>
+  RawEvents,
+}
+
+/// <summary>
+/// One part of a query plan: an event, a source and a time range.
+/// </summary>
+/// <param name="Event">The event read.</param>
+/// <param name="Source">The data source.</param>
+/// <param name="From">The inclusive start (UTC).</param>
+/// <param name="To">The exclusive end (UTC).</param>
+public sealed record QueryPlanStep(string Event, PlanSource Source, DateTimeOffset From, DateTimeOffset To);
+
+/// <summary>
+/// How a query was answered.
+/// </summary>
+public sealed class QueryPlan
+{
+  internal QueryPlan(IReadOnlyList<QueryPlanStep> steps, IReadOnlyList<string> warnings)
   {
+    Steps = steps;
+    Warnings = warnings;
   }
+
+  /// <summary>The plan steps.</summary>
+  public IReadOnlyList<QueryPlanStep> Steps { get; }
+
+  /// <summary>
+  /// Conditions that may make the result incomplete or approximate, for example a range outside
+  /// raw event retention.
+  /// </summary>
+  public IReadOnlyList<string> Warnings { get; }
+
+  /// <summary>True when the result covers the whole range exactly.</summary>
+  public bool IsComplete => Warnings.Count == 0;
+
+  /// <summary>True when rollups contributed.</summary>
+  public bool UsedRollups => Steps.Any(x => x.Source != PlanSource.RawEvents);
+
+  /// <summary>True when raw events contributed.</summary>
+  public bool UsedRawEvents => Steps.Any(x => x.Source == PlanSource.RawEvents);
 }

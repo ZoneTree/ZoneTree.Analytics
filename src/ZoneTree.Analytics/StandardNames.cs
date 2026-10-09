@@ -11,10 +11,9 @@ public static class StandardEvents
   public const string PageView = "pageview";
 
   /// <summary>
-  /// The engine-generated session event. Its rows carry session metrics
-  /// (<see cref="StandardMetrics.Bounces"/>, <see cref="StandardMetrics.Duration"/>,
-  /// <see cref="StandardMetrics.SessionPageViews"/>) and the event count of a
-  /// session row is the number of sessions.
+  /// The engine-generated session event. Session metrics such as <see cref="Metric.Sessions"/>
+  /// and <see cref="Metric.BounceRate"/> read it; as a base event, <see cref="Metric.Events"/>
+  /// counts sessions.
   /// </summary>
   public const string Session = "$session";
 }
@@ -110,7 +109,7 @@ public static class StandardDimensions
 /// Standard metric names produced by the engine.
 /// Engine-generated metrics start with '$'.
 /// </summary>
-public static class StandardMetrics
+static class StandardMetrics
 {
   /// <summary>
   /// Number of bounced sessions, on <see cref="StandardEvents.Session"/> rows.

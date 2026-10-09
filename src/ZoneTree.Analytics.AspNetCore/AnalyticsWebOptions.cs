@@ -47,4 +47,11 @@ public sealed class AnalyticsWebOptions
   /// Maximum beacon payload size in bytes. Default is 8 KiB.
   /// </summary>
   public int MaxPayloadBytes { get; set; } = 8 * 1024;
+
+  /// <summary>
+  /// Authorizes access to a site through the reporting API (the site argument is null for the
+  /// default site). Default is null: every site is allowed, so protect the API itself, for example
+  /// with <c>RequireAuthorization()</c>.
+  /// </summary>
+  public Func<HttpContext, string, bool> AuthorizeSite { get; set; }
 }
