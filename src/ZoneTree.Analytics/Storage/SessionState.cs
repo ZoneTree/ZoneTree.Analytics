@@ -45,11 +45,6 @@ sealed class SessionState
   /// </summary>
   public string[] Dimensions = [];
 
-  /// <summary>
-  /// Session-level dimensions plus the entry page, built on first use. Not persisted.
-  /// </summary>
-  public Dictionary<string, string> DimensionCache;
-
   // Transient state of the owning worker. Not persisted.
 
   public string Site;
@@ -82,7 +77,6 @@ sealed class SessionState
   {
     var clone = (SessionState)MemberwiseClone();
     clone.Dimensions = (string[])Dimensions.Clone();
-    clone.DimensionCache = null;
     return clone;
   }
 }

@@ -1,3 +1,5 @@
+using ZoneTree.Analytics.Storage;
+
 namespace ZoneTree.Analytics;
 
 /// <summary>
@@ -21,12 +23,14 @@ public enum SegmentScope
 /// </remarks>
 public sealed class Segment
 {
+  readonly Filter[] filters;
+
   Segment(SegmentScope scope, string eventName, Filter[] filters, bool isExcluded)
   {
     ArgumentException.ThrowIfNullOrWhiteSpace(eventName);
     Scope = scope;
     Event = eventName;
-    Filters = filters ?? [];
+    this.filters = filters == null ? [] : [.. filters];
     IsExcluded = isExcluded;
   }
 
@@ -37,7 +41,7 @@ public sealed class Segment
   public string Event { get; }
 
   /// <summary>Conditions on that event. All must match.</summary>
-  public IReadOnlyList<Filter> Filters { get; }
+  public IReadOnlyList<Filter> Filters => filters;
 
   /// <summary>True when the segment selects visitors or sessions without such an event.</summary>
   public bool IsExcluded { get; }
@@ -63,19 +67,9 @@ public sealed class Segment
   /// <summary>
   /// The complement: visitors or sessions without a matching event.
   /// </summary>
-  public Segment Exclude() => new(Scope, Event, [.. Filters], !IsExcluded);
+  public Segment Exclude() => new(Scope, Event, filters, !IsExcluded);
 
-  internal bool Matches(string eventName, Func<string, string> dimension)
-  {
-    if (eventName != Event)
-      return false;
-    foreach (var filter in Filters)
-    {
-      if (!filter.IsMatch(dimension(filter.Dimension)))
-        return false;
-    }
-    return true;
-  }
+  internal bool Matches(RawEvent rawEvent) => rawEvent.Matches(Event, filters);
 
   /// <inheritdoc/>
   public override string ToString()

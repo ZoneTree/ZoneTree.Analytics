@@ -174,6 +174,20 @@ ref struct ByteReader
   }
 
   /// <summary>
+  /// Reads a string through the cache, which saves allocating repeated values.
+  /// </summary>
+  public string ReadString(Utf8StringCache cache)
+  {
+    var lengthPlusOne = ReadVarUInt64();
+    if (lengthPlusOne == 0)
+      return null;
+    var byteCount = (int)(lengthPlusOne - 1);
+    var result = cache.Get(span.Slice(position, byteCount));
+    position += byteCount;
+    return result;
+  }
+
+  /// <summary>
   /// Reads the UTF-8 bytes of the next length-prefixed string without decoding it.
   /// Null and empty strings both return an empty span.
   /// </summary>

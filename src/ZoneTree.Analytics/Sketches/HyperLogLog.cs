@@ -234,22 +234,28 @@ sealed class HyperLogLog
 
   void MergeSparse(uint[] otherEntries, int otherCount)
   {
-    // Both inputs are sorted. Duplicates, within or across inputs, are written once.
-    var merged = new uint[sparseCount + otherCount];
-    int i = 0, j = 0, k = 0;
-    while (i < sparseCount || j < otherCount)
+    // Both inputs are sorted. They are merged in place, from the largest entry down, into the
+    // sparse array grown by doubling, so repeated merges do not allocate. Duplicates, within or
+    // across inputs, are written once. The write position never passes the unread sparse
+    // entries: it starts otherCount entries above them and drops by at most one per entry read.
+    var end = sparseCount + otherCount;
+    if (sparse.Length < end)
+      Array.Resize(ref sparse, Math.Max(end, sparse.Length * 2));
+    int i = sparseCount - 1, j = otherCount - 1, k = end;
+    while (i >= 0 || j >= 0)
     {
       uint next;
-      if (j == otherCount || (i < sparseCount && sparse[i] <= otherEntries[j]))
-        next = sparse[i++];
+      if (j < 0 || (i >= 0 && sparse[i] > otherEntries[j]))
+        next = sparse[i--];
       else
-        next = otherEntries[j++];
-      if (k == 0 || merged[k - 1] != next)
-        merged[k++] = next;
+        next = otherEntries[j--];
+      if (k == end || sparse[k] != next)
+        sparse[--k] = next;
     }
-    sparse = merged;
-    sparseCount = k;
-    if (k > ExactLimit)
+    sparseCount = end - k;
+    if (k > 0)
+      Array.Copy(sparse, k, sparse, 0, sparseCount);
+    if (sparseCount > ExactLimit)
       ConvertToDense();
   }
 

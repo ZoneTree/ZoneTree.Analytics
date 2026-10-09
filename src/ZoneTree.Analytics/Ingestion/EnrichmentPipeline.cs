@@ -183,7 +183,8 @@ sealed class EnrichmentPipeline
       Name = name,
       Ticks = ticks,
       IsPageView = name == StandardEvents.PageView,
-      Dimensions = new(StringComparer.Ordinal),
+      // Sized for the session-level dimensions and the entry page the worker adds.
+      Dimensions = new(Schema.Count + (e.Dimensions?.Length ?? 0) + 3, StringComparer.Ordinal),
       HasWebContext =
           !string.IsNullOrWhiteSpace(e.Url) ||
           !string.IsNullOrWhiteSpace(e.Referrer) ||

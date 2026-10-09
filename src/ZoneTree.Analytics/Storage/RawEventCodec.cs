@@ -25,6 +25,11 @@ sealed class RawEvent
 
   public readonly List<KeyValuePair<string, double>> Metrics = [];
 
+  /// <summary>
+  /// Decoded strings, reused across the rows of a scan.
+  /// </summary>
+  public readonly Utf8StringCache Strings = new();
+
   public bool TryGetDimension(string name, out string value)
   {
     foreach (var (key, v) in Dimensions)
@@ -37,6 +42,22 @@ sealed class RawEvent
     }
     value = null;
     return false;
+  }
+
+  /// <summary>
+  /// True when the event has the name and matches every filter.
+  /// </summary>
+  public bool Matches(string eventName, Filter[] filters)
+  {
+    if (Name != eventName)
+      return false;
+    foreach (var filter in filters)
+    {
+      TryGetDimension(filter.Dimension, out var value);
+      if (!filter.IsMatch(value))
+        return false;
+    }
+    return true;
   }
 
   public void Clear()
@@ -159,7 +180,7 @@ static class RawEventCodec
     }
     else
     {
-      target.Name = reader.ReadString();
+      target.Name = reader.ReadString(target.Strings);
     }
     target.Ticks = ticks;
     target.Visitor = BinaryPrimitives.ReadUInt64LittleEndian(reader.ReadBytes(8));
@@ -171,8 +192,8 @@ static class RawEventCodec
     {
       if (selector == null)
       {
-        var key = reader.ReadString();
-        var value = reader.ReadString();
+        var key = reader.ReadString(target.Strings);
+        var value = reader.ReadString(target.Strings);
         target.Dimensions.Add(new(key, value));
         continue;
       }
@@ -183,12 +204,12 @@ static class RawEventCodec
         reader.SkipString();
         continue;
       }
-      target.Dimensions.Add(new(selector.Names[index], reader.ReadString()));
+      target.Dimensions.Add(new(selector.Names[index], reader.ReadString(target.Strings)));
     }
     var metricCount = (int)reader.ReadVarUInt64();
     for (var i = 0; i < metricCount; ++i)
     {
-      var key = reader.ReadString();
+      var key = reader.ReadString(target.Strings);
       var value = reader.ReadDouble();
       target.Metrics.Add(new(key, value));
     }

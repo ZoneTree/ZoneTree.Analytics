@@ -90,6 +90,12 @@ sealed class IngestionWorker
 
   readonly List<MetricChange> metricChangesForSession = [];
 
+  // Reused for every session, entrance and exit row: RollupBuffer.Contribute reads them and
+  // keeps nothing.
+  readonly SessionDimensions sessionDimensions;
+
+  readonly PageDimensions pageDimensions = new();
+
   readonly long sessionTimeoutTicks;
 
   readonly long flushIntervalTimestamp;
@@ -118,6 +124,7 @@ sealed class IngestionWorker
     this.services = services;
     var options = services.Options;
     schema = services.Enricher.Schema;
+    sessionDimensions = new SessionDimensions(schema);
     channel = Channel.CreateBounded<WorkItem>(new BoundedChannelOptions(options.Ingestion.QueueCapacity)
     {
       SingleReader = true,
@@ -222,14 +229,14 @@ sealed class IngestionWorker
     // Session-level dimensions come from the session, so every event of a session
     // is attributed consistently to its source, location and device.
     var dimensions = ev.Dimensions;
-    var sessionDimensions = session?.Dimensions ?? ev.SessionDimensions;
-    if (sessionDimensions != null)
+    var sessionValues = session?.Dimensions ?? ev.SessionDimensions;
+    if (sessionValues != null)
     {
       var names = schema.Names;
-      for (var i = 0; i < sessionDimensions.Length; ++i)
+      for (var i = 0; i < sessionValues.Length; ++i)
       {
-        if (sessionDimensions[i] != null)
-          dimensions[names[i]] = sessionDimensions[i];
+        if (sessionValues[i] != null)
+          dimensions[names[i]] = sessionValues[i];
       }
     }
     if (session != null)
@@ -297,31 +304,7 @@ sealed class IngestionWorker
     };
   }
 
-  Dictionary<string, string> GetSessionDimensions(SessionState session)
-  {
-    if (session.DimensionCache != null)
-      return session.DimensionCache;
-    var result = new Dictionary<string, string>(StringComparer.Ordinal);
-    var names = schema.Names;
-    for (var i = 0; i < session.Dimensions.Length; ++i)
-    {
-      if (session.Dimensions[i] != null)
-        result[names[i]] = session.Dimensions[i];
-    }
-    result[StandardDimensions.EntryPage] = session.EntryPage;
-    session.DimensionCache = result;
-    return result;
-  }
-
-  static Dictionary<string, string> WithPage(
-      Dictionary<string, string> sessionDimensions, string page, string hostname)
-  {
-    return new Dictionary<string, string>(sessionDimensions, StringComparer.Ordinal)
-    {
-      [StandardDimensions.Page] = page,
-      [StandardDimensions.Hostname] = hostname ?? ""
-    };
-  }
+  SessionDimensions GetSessionDimensions(SessionState session) => sessionDimensions.Of(session);
 
   /// <summary>
   /// Applies an event to its session.
@@ -369,7 +352,7 @@ sealed class IngestionWorker
     if (session.LastPage != null && ev.Ticks < session.LastPageTicks)
       return; // A late page view does not become the exit page.
 
-    var sessionDimensions = GetSessionDimensions(session);
+    var dimensionsOfSession = GetSessionDimensions(session);
     if (session.LastPage != null)
     {
       metricChangesForSession.Clear();
@@ -378,7 +361,7 @@ sealed class IngestionWorker
           ev.Site,
           StandardEvents.PageView,
           session.LastPageTicks,
-          WithPage(sessionDimensions, session.LastPage, session.LastHostname),
+          pageDimensions.Of(dimensionsOfSession, session.LastPage, session.LastHostname),
           0,
           0,
           metricChangesForSession,
@@ -396,7 +379,7 @@ sealed class IngestionWorker
           ev.Site,
           StandardEvents.PageView,
           ev.Ticks,
-          WithPage(sessionDimensions, ev.Page, ev.Hostname),
+          pageDimensions.Of(dimensionsOfSession, ev.Page, ev.Hostname),
           0,
           0,
           metricChangesForSession,

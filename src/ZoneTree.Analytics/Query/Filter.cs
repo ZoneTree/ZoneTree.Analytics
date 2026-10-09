@@ -67,6 +67,8 @@ public sealed class Filter
     ("=~", FilterOperator.Matches),
   ];
 
+  readonly string[] values;
+
   readonly Regex[] patterns;
 
   /// <summary>
@@ -93,7 +95,7 @@ public sealed class Filter
     Dimension = dimension.Trim();
     Operator = op;
     IgnoreCase = ignoreCase;
-    Values = needsValues ? values.ToArray() : [];
+    this.values = needsValues ? [.. values] : [];
     if (op is FilterOperator.Matches or FilterOperator.NotMatches)
     {
       var options = RegexOptions.CultureInvariant;
@@ -112,7 +114,7 @@ public sealed class Filter
   public FilterOperator Operator { get; }
 
   /// <summary>The values or patterns. A value matches when it matches any of them.</summary>
-  public IReadOnlyList<string> Values { get; }
+  public IReadOnlyList<string> Values => values;
 
   /// <summary>True for case-insensitive comparison.</summary>
   public bool IgnoreCase { get; }
@@ -152,21 +154,49 @@ public sealed class Filter
   /// </summary>
   public bool IsMatch(string value)
   {
-    var comparison = IgnoreCase ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
-    return Operator switch
+    // Called for every row a query tests: plain loops, no delegates or enumerators.
+    switch (Operator)
     {
-      FilterOperator.IsSet => value != null,
-      FilterOperator.IsNotSet => value == null,
-      FilterOperator.Equals => value != null && Values.Any(x => string.Equals(value, x, comparison)),
-      FilterOperator.NotEquals => value == null || !Values.Any(x => string.Equals(value, x, comparison)),
-      FilterOperator.Contains => value != null && Values.Any(x => value.Contains(x, comparison)),
-      FilterOperator.NotContains => value == null || !Values.Any(x => value.Contains(x, comparison)),
-      FilterOperator.StartsWith => value != null && Values.Any(x => value.StartsWith(x, comparison)),
-      FilterOperator.EndsWith => value != null && Values.Any(x => value.EndsWith(x, comparison)),
-      FilterOperator.Matches => value != null && patterns.Any(x => x.IsMatch(value)),
-      FilterOperator.NotMatches => value == null || !patterns.Any(x => x.IsMatch(value)),
-      _ => false
-    };
+      case FilterOperator.IsSet:
+        return value != null;
+      case FilterOperator.IsNotSet:
+        return value == null;
+    }
+    var negated = Operator is FilterOperator.NotEquals or FilterOperator.NotContains or FilterOperator.NotMatches;
+    if (value == null)
+      return negated;
+    var matched = Operator is FilterOperator.Matches or FilterOperator.NotMatches
+        ? MatchesAnyPattern(value)
+        : MatchesAnyValue(value);
+    return matched != negated;
+  }
+
+  bool MatchesAnyValue(string value)
+  {
+    var comparison = IgnoreCase ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+    foreach (var candidate in values)
+    {
+      var matched = Operator switch
+      {
+        FilterOperator.Equals or FilterOperator.NotEquals => string.Equals(value, candidate, comparison),
+        FilterOperator.Contains or FilterOperator.NotContains => value.Contains(candidate, comparison),
+        FilterOperator.StartsWith => value.StartsWith(candidate, comparison),
+        _ => value.EndsWith(candidate, comparison)
+      };
+      if (matched)
+        return true;
+    }
+    return false;
+  }
+
+  bool MatchesAnyPattern(string value)
+  {
+    foreach (var pattern in patterns)
+    {
+      if (pattern.IsMatch(value))
+        return true;
+    }
+    return false;
   }
 
   /// <summary>

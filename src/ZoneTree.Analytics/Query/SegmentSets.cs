@@ -33,7 +33,6 @@ sealed class SegmentSets
     var selector = new DimensionSelector(segments.SelectMany(x => x.Filters).Select(x => x.Dimension));
     var rawEvent = new RawEvent();
     var counter = 0;
-    string Lookup(string dimension) => rawEvent.TryGetDimension(dimension, out var value) ? value : null;
     rawEvents.Scan(site, from, to, (ticks, _, value) =>
     {
       if (++counter % CancellationCheckInterval == 0)
@@ -43,7 +42,7 @@ sealed class SegmentSets
       for (var i = 0; i < segments.Length; ++i)
       {
         var id = sets.IdOf(i, rawEvent.Visitor, rawEvent.SessionId);
-        if (id != 0 && segments[i].Matches(rawEvent.Name, Lookup))
+        if (id != 0 && segments[i].Matches(rawEvent))
           sets.members[i].Add(id);
       }
       return true;

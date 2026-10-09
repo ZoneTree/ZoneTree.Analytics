@@ -7,6 +7,8 @@ namespace ZoneTree.Analytics;
 /// </summary>
 public sealed class FunnelStep
 {
+  readonly Filter[] filters;
+
   /// <summary>
   /// Creates a step.
   /// </summary>
@@ -19,7 +21,7 @@ public sealed class FunnelStep
     ArgumentException.ThrowIfNullOrWhiteSpace(eventName);
     Name = name;
     Event = eventName;
-    Filters = filters ?? [];
+    this.filters = filters == null ? [] : [.. filters];
   }
 
   /// <summary>The label.</summary>
@@ -29,7 +31,7 @@ public sealed class FunnelStep
   public string Event { get; }
 
   /// <summary>Conditions on the event.</summary>
-  public IReadOnlyList<Filter> Filters { get; }
+  public IReadOnlyList<Filter> Filters => filters;
 
   /// <summary>
   /// A page view of a page.
@@ -42,18 +44,7 @@ public sealed class FunnelStep
   /// </summary>
   public static FunnelStep Goal(string eventName, params Filter[] filters) => new(eventName, eventName, filters);
 
-  internal bool Matches(RawEvent rawEvent)
-  {
-    if (rawEvent.Name != Event)
-      return false;
-    foreach (var filter in Filters)
-    {
-      rawEvent.TryGetDimension(filter.Dimension, out var value);
-      if (!filter.IsMatch(value))
-        return false;
-    }
-    return true;
-  }
+  internal bool Matches(RawEvent rawEvent) => rawEvent.Matches(Event, filters);
 }
 
 /// <summary>

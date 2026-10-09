@@ -113,6 +113,44 @@ public sealed class HyperLogLogTests
     }
   }
 
+  [TestCase(1)]
+  [TestCase(2)]
+  [TestCase(3)]
+  public void SparseMergesStayExactWithDuplicates(int seed)
+  {
+    // Small value ranges force duplicates within pending batches, across batches and across
+    // sketches; every sketch stays below the exact limit, so counts must be exact.
+    var random = new Random(seed);
+    var sketches = Enumerable.Range(0, 4).Select(_ => new HyperLogLog(12)).ToArray();
+    var sets = Enumerable.Range(0, 4).Select(_ => new HashSet<ulong>()).ToArray();
+    for (var step = 0; step < 2_000; ++step)
+    {
+      var target = random.Next(4);
+      if (random.Next(10) == 0)
+      {
+        var source = random.Next(4);
+        sketches[target].UnionWith(sketches[source].Clone());
+        sets[target].UnionWith(sets[source]);
+      }
+      else
+      {
+        var item = (ulong)random.Next(1, 900);
+        sketches[target].Add(item);
+        sets[target].Add(item);
+      }
+      if (step % 97 == 0)
+        Assert.That(sketches[target].Estimate(), Is.EqualTo(sets[target].Count), $"step {step}");
+    }
+    Assert.Multiple(() =>
+    {
+      for (var i = 0; i < sketches.Length; ++i)
+      {
+        Assert.That(sketches[i].IsSparse, Is.True);
+        Assert.That(sketches[i].Estimate(), Is.EqualTo(sets[i].Count));
+      }
+    });
+  }
+
   [Test]
   public void DifferentPrecisionsCannotBeMerged()
   {

@@ -166,7 +166,7 @@ sealed class RollupBuffer
       IReadOnlyDictionary<string, string> dimensions,
       long count,
       ulong visitor,
-      IReadOnlyList<MetricChange> metrics,
+      List<MetricChange> metrics,
       DimensionScope scope = DimensionScope.All)
   {
     if (granularities.Length == 0)

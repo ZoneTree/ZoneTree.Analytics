@@ -45,16 +45,22 @@ var to = traffic.Start.AddDays(days);
 var process = Process.GetCurrentProcess();
 using (var engine = new AnalyticsEngine(options))
 {
+  var allocatedBefore = GC.GetTotalAllocatedBytes(precise: true);
+  var cpuBefore = process.TotalProcessorTime;
   var stopwatch = Stopwatch.StartNew();
   foreach (var e in events)
     engine.Track(e);
   var queued = stopwatch.Elapsed;
   engine.Flush();
   var elapsed = stopwatch.Elapsed;
+  var allocated = GC.GetTotalAllocatedBytes(precise: true) - allocatedBefore;
+  process.Refresh();
+  var cpu = process.TotalProcessorTime - cpuBefore;
   var statistics = engine.GetStatistics();
   process.Refresh();
   Console.WriteLine($"Queued in {queued.TotalSeconds:F2}s, processed and flushed in {elapsed.TotalSeconds:F2}s");
   Console.WriteLine($"Throughput: {eventCount / elapsed.TotalSeconds:N0} events/s");
+  Console.WriteLine($"CPU time: {cpu.TotalSeconds:F2}s ({cpu.TotalMilliseconds * 1000 / eventCount:F1} µs/event), allocated: {allocated / 1024 / 1024:N0} MB ({(double)allocated / eventCount:N0} bytes/event)");
   Console.WriteLine($"Processed={statistics.EventsProcessed:N0} bots={statistics.BotsExcluded:N0} sessions={statistics.SessionsStarted:N0} errors={statistics.Errors}");
   var heapBefore = GC.GetTotalMemory(false);
   events = null;

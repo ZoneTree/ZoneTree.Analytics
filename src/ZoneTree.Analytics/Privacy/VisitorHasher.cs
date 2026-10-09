@@ -1,4 +1,3 @@
-using System.Buffers;
 using System.Buffers.Binary;
 using System.Collections.Concurrent;
 using System.Globalization;
@@ -134,35 +133,30 @@ sealed class VisitorHasher
     }
   }
 
+  // Reused per thread: a stack buffer of up to a few hundred bytes would be zeroed on every call.
+  [ThreadStatic]
+  static byte[] threadBuffer;
+
   static ulong Hash(byte[] key, string kind, string site, string a, string b)
   {
     var maxBytes = Encoding.UTF8.GetMaxByteCount(
         kind.Length + site.Length + a.Length + (b?.Length ?? 0)) + 3;
-    byte[] rented = null;
-    Span<byte> buffer = maxBytes <= 1024
-        ? stackalloc byte[maxBytes]
-        : (rented = ArrayPool<byte>.Shared.Rent(maxBytes));
-    try
+    var buffer = threadBuffer;
+    if (buffer == null || buffer.Length < maxBytes)
+      threadBuffer = buffer = new byte[Math.Max(maxBytes, 1024)];
+    var length = Encoding.UTF8.GetBytes(kind, buffer);
+    buffer[length++] = 0;
+    length += Encoding.UTF8.GetBytes(site, buffer.AsSpan(length));
+    buffer[length++] = 0;
+    length += Encoding.UTF8.GetBytes(a, buffer.AsSpan(length));
+    if (b != null)
     {
-      var length = Encoding.UTF8.GetBytes(kind, buffer);
       buffer[length++] = 0;
-      length += Encoding.UTF8.GetBytes(site, buffer[length..]);
-      buffer[length++] = 0;
-      length += Encoding.UTF8.GetBytes(a, buffer[length..]);
-      if (b != null)
-      {
-        buffer[length++] = 0;
-        length += Encoding.UTF8.GetBytes(b, buffer[length..]);
-      }
-      Span<byte> mac = stackalloc byte[32];
-      HMACSHA256.HashData(key, buffer[..length], mac);
-      var hash = BinaryPrimitives.ReadUInt64LittleEndian(mac);
-      return hash == 0 ? 1 : hash;
+      length += Encoding.UTF8.GetBytes(b, buffer.AsSpan(length));
     }
-    finally
-    {
-      if (rented != null)
-        ArrayPool<byte>.Shared.Return(rented);
-    }
+    Span<byte> mac = stackalloc byte[32];
+    HMACSHA256.HashData(key, buffer.AsSpan(0, length), mac);
+    var hash = BinaryPrimitives.ReadUInt64LittleEndian(mac);
+    return hash == 0 ? 1 : hash;
   }
 }
