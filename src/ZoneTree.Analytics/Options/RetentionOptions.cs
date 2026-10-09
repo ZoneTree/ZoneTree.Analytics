@@ -33,6 +33,8 @@ public sealed class RetentionOptions
   /// </summary>
   public TimeSpan? CheckInterval { get; set; } = TimeSpan.FromHours(1);
 
+  internal RetentionOptions Clone() => (RetentionOptions)MemberwiseClone();
+
   internal void Validate()
   {
     static void RequirePositive(TimeSpan? value, string name)

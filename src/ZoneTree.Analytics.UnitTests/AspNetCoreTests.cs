@@ -36,6 +36,9 @@ public sealed class AspNetCoreTests
           options.Retention = test.Retention;
           options.Ingestion = test.Ingestion;
           options.Web.Bots = BotTraffic.TrackSeparately;
+          // Options are fixed once the engine exists: the timeout test needs its own value.
+          if (TestContext.CurrentContext.Test.MethodName == nameof(ReportingApiReportsTimeouts))
+            options.Queries.Timeout = TimeSpan.FromTicks(1);
         },
         web =>
         {
@@ -313,7 +316,6 @@ public sealed class AspNetCoreTests
     for (var i = 0; i < 2000; ++i)
       Engine.Track(new AnalyticsEvent("e") { VisitorId = i.ToString(CultureInfo.InvariantCulture), Timestamp = now.AddSeconds(-i) });
     await Engine.FlushAsync();
-    Engine.Options.Queries.Timeout = TimeSpan.FromTicks(1);
     var (status, error) = await PostJson("/_analytics/api/query", """{ "event": "e", "range": "1h", "source": "RawEvents" }""");
     Assert.Multiple(() =>
     {

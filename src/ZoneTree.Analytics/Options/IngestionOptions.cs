@@ -42,6 +42,8 @@ public sealed class IngestionOptions
   /// </summary>
   public TimeSpan MaxFutureSkew { get; set; } = TimeSpan.FromHours(1);
 
+  internal IngestionOptions Clone() => (IngestionOptions)MemberwiseClone();
+
   internal void Validate()
   {
     if (QueueCapacity < 1)

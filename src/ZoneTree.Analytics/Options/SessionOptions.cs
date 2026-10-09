@@ -41,12 +41,19 @@ public sealed class SessionOptions
   /// a dimension added later applies to sessions that start afterwards.
   /// </para>
   /// </remarks>
-  public List<string> Dimensions { get; } = [];
+  public List<string> Dimensions { get; private set; } = [];
 
   /// <summary>
   /// At most this many custom session-level dimensions are allowed.
   /// </summary>
   internal const int MaxDimensions = 16;
+
+  internal SessionOptions Clone()
+  {
+    var clone = (SessionOptions)MemberwiseClone();
+    clone.Dimensions = Dimensions == null ? [] : [.. Dimensions];
+    return clone;
+  }
 
   internal void Validate(PrivacyOptions privacy)
   {

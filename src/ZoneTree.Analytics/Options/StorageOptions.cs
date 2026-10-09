@@ -69,6 +69,13 @@ public sealed class StorageOptions
   /// </summary>
   public ILogger Logger { get; set; }
 
+  internal StorageOptions Clone()
+  {
+    var clone = (StorageOptions)MemberwiseClone();
+    clone.Partitioning = Partitioning?.Clone();
+    return clone;
+  }
+
   internal void Validate(RetentionOptions retention, Granularity granularities)
   {
     if (!Enum.IsDefined(WriteAheadLogMode))
@@ -124,6 +131,8 @@ public sealed class PartitioningOptions
   /// or <see cref="PartitionPeriod.Year"/>. Default is <see cref="PartitionPeriod.Year"/>.
   /// </summary>
   public PartitionPeriod DayRollups { get; set; } = PartitionPeriod.Year;
+
+  internal PartitioningOptions Clone() => (PartitioningOptions)MemberwiseClone();
 
   internal void Validate(RetentionOptions retention, bool storeRawEvents, Granularity granularities)
   {

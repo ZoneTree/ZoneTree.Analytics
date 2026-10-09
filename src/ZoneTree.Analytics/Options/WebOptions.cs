@@ -1,3 +1,5 @@
+using ZoneTree.Analytics.Internal;
+
 namespace ZoneTree.Analytics;
 
 /// <summary>
@@ -28,7 +30,7 @@ public sealed class WebOptions
   /// <see cref="BotDetector.UserAgent"/>. Add detectors (for example based on IP ranges) or
   /// clear the list to treat all traffic as human.
   /// </summary>
-  public List<IBotDetector> BotDetectors { get; } = [BotDetector.UserAgent];
+  public List<IBotDetector> BotDetectors { get; private set; } = [BotDetector.UserAgent];
 
   /// <summary>
   /// Removes a trailing slash from page paths (except the root). Default is true.
@@ -51,6 +53,15 @@ public sealed class WebOptions
   /// count as direct traffic.
   /// </summary>
   public ISet<string> InternalHosts { get; set; }
+
+  internal WebOptions Clone()
+  {
+    var clone = (WebOptions)MemberwiseClone();
+    clone.BotDetectors = BotDetectors == null ? [] : [.. BotDetectors];
+    clone.ReferrerSources = Copies.Of(ReferrerSources);
+    clone.InternalHosts = Copies.Of(InternalHosts);
+    return clone;
+  }
 }
 
 /// <summary>

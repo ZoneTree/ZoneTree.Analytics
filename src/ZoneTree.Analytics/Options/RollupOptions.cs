@@ -29,6 +29,13 @@ public sealed class RollupOptions
   /// </summary>
   public int HyperLogLogPrecision { get; set; } = HyperLogLog.DefaultPrecision;
 
+  internal RollupOptions Clone()
+  {
+    var clone = (RollupOptions)MemberwiseClone();
+    clone.Definitions = Definitions?.Select(x => x?.Clone()).ToList();
+    return clone;
+  }
+
   internal void Validate()
   {
     if ((Granularities & ~(Granularity.Minute | Granularity.Hour | Granularity.Day)) != 0)
@@ -89,6 +96,11 @@ public sealed class RollupDefinition
   /// that do not carry a dimension are counted under a missing (null) value.
   /// </summary>
   public IReadOnlyCollection<string> Events { get; init; }
+
+  /// <summary>
+  /// A copy that does not share the event list, which callers may still modify.
+  /// </summary>
+  internal RollupDefinition Clone() => new([.. Dimensions]) { Events = Events?.ToArray() };
 
   /// <summary>
   /// The default web analytics rollups: totals, page, hostname, entry page, every

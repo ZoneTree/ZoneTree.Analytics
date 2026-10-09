@@ -13,6 +13,8 @@ public sealed class QueryOptions
   /// </summary>
   public TimeSpan? Timeout { get; set; } = TimeSpan.FromSeconds(30);
 
+  internal QueryOptions Clone() => (QueryOptions)MemberwiseClone();
+
   internal void Validate()
   {
     if (Timeout <= TimeSpan.Zero)

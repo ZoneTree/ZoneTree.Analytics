@@ -258,7 +258,7 @@ options.Rollups.Definitions.Add(new RollupDefinition(StandardDimensions.Country,
 options.Rollups.Definitions.Add(new RollupDefinition("plan") { Events = ["purchase"] });
 ```
 
-A rollup added to an existing data directory covers data from that moment on; earlier ranges are answered from raw events.
+A rollup added to an existing data directory, re-added after being removed, or given different `Events` covers data from that moment on; earlier ranges are answered from raw events.
 
 ---
 
@@ -445,7 +445,7 @@ var options = new AnalyticsOptions
 };
 ```
 
-The reporting time zone, sketch precision and partitioning define the storage format. They are persisted on creation; reopening with different values throws `AnalyticsConfigurationException`. The partitioning of a tier that holds no data yet can still change.
+The engine copies the options when it is created; changing them afterwards has no effect. The reporting time zone, sketch precision and partitioning define the storage format. They are persisted on creation; reopening with different values throws `AnalyticsConfigurationException`. The partitioning of a tier that holds no data yet can still change.
 
 ### Partitioning
 

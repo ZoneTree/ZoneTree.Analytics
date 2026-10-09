@@ -1,3 +1,5 @@
+using ZoneTree.Analytics.Internal;
+
 namespace ZoneTree.Analytics;
 
 /// <summary>
@@ -71,6 +73,15 @@ public sealed class PrivacyOptions
   internal bool IsCustomDimensionAllowed(string name) =>
       DeniedDimensions?.Contains(name) != true &&
       (AllowedDimensions == null || AllowedDimensions.Contains(name));
+
+  internal PrivacyOptions Clone()
+  {
+    var clone = (PrivacyOptions)MemberwiseClone();
+    clone.VisitorIdSecret = (byte[])VisitorIdSecret?.Clone();
+    clone.AllowedDimensions = Copies.Of(AllowedDimensions);
+    clone.DeniedDimensions = Copies.Of(DeniedDimensions);
+    return clone;
+  }
 
   internal void Validate()
   {

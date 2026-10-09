@@ -232,23 +232,25 @@ public sealed class LimitsTests
   [Test]
   public async Task SlowQueriesTimeOut()
   {
-    using var engine = TestEngine.Create(directory, o => o.Queries.Timeout = TimeSpan.FromTicks(1));
-    for (var i = 0; i < 3000; ++i)
-      engine.Track(new AnalyticsEvent("e") { VisitorId = i.ToString(CultureInfo.InvariantCulture), Timestamp = Utc(T0.AddSeconds(i)) });
-    engine.Flush();
     var query = new AnalyticsQuery { Event = "e", Range = Range, Source = QuerySource.RawEvents };
-    var funnel = new FunnelQuery { Range = Range, Steps = { FunnelStep.Goal("e"), FunnelStep.Goal("f") } };
-    var timeout = Assert.Throws<AnalyticsQueryTimeoutException>(() => engine.Query(query));
-    Assert.ThrowsAsync<AnalyticsQueryTimeoutException>(() => engine.QueryAsync(query));
-    Assert.ThrowsAsync<AnalyticsQueryTimeoutException>(() => engine.QueryFunnelAsync(funnel));
-    Assert.That(timeout.Timeout, Is.EqualTo(TimeSpan.FromTicks(1)));
+    using (var engine = TestEngine.Create(directory, o => o.Queries.Timeout = TimeSpan.FromTicks(1)))
+    {
+      for (var i = 0; i < 3000; ++i)
+        engine.Track(new AnalyticsEvent("e") { VisitorId = i.ToString(CultureInfo.InvariantCulture), Timestamp = Utc(T0.AddSeconds(i)) });
+      engine.Flush();
+      var funnel = new FunnelQuery { Range = Range, Steps = { FunnelStep.Goal("e"), FunnelStep.Goal("f") } };
+      var timeout = Assert.Throws<AnalyticsQueryTimeoutException>(() => engine.Query(query));
+      Assert.ThrowsAsync<AnalyticsQueryTimeoutException>(() => engine.QueryAsync(query));
+      Assert.ThrowsAsync<AnalyticsQueryTimeoutException>(() => engine.QueryFunnelAsync(funnel));
+      Assert.That(timeout.Timeout, Is.EqualTo(TimeSpan.FromTicks(1)));
+    }
 
     // The caller's own cancellation is not a timeout.
-    engine.Options.Queries.Timeout = null;
+    using var unlimited = TestEngine.Create(directory, o => o.Queries.Timeout = null);
     using var cancelled = new CancellationTokenSource();
     await cancelled.CancelAsync();
-    Assert.Catch<OperationCanceledException>(() => engine.Query(query, cancelled.Token));
-    Assert.That(engine.Query(query).Totals[Metric.Events], Is.EqualTo(3000));
+    Assert.Catch<OperationCanceledException>(() => unlimited.Query(query, cancelled.Token));
+    Assert.That(unlimited.Query(query).Totals[Metric.Events], Is.EqualTo(3000));
   }
 
   [Test]

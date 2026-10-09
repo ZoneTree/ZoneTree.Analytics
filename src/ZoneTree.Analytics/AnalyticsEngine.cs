@@ -83,9 +83,14 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
   /// <summary>
   /// Opens or creates the analytics data directory and starts the ingestion workers.
   /// </summary>
+  /// <remarks>
+  /// The engine works on a copy of <paramref name="options"/>: changes made to them afterwards
+  /// have no effect. Extensions, hooks and the logger are shared, not copied.
+  /// </remarks>
   public AnalyticsEngine(AnalyticsOptions options)
   {
     ArgumentNullException.ThrowIfNull(options);
+    options = options.Clone();
     options.Validate();
     this.options = options;
     logger = options.Storage.Logger ?? new ConsoleLogger();
@@ -231,14 +236,22 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
 
   /// <summary>
   /// Records when each rollup definition became active. A definition added to an existing
-  /// data directory only covers data recorded after that time; earlier ranges are answered
-  /// from raw events.
+  /// data directory, re-added after it was removed, or whose events changed only covers data
+  /// recorded after that time; earlier ranges are answered from raw events.
   /// </summary>
   void RegisterRollupDefinitions(bool isNewDirectory)
   {
+    // A definition that is not configured is not maintained. Forget it, so that adding it
+    // again starts a new activation instead of claiming coverage of the time it was missing.
+    var configured = options.Rollups.Definitions.Select(RollupActivationKey).ToHashSet(StringComparer.Ordinal);
+    foreach (var (key, _) in meta.ListByPrefix(RollupActivationPrefix))
+    {
+      if (!configured.Contains(key))
+        meta.Delete(key);
+    }
     foreach (var definition in options.Rollups.Definitions)
     {
-      var key = "rollup:" + definition.Id;
+      var key = RollupActivationKey(definition);
       var stored = meta.Get(key);
       if (stored == null || !long.TryParse(stored, NumberStyles.Integer, CultureInfo.InvariantCulture, out var since))
       {
@@ -247,6 +260,22 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
       }
       definitionActiveSince[definition.Id] = since;
     }
+  }
+
+  const string RollupActivationPrefix = "rollup:";
+
+  /// <summary>
+  /// The meta key of a definition's activation time. It covers everything that decides which
+  /// rows the definition holds: its dimensions and its event restriction. Changing either starts
+  /// a new activation.
+  /// </summary>
+  static string RollupActivationKey(RollupDefinition definition)
+  {
+    var key = RollupActivationPrefix + definition.Id;
+    if (definition.Events == null)
+      return key;
+    var events = definition.Events.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal);
+    return key + KeyCodec.ValueSeparator + "events:" + string.Join(KeyCodec.ValueSeparator, events);
   }
 
   /// <summary>
