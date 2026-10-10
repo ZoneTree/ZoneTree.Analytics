@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
+using ZoneTree.Analytics.Internal;
 
 namespace ZoneTree.Analytics;
 
@@ -68,20 +69,16 @@ public sealed class Filter
 
   // The expression syntax of Parse and ToString. Longer tokens come first among tokens that
   // share a prefix, so "!=~" is not read as "!=" followed by "~".
+  // The comparison tokens are shared with MetricFilter; the operators of the same name match.
   static readonly (string Token, FilterOperator Operator)[] Tokens =
   [
     ("!=~", FilterOperator.NotMatches),
     ("!~=", FilterOperator.NotContains),
-    ("==", FilterOperator.Equal),
-    ("!=", FilterOperator.NotEqual),
     ("~=", FilterOperator.Contains),
     ("^=", FilterOperator.StartsWith),
     ("$=", FilterOperator.EndsWith),
     ("=~", FilterOperator.Matches),
-    (">=", FilterOperator.GreaterThanOrEqual),
-    ("<=", FilterOperator.LessThanOrEqual),
-    (">", FilterOperator.GreaterThan),
-    ("<", FilterOperator.LessThan),
+    .. ComparisonTokens.All.Select(x => (x.Token, Enum.Parse<FilterOperator>(x.Operator.ToString()))),
   ];
 
   readonly string[] values;
@@ -267,14 +264,23 @@ public sealed class Filter
   /// <c>dim^=prefix</c>, <c>dim$=suffix</c>, <c>dim=~regex</c>, <c>dim!=~regex</c>, numeric
   /// comparisons <c>dim&gt;n</c>, <c>dim&gt;=n</c>, <c>dim&lt;n</c> and <c>dim&lt;=n</c>,
   /// <c>dim?</c> (is set) and <c>!dim?</c> (is not set). Alternative values are separated by
-  /// <c>|</c>; write a literal <c>|</c> as <c>\|</c> and a literal <c>\</c> before it as <c>\\</c>
-  /// (other backslashes, for example in regular expressions, are kept as is). A leading <c>/i</c>
-  /// after the operator, for example <c>page=~/i^/blog</c>, makes the comparison case-insensitive.
+  /// <c>|</c>; write a literal <c>|</c> as <c>\|</c>, a literal <c>;</c> as <c>\;</c> (it separates
+  /// the filters of a segment, see <see cref="Segment.Parse"/>) and a literal <c>\</c> before them as
+  /// <c>\\</c> (other backslashes, for example in regular expressions, are kept as is). A leading
+  /// <c>/i</c> after the operator, for example <c>page=~/i^/blog</c>, makes the comparison
+  /// case-insensitive.
   /// </summary>
-  public static Filter Parse(string expression)
+  /// <exception cref="ArgumentNullException"><paramref name="expression"/> is null.</exception>
+  /// <exception cref="FormatException">The text is not a filter.</exception>
+  public static Filter Parse(string expression) => Parsing.Parse(expression, "filter", ParseCore);
+
+  /// <summary>
+  /// Tries to parse a filter expression. See <see cref="Parse"/>.
+  /// </summary>
+  public static bool TryParse(string expression, out Filter filter) => Parsing.TryParse(expression, Parse, out filter);
+
+  static Filter ParseCore(string expression)
   {
-    ArgumentException.ThrowIfNullOrWhiteSpace(expression);
-    expression = expression.Trim();
     // The operator is the earliest token in the expression; at the same position, the longest.
     var best = -1;
     var bestToken = default((string Token, FilterOperator Operator));
@@ -312,8 +318,8 @@ public sealed class Filter
     for (var i = 0; i < text.Length; ++i)
     {
       var c = text[i];
-      // Only \| and \\ are escapes, so regular expressions keep their backslashes.
-      if (c == '\\' && i + 1 < text.Length && text[i + 1] is '|' or '\\')
+      // Only \|, \; and \\ are escapes, so regular expressions keep their backslashes.
+      if (c == '\\' && i + 1 < text.Length && text[i + 1] is '|' or ';' or '\\')
       {
         current.Append(text[++i]);
         continue;
@@ -341,7 +347,7 @@ public sealed class Filter
         return "!" + Dimension + "?";
     }
     var token = Tokens.First(x => x.Operator == Operator).Token;
-    var values = string.Join("|", Values.Select(x => x.Replace("\\", "\\\\").Replace("|", "\\|")));
+    var values = string.Join("|", Values.Select(x => x.Replace("\\", "\\\\").Replace("|", "\\|").Replace(";", "\\;")));
     return Dimension + token + (IgnoreCase ? "/i" : "") + values;
   }
 }

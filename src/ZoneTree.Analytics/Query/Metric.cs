@@ -1,5 +1,6 @@
 using System.Globalization;
 using ZoneTree.Analytics.Ingestion;
+using ZoneTree.Analytics.Internal;
 using ZoneTree.Analytics.Storage;
 
 namespace ZoneTree.Analytics;
@@ -583,19 +584,14 @@ public sealed class Metric : IEquatable<Metric>
   /// <c>where(events,"status&gt;=500")</c>, with filter expressions (see <see cref="Filter.Parse"/>)
   /// in double quotes and backslash escapes for quotes and backslashes.
   /// </summary>
+  /// <exception cref="ArgumentNullException"><paramref name="key"/> is null.</exception>
   /// <exception cref="FormatException">The key is not a metric.</exception>
-  public static Metric Parse(string key)
-  {
-    ArgumentException.ThrowIfNullOrWhiteSpace(key);
-    try
-    {
-      return ParseExpression(key.Trim());
-    }
-    catch (ArgumentException e)
-    {
-      throw new FormatException($"'{key}' is not a valid metric: {e.Message}", e);
-    }
-  }
+  public static Metric Parse(string key) => Parsing.Parse(key, "metric", ParseExpression);
+
+  /// <summary>
+  /// Tries to parse a metric key. See <see cref="Parse"/>.
+  /// </summary>
+  public static bool TryParse(string key, out Metric metric) => Parsing.TryParse(key, Parse, out metric);
 
   static Metric ParseExpression(string text)
   {
@@ -876,7 +872,7 @@ public sealed class Metric : IEquatable<Metric>
         return source(SourceKey(EventName ?? baseEvent))?.DistinctOf(Argument)?.Estimate() ?? 0;
     }
     var accumulator = source(SourceKey(EventName ?? baseEvent));
-    var value = accumulator != null && accumulator.TryGetMetric(Argument, out var found) ? found : default;
+    var value = accumulator != null && accumulator.TryGetValueStats(Argument, out var found) ? found : default;
     return MetricKind switch
     {
       Kind.Sum => value.Sum,
@@ -893,7 +889,7 @@ public sealed class Metric : IEquatable<Metric>
     };
   }
 
-  double CountBetweenOf(MetricValue value, MetricDetail detail)
+  double CountBetweenOf(ValueStats value, ValueDetail detail)
   {
     if (value.Count == 0)
       return 0;
@@ -903,7 +899,7 @@ public sealed class Metric : IEquatable<Metric>
     return detail?.Quantiles?.CountBetween(Parameter, UpperBound) ?? 0;
   }
 
-  double PercentileOf(MetricValue value, MetricDetail detail)
+  double PercentileOf(ValueStats value, ValueDetail detail)
   {
     if (value.Count == 0)
       return 0;
@@ -923,11 +919,11 @@ public sealed class Metric : IEquatable<Metric>
     return MetricKind switch
     {
       Kind.Sessions => count,
-      Kind.Bounces => SumOf(sessions, StandardMetrics.Bounces),
-      Kind.BounceRate => Ratio(SumOf(sessions, StandardMetrics.Bounces), count, clamp: true),
-      Kind.SessionDuration => Math.Max(0, SumOf(sessions, StandardMetrics.Duration)),
-      Kind.AverageSessionDuration => Math.Max(0, Ratio(SumOf(sessions, StandardMetrics.Duration), count)),
-      _ => Ratio(SumOf(sessions, StandardMetrics.SessionPageViews), count)
+      Kind.Bounces => SumOf(sessions, StandardValues.Bounces),
+      Kind.BounceRate => Ratio(SumOf(sessions, StandardValues.Bounces), count, clamp: true),
+      Kind.SessionDuration => Math.Max(0, SumOf(sessions, StandardValues.Duration)),
+      Kind.AverageSessionDuration => Math.Max(0, Ratio(SumOf(sessions, StandardValues.Duration), count)),
+      _ => Ratio(SumOf(sessions, StandardValues.SessionPageViews), count)
     };
   }
 
@@ -936,9 +932,9 @@ public sealed class Metric : IEquatable<Metric>
     // Entrances and exits are sums of deltas; never report a negative count.
     return MetricKind switch
     {
-      Kind.Entrances => Math.Max(0, SumOf(pageViews, StandardMetrics.Entrances)),
-      Kind.Exits => Math.Max(0, SumOf(pageViews, StandardMetrics.Exits)),
-      _ => Ratio(Math.Max(0, SumOf(pageViews, StandardMetrics.Exits)), pageViews?.Count ?? 0, clamp: true)
+      Kind.Entrances => Math.Max(0, SumOf(pageViews, StandardValues.Entrances)),
+      Kind.Exits => Math.Max(0, SumOf(pageViews, StandardValues.Exits)),
+      _ => Ratio(Math.Max(0, SumOf(pageViews, StandardValues.Exits)), pageViews?.Count ?? 0, clamp: true)
     };
   }
 
@@ -946,7 +942,7 @@ public sealed class Metric : IEquatable<Metric>
       accumulator?.Visitors?.Estimate() ?? 0;
 
   static double SumOf(RollupAccumulator accumulator, string metric) =>
-      accumulator != null && accumulator.TryGetMetric(metric, out var value) ? value.Sum : 0;
+      accumulator != null && accumulator.TryGetValueStats(metric, out var value) ? value.Sum : 0;
 
   static double Ratio(double numerator, double denominator, bool clamp = false)
   {

@@ -203,7 +203,7 @@ public static class BotCategories
 /// The values the engine tracks on its own events, such as session duration.
 /// Their names start with '$'.
 /// </summary>
-static class StandardMetrics
+static class StandardValues
 {
   /// <summary>
   /// Number of bounced sessions, on <see cref="StandardEvents.Session"/> rows.

@@ -1,3 +1,4 @@
+using ZoneTree.Analytics.Internal;
 using System.Globalization;
 
 namespace ZoneTree.Analytics;
@@ -32,16 +33,7 @@ public enum ComparisonOperator
 /// </summary>
 public sealed class MetricFilter
 {
-  // Longer tokens first, so ">=" is not read as ">".
-  static readonly (string Token, ComparisonOperator Operator)[] Tokens =
-  [
-    ("==", ComparisonOperator.Equal),
-    ("!=", ComparisonOperator.NotEqual),
-    (">=", ComparisonOperator.GreaterThanOrEqual),
-    ("<=", ComparisonOperator.LessThanOrEqual),
-    (">", ComparisonOperator.GreaterThan),
-    ("<", ComparisonOperator.LessThan),
-  ];
+  static readonly (string Token, ComparisonOperator Operator)[] Tokens = ComparisonTokens.All;
 
   /// <summary>
   /// Creates a condition.
@@ -101,11 +93,17 @@ public sealed class MetricFilter
   /// Parses a condition: a metric key (see <see cref="Metric.Parse"/>), an operator (==, !=, &gt;,
   /// &gt;=, &lt; or &lt;=) and a number, for example "pageviews&gt;100" or "p95:load_time&gt;=2000".
   /// </summary>
+  /// <exception cref="ArgumentNullException"><paramref name="expression"/> is null.</exception>
   /// <exception cref="FormatException">The text is not a condition.</exception>
-  public static MetricFilter Parse(string expression)
+  public static MetricFilter Parse(string expression) => Parsing.Parse(expression, "metric condition", ParseCore);
+
+  /// <summary>
+  /// Tries to parse a condition. See <see cref="Parse"/>.
+  /// </summary>
+  public static bool TryParse(string expression, out MetricFilter filter) => Parsing.TryParse(expression, Parse, out filter);
+
+  static MetricFilter ParseCore(string expression)
   {
-    ArgumentException.ThrowIfNullOrWhiteSpace(expression);
-    expression = expression.Trim();
     // The operator is the last one followed by a number, so metric names may contain operator characters.
     for (var at = expression.Length - 1; at > 0; --at)
     {
@@ -129,4 +127,21 @@ public sealed class MetricFilter
   /// <inheritdoc/>
   public override string ToString() =>
       Metric.Key + Tokens.First(x => x.Operator == Operator).Token + Value.ToString("R", CultureInfo.InvariantCulture);
+}
+
+/// <summary>
+/// The text tokens of the comparison operators, shared by the filter syntaxes. Longer tokens come
+/// first, so "&gt;=" is not read as "&gt;".
+/// </summary>
+static class ComparisonTokens
+{
+  public static readonly (string Token, ComparisonOperator Operator)[] All =
+  [
+    ("==", ComparisonOperator.Equal),
+    ("!=", ComparisonOperator.NotEqual),
+    (">=", ComparisonOperator.GreaterThanOrEqual),
+    ("<=", ComparisonOperator.LessThanOrEqual),
+    (">", ComparisonOperator.GreaterThan),
+    ("<", ComparisonOperator.LessThan),
+  ];
 }

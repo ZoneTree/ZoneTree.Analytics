@@ -65,12 +65,12 @@ public sealed class ReadmeExamplesTests
 
       // Web reports
       var request = new WebReportRequest { Range = DateRange.LastDays(30), Compare = ComparisonPeriod.PreviousPeriod };
-      var summary = await analytics.Web.GetSummaryAsync(request);
+      var summary = (await analytics.Web.GetSummaryAsync(request)).Summary;
       var sources = await analytics.Web.GetBreakdownAsync(request, StandardDimensions.Source);
       var pages = await analytics.Web.GetPagesAsync(request);
       var goals = await analytics.Web.GetGoalsAsync(request);
       var german = new WebReportRequest { Filters = { Filter.Equal(StandardDimensions.Country, "DE") } };
-      var germanSummary = await analytics.Web.GetSummaryAsync(german);
+      var germanSummary = (await analytics.Web.GetSummaryAsync(german)).Summary;
 
       // Queries
       var result = await analytics.QueryAsync(new AnalyticsQuery

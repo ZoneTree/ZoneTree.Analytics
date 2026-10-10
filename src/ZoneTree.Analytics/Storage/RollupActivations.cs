@@ -30,10 +30,10 @@ sealed class RollupActivations
   {
     var definitionKeys = rollups.Definitions.ToDictionary(x => x.Id, DefinitionKey, StringComparer.Ordinal);
     var aggregateKeys = new List<string>();
-    foreach (var (metric, configured) in rollups.ValueAggregates)
+    foreach (var (valueName, configured) in rollups.ValueAggregates)
     {
       foreach (var aggregate in Flags(configured))
-        aggregateKeys.Add(AggregateKey(metric, aggregate));
+        aggregateKeys.Add(AggregateKey(valueName, aggregate));
     }
     aggregateKeys.AddRange(rollups.DistinctDimensions.Select(DistinctKey));
     var configuredKeys = definitionKeys.Values.Concat(aggregateKeys).ToHashSet(StringComparer.Ordinal);
@@ -77,8 +77,8 @@ sealed class RollupActivations
     return key + KeyCodec.ValueSeparator + "events:" + string.Join(KeyCodec.ValueSeparator, events);
   }
 
-  static string AggregateKey(string metric, ValueAggregates aggregate) =>
-      AggregatePrefix + (aggregate == ValueAggregates.Percentiles ? "percentiles:" : "first-last:") + metric;
+  static string AggregateKey(string valueName, ValueAggregates aggregate) =>
+      AggregatePrefix + (aggregate == ValueAggregates.Percentiles ? "percentiles:" : "first-last:") + valueName;
 
   static string DistinctKey(string dimension) => DistinctPrefix + dimension;
 
@@ -97,14 +97,14 @@ sealed class RollupActivations
       definitions.TryGetValue(id, out var since) ? since : long.MaxValue;
 
   /// <summary>
-  /// Since when rollups hold the given aggregates of a metric; <see cref="long.MaxValue"/> when
+  /// Since when rollups hold the given aggregates of a value; <see cref="long.MaxValue"/> when
   /// one of them is not configured.
   /// </summary>
-  public long AggregatesSince(string metric, ValueAggregates required)
+  public long AggregatesSince(string valueName, ValueAggregates required)
   {
     long since = 0;
     foreach (var aggregate in Flags(required))
-      since = Math.Max(since, aggregates.TryGetValue(AggregateKey(metric, aggregate), out var at) ? at : long.MaxValue);
+      since = Math.Max(since, aggregates.TryGetValue(AggregateKey(valueName, aggregate), out var at) ? at : long.MaxValue);
     return since;
   }
 

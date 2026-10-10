@@ -40,6 +40,36 @@ public sealed class ComparisonPeriod
   /// </summary>
   public static ComparisonPeriod Custom(DateRange range) => new(Kind.Custom, range);
 
+  /// <summary>
+  /// The text form, which <see cref="Parse"/> reads back: <c>previous-period</c>,
+  /// <c>previous-year</c>, or the text form of a custom range (see <see cref="DateRange.Parse"/>).
+  /// </summary>
+  public override string ToString() => kind switch
+  {
+    Kind.PreviousPeriod => "previous-period",
+    Kind.PreviousYear => "previous-year",
+    _ => range.ToString()
+  };
+
+  /// <summary>
+  /// Parses <c>previous-period</c>, <c>previous-year</c>, or a date range for a
+  /// custom period (see <see cref="DateRange.Parse"/>).
+  /// </summary>
+  /// <exception cref="ArgumentNullException"><paramref name="text"/> is null.</exception>
+  /// <exception cref="FormatException">The text is not a comparison period.</exception>
+  public static ComparisonPeriod Parse(string text) => Parsing.Parse(text, "comparison period", value =>
+      value.ToLowerInvariant() switch
+      {
+        "previous-period" => PreviousPeriod,
+        "previous-year" => PreviousYear,
+        _ => Custom(DateRange.Parse(value))
+      });
+
+  /// <summary>
+  /// Tries to parse a comparison period. See <see cref="Parse"/>.
+  /// </summary>
+  public static bool TryParse(string text, out ComparisonPeriod period) => Parsing.TryParse(text, Parse, out period);
+
   internal DateRange Resolve(DateRange current, ReportingCalendar calendar, long nowUtcTicks) => kind switch
   {
     Kind.PreviousPeriod => current.PreviousPeriod(calendar, nowUtcTicks),

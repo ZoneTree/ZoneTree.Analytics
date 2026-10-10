@@ -9,27 +9,17 @@ namespace ZoneTree.Analytics.UnitTests;
 /// Time series and metrics capabilities: percentiles, first and last values, distinct counts,
 /// variance, bucket widths, fill modes, formulas, series functions, Having and numeric filters.
 /// </summary>
-public sealed class TimeSeriesTests
+public sealed class TimeSeriesTests : DirectoryTest
 {
   static readonly DateTime Day0 = DateTime.UtcNow.Date.AddDays(-10);
 
-  string directory;
-
   AnalyticsEngine engine;
-
-  [SetUp]
-  public void SetUp() => directory = TestEngine.NewDirectory("timeseries");
 
   [TearDown]
   public void TearDown()
   {
     engine?.Dispose();
-    TestEngine.Delete(directory);
   }
-
-  static DateTimeOffset Utc(DateTime value) => new(DateTime.SpecifyKind(value, DateTimeKind.Utc), TimeSpan.Zero);
-
-  static DateRange Range(DateTime from, DateTime to) => DateRange.Between(Utc(from), Utc(to));
 
   static void ConfigureAggregates(AnalyticsOptions options)
   {
@@ -165,35 +155,35 @@ public sealed class TimeSeriesTests
     var exact = values.Sum(x => (x - mean) * (x - mean)) / values.Length;
     var parts = new[] { new RollupAccumulator(), new RollupAccumulator(), new RollupAccumulator() };
     for (var i = 0; i < values.Length; ++i)
-      parts[i % 3].AddMetric("x", values[i]);
+      parts[i % 3].AddValue("x", values[i]);
     var total = new RollupAccumulator();
     foreach (var part in parts)
       total.Merge(RollupValue.Merge(null, part.ToValue()));
-    Assert.That(total.TryGetMetric("x", out var x) ? x.Variance : -1, Is.EqualTo(exact).Within(1e-6));
+    Assert.That(total.TryGetValueStats("x", out var x) ? x.Variance : -1, Is.EqualTo(exact).Within(1e-6));
   }
 
   [Test]
   public void AccumulatorsNeverModifyTheRowsTheyShare()
   {
     var source = new RollupAccumulator { Count = 1 };
-    source.AddMetric("a", 1);
-    source.AddMetricDelta("b", 2);
-    source.AddMetricDetail("a", 1, 10, ValueAggregates.All, QuantileSketch.BucketOf(1));
+    source.AddValue("a", 1);
+    source.AddValueDelta("b", 2);
+    source.AddValueDetail("a", 1, 10, ValueAggregates.All, QuantileSketch.BucketOf(1));
     var stored = source.ToValue();
     var group = new RollupAccumulator();
     group.Merge(stored);
-    group.AddMetric("a", 5);
-    group.AddMetricDelta("c", 3);
+    group.AddValue("a", 5);
+    group.AddValueDelta("c", 3);
     group.Merge(stored);
-    group.AddMetricDetail("a", 9, 20, ValueAggregates.All, QuantileSketch.BucketOf(9));
+    group.AddValueDetail("a", 9, 20, ValueAggregates.All, QuantileSketch.BucketOf(9));
     Assert.Multiple(() =>
     {
-      Assert.That(stored.Metrics, Is.EqualTo(new[] { MetricValue.Of(1), MetricValue.Delta(2) }));
+      Assert.That(stored.Values, Is.EqualTo(new[] { ValueStats.Of(1), ValueStats.Delta(2) }));
       Assert.That(stored.DetailAt(0).Quantiles.Count, Is.EqualTo(1));
       Assert.That(stored.DetailAt(0).Last, Is.EqualTo(1));
-      Assert.That(group.TryGetMetric("a", out var a) ? (a.Count, a.Sum) : default, Is.EqualTo((3L, 7.0)));
-      Assert.That(group.TryGetMetric("b", out var b) ? b.Sum : 0, Is.EqualTo(4));
-      Assert.That(group.TryGetMetric("c", out var c) ? c.Sum : 0, Is.EqualTo(3));
+      Assert.That(group.TryGetValueStats("a", out var a) ? (a.Count, a.Sum) : default, Is.EqualTo((3L, 7.0)));
+      Assert.That(group.TryGetValueStats("b", out var b) ? b.Sum : 0, Is.EqualTo(4));
+      Assert.That(group.TryGetValueStats("c", out var c) ? c.Sum : 0, Is.EqualTo(3));
       Assert.That(group.DetailOf("a").Last, Is.EqualTo(9));
       Assert.That(group.DetailOf("a").Quantiles.Count, Is.EqualTo(3));
     });
@@ -203,11 +193,11 @@ public sealed class TimeSeriesTests
   public void RollupValuesRoundTripDetailsAndDistinctCounts()
   {
     var accumulator = new RollupAccumulator { Count = 3 };
-    accumulator.AddMetric("load_time", 10);
-    accumulator.AddMetric("load_time", 30);
-    accumulator.AddMetricDetail("load_time", 10, 100, ValueAggregates.All, QuantileSketch.BucketOf(10));
-    accumulator.AddMetricDetail("load_time", 30, 50, ValueAggregates.All, QuantileSketch.BucketOf(30));
-    accumulator.AddMetricDelta("$exits", 1);
+    accumulator.AddValue("load_time", 10);
+    accumulator.AddValue("load_time", 30);
+    accumulator.AddValueDetail("load_time", 10, 100, ValueAggregates.All, QuantileSketch.BucketOf(10));
+    accumulator.AddValueDetail("load_time", 30, 50, ValueAggregates.All, QuantileSketch.BucketOf(30));
+    accumulator.AddValueDelta("$exits", 1);
     accumulator.AddDistinct("tenant", Text.StableHash("a"), 14);
     accumulator.AddDistinct("tenant", Text.StableHash("b"), 14);
     var value = accumulator.ToValue();
@@ -216,7 +206,7 @@ public sealed class TimeSeriesTests
     var merged = RollupValue.Merge(restored, restored);
     Assert.Multiple(() =>
     {
-      Assert.That(restored.Metrics, Is.EqualTo(value.Metrics));
+      Assert.That(restored.Values, Is.EqualTo(value.Values));
       Assert.That(restored.DetailAt(0), Is.Null, "$exits has no details");
       var detail = restored.DetailAt(1);
       Assert.That((detail.First, detail.FirstTicks, detail.Last, detail.LastTicks), Is.EqualTo((30.0, 50L, 10.0, 100L)));
@@ -788,7 +778,7 @@ public sealed class TimeSeriesTests
       Assert.That(Filter.LessThan("x", 1.5).IsMatch("1.25"), Is.True);
       Assert.That(Filter.LessThan("x", 1.5).IsMatch("abc"), Is.False);
       Assert.That(Filter.LessThan("x", 1.5).IsMatch(null), Is.False);
-      Assert.Throws<ArgumentException>(() => Filter.Parse("status>=a"));
+      Assert.Throws<FormatException>(() => Filter.Parse("status>=a"));
       Assert.Throws<ArgumentException>(() => new Filter("status", FilterOperator.GreaterThan, "1", "2"));
     });
   }

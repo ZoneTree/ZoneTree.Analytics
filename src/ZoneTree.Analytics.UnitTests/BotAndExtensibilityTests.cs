@@ -11,7 +11,7 @@ namespace ZoneTree.Analytics.UnitTests;
 /// Bots: Googlebot fetches /, /pricing and sends a signup from /; GPTBot fetches /;
 /// curl fetches /robots-only. Totals: 3 page views, 2 visitors, 5 bot hits.
 /// </remarks>
-public sealed class BotAndExtensibilityTests
+public sealed class BotAndExtensibilityTests : DirectoryTest
 {
   static readonly DateTime T0 = DateTime.UtcNow.Date.AddDays(-3).AddHours(10);
 
@@ -20,14 +20,11 @@ public sealed class BotAndExtensibilityTests
   const string GptBot =
       "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; GPTBot/1.2; +https://openai.com/gptbot)";
 
-  string directory;
-
   AnalyticsEngine engine;
 
   [SetUp]
   public void SetUp()
   {
-    directory = TestEngine.NewDirectory("bots");
     engine = TestEngine.Create(directory, o => o.Web.Bots = BotTraffic.TrackSeparately);
   }
 
@@ -35,7 +32,6 @@ public sealed class BotAndExtensibilityTests
   public void TearDown()
   {
     engine?.Dispose();
-    TestEngine.Delete(directory);
   }
 
   void Recreate(Action<AnalyticsOptions> configure)
@@ -46,8 +42,6 @@ public sealed class BotAndExtensibilityTests
   }
 
   static DateRange Range => DateRange.Between(Utc(T0.Date), Utc(T0.Date.AddDays(1)));
-
-  static DateTimeOffset Utc(DateTime value) => new(DateTime.SpecifyKind(value, DateTimeKind.Utc), TimeSpan.Zero);
 
   static AnalyticsEvent Hit(string path, string ip, string userAgent, int minute, string name = StandardEvents.PageView) =>
       new(name)
@@ -141,9 +135,9 @@ public sealed class BotAndExtensibilityTests
   public async Task WebReportsShowBotHits()
   {
     TrackTraffic();
-    var summary = await engine.Web.GetSummaryAsync(Request());
+    var summary = (await engine.Web.GetSummaryAsync(Request())).Summary;
     var pages = await engine.Web.GetPagesAsync(Request());
-    var series = await engine.Web.GetTimeseriesAsync(Request(), TimeInterval.Day);
+    var series = (await engine.Web.GetTimeseriesAsync(Request(), TimeInterval.Day)).Rows;
     var bots = await engine.Web.GetBotsAsync(Request());
     var pricingRequest = Request();
     pricingRequest.Filters.Add(Filter.Equal(StandardDimensions.Page, "/pricing"));
@@ -182,9 +176,9 @@ public sealed class BotAndExtensibilityTests
     byPage.Filters.Add(Filter.Equal(StandardDimensions.Page, "/"));
     Assert.Multiple(async () =>
     {
-      Assert.That((await engine.Web.GetSummaryAsync(byCountry)).BotHits, Is.Null);
-      Assert.That((await engine.Web.GetSummaryAsync(segmented)).BotHits, Is.Null);
-      Assert.That((await engine.Web.GetSummaryAsync(byPage)).BotHits, Is.EqualTo(3));
+      Assert.That((await engine.Web.GetSummaryAsync(byCountry)).Summary.BotHits, Is.Null);
+      Assert.That((await engine.Web.GetSummaryAsync(segmented)).Summary.BotHits, Is.Null);
+      Assert.That((await engine.Web.GetSummaryAsync(byPage)).Summary.BotHits, Is.EqualTo(3));
     });
   }
 
@@ -193,7 +187,7 @@ public sealed class BotAndExtensibilityTests
   {
     Recreate(_ => { });
     TrackTraffic();
-    var summary = await engine.Web.GetSummaryAsync(Request());
+    var summary = (await engine.Web.GetSummaryAsync(Request())).Summary;
     var bots = await engine.Web.GetBotsAsync(Request());
     var statistics = engine.GetStatistics();
     Assert.Multiple(() =>
@@ -269,7 +263,7 @@ public sealed class BotAndExtensibilityTests
       Timestamp = Utc(T0)
     }.WithDimension("synthetic", "1"));
     engine.Flush();
-    var summary = await engine.Web.GetSummaryAsync(Request());
+    var summary = (await engine.Web.GetSummaryAsync(Request())).Summary;
     var bots = await engine.Web.GetBotsAsync(Request());
     var chrome = contexts.First(x => x.IpAddress == "10.0.0.1");
     Assert.Multiple(() =>
@@ -289,7 +283,7 @@ public sealed class BotAndExtensibilityTests
   {
     Recreate(o => o.Web.BotDetectors.Clear());
     TrackTraffic();
-    var summary = await engine.Web.GetSummaryAsync(Request());
+    var summary = (await engine.Web.GetSummaryAsync(Request())).Summary;
     Assert.Multiple(() =>
     {
       Assert.That(summary.PageViews, Is.EqualTo(7));
@@ -425,7 +419,7 @@ public sealed class BotAndExtensibilityTests
     engine.Track(Hit("/b", "10.0.0.1", UserAgents.ChromeWindows, 1));
     engine.Track(Hit("/", "66.249.0.1", UserAgents.Googlebot, 2));
     engine.Flush();
-    var summary = await engine.Web.GetSummaryAsync(Request());
+    var summary = (await engine.Web.GetSummaryAsync(Request())).Summary;
     var statistics = engine.GetStatistics();
     Assert.Multiple(() =>
     {

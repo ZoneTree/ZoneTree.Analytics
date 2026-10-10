@@ -10,7 +10,7 @@ namespace ZoneTree.Analytics.UnitTests;
 /// Visitor 1 is in variant A: views / then /pricing; the second event says B, which is ignored.
 /// Visitor 2 is in variant B: views / and bounces. Visitor 3 has no variant: views / and bounces.
 /// </remarks>
-public sealed class SessionDimensionTests
+public sealed class SessionDimensionTests : DirectoryTest
 {
   static readonly DateTime T0 = DateTime.UtcNow.Date.AddDays(-2).AddHours(10);
 
@@ -18,14 +18,11 @@ public sealed class SessionDimensionTests
 
   const string Variant = "ab_variant";
 
-  string directory;
-
   AnalyticsEngine engine;
 
   [SetUp]
   public void SetUp()
   {
-    directory = TestEngine.NewDirectory("session-dimensions");
     engine = Create();
   }
 
@@ -33,7 +30,6 @@ public sealed class SessionDimensionTests
   public void TearDown()
   {
     engine?.Dispose();
-    TestEngine.Delete(directory);
   }
 
   AnalyticsEngine Create(Action<AnalyticsOptions> configure = null) =>
@@ -43,8 +39,6 @@ public sealed class SessionDimensionTests
         o.Rollups.Definitions.Add(new RollupDefinition(Variant));
         configure?.Invoke(o);
       });
-
-  static DateTimeOffset Utc(DateTime value) => new(DateTime.SpecifyKind(value, DateTimeKind.Utc), TimeSpan.Zero);
 
   static DateRange Range => DateRange.Between(Utc(T0.Date), Utc(T0.Date.AddDays(1)));
 
@@ -101,7 +95,7 @@ public sealed class SessionDimensionTests
     var breakdown = await engine.Web.GetBreakdownAsync(new WebReportRequest { Range = Range }, Variant);
     var filtered = new WebReportRequest { Range = Range };
     filtered.Filters.Add(Filter.Equal(Variant, "A"));
-    var summary = await engine.Web.GetSummaryAsync(filtered);
+    var summary = (await engine.Web.GetSummaryAsync(filtered)).Summary;
     var pages = await engine.Web.GetExitPagesAsync(filtered);
     var a = breakdown.Rows.Single(x => x.Value == "A");
     Assert.Multiple(() =>
@@ -176,7 +170,7 @@ public sealed class SessionDimensionTests
   [TestCase("$x", "not a valid")]
   [TestCase(" padded", "not a valid")]
   [TestCase("a,b", "not a valid")]
-  [TestCase(Variant, "Duplicate")]
+  [TestCase(Variant, "twice")]
   public void InvalidSessionDimensionsAreRejected(string name, string message)
   {
     engine.Dispose();
@@ -199,19 +193,9 @@ public sealed class SessionDimensionTests
 /// <summary>
 /// Query limits, timeouts, metric limits and the maintainer hook.
 /// </summary>
-public sealed class LimitsTests
+public sealed class LimitsTests : DirectoryTest
 {
   static readonly DateTime T0 = DateTime.UtcNow.Date.AddDays(-2).AddHours(10);
-
-  string directory;
-
-  [SetUp]
-  public void SetUp() => directory = TestEngine.NewDirectory("limits");
-
-  [TearDown]
-  public void TearDown() => TestEngine.Delete(directory);
-
-  static DateTimeOffset Utc(DateTime value) => new(DateTime.SpecifyKind(value, DateTimeKind.Utc), TimeSpan.Zero);
 
   static DateRange Range => DateRange.Between(Utc(T0.Date), Utc(T0.Date.AddDays(1)));
 

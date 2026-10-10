@@ -4,7 +4,7 @@ using ZoneTree.Analytics.Storage;
 
 namespace ZoneTree.Analytics.UnitTests;
 
-public sealed class PartitioningTests
+public sealed class PartitioningTests : DirectoryTest
 {
   static readonly DateTime First = DateTime.UtcNow.Date.AddDays(-20).AddHours(10);
 
@@ -15,16 +15,6 @@ public sealed class PartitioningTests
   /// <see cref="First"/>: the day boundary after one hour of future skew and one day.
   /// </summary>
   static readonly DateTime NextStart = First.Date.AddDays(2);
-
-  string directory;
-
-  [SetUp]
-  public void SetUp() => directory = TestEngine.NewDirectory("partitioning");
-
-  [TearDown]
-  public void TearDown() => TestEngine.Delete(directory);
-
-  static DateTimeOffset Utc(DateTime value) => new(DateTime.SpecifyKind(value, DateTimeKind.Utc), TimeSpan.Zero);
 
   static string Day(DateTime value) => value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
 

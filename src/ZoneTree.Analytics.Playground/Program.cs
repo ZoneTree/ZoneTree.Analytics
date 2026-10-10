@@ -116,15 +116,15 @@ using (var engine = new AnalyticsEngine(options))
       DateRange.Between(new DateTimeOffset(start, TimeSpan.Zero), new DateTimeOffset(end, TimeSpan.Zero));
   WebReportRequest Request(DateTime start, DateTime end) => new() { Range = Range(start, end) };
   var month = Request(from, to);
-  var summary = Measure("Summary (30 days)", () => engine.Web.GetSummaryAsync(month).Result);
-  Measure("Summary vs previous period", () => engine.Web.GetSummaryAsync(new WebReportRequest { Range = month.Range, Compare = ComparisonPeriod.PreviousPeriod }).Result);
-  var timeseries = Measure("Daily time series (30 days)", () => engine.Web.GetTimeseriesAsync(month, TimeInterval.Day).Result);
-  Measure("Hourly time series (7 days)", () => engine.Web.GetTimeseriesAsync(Request(to.AddDays(-7), to), TimeInterval.Hour).Result);
+  var summary = Measure("Summary (30 days)", () => engine.Web.GetSummaryAsync(month).Result.Summary);
+  Measure("Summary vs previous period", () => engine.Web.GetSummaryAsync(new WebReportRequest { Range = month.Range, Compare = ComparisonPeriod.PreviousPeriod }).Result.Summary);
+  var timeseries = Measure("Daily time series (30 days)", () => engine.Web.GetTimeseriesAsync(month, TimeInterval.Day).Result.Rows);
+  Measure("Hourly time series (7 days)", () => engine.Web.GetTimeseriesAsync(Request(to.AddDays(-7), to), TimeInterval.Hour).Result.Rows);
   var pages = Measure("Top pages (30 days)", () => engine.Web.GetPagesAsync(month).Result);
   var sources = Measure("Top sources (30 days)", () => engine.Web.GetBreakdownAsync(month, StandardDimensions.Source).Result);
   var countries = Measure("Countries (30 days)", () => engine.Web.GetBreakdownAsync(month, StandardDimensions.Country).Result);
   Measure("Devices (30 days)", () => engine.Web.GetBreakdownAsync(month, StandardDimensions.Device).Result);
-  Measure("Unaligned range (rollups + raw edges)", () => engine.Web.GetSummaryAsync(Request(from.AddHours(7.5), to.AddHours(-3.25))).Result);
+  Measure("Unaligned range (rollups + raw edges)", () => engine.Web.GetSummaryAsync(Request(from.AddHours(7.5), to.AddHours(-3.25))).Result.Summary);
   AnalyticsQuery AdHoc(DateTime start) => new()
   {
     Range = Range(start, to),

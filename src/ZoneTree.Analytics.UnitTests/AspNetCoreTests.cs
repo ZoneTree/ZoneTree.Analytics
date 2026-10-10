@@ -11,10 +11,8 @@ using ZoneTree.Analytics.AspNetCore;
 
 namespace ZoneTree.Analytics.UnitTests;
 
-public sealed class AspNetCoreTests
+public sealed class AspNetCoreTests : DirectoryTest
 {
-  string directory;
-
   WebApplication app;
 
   HttpClient client;
@@ -25,7 +23,6 @@ public sealed class AspNetCoreTests
   [SetUp]
   public async Task SetUp()
   {
-    directory = TestEngine.NewDirectory("aspnet");
     var builder = WebApplication.CreateBuilder();
     builder.WebHost.UseTestServer();
     builder.Services.AddZoneTreeAnalytics(
@@ -62,7 +59,6 @@ public sealed class AspNetCoreTests
     client?.Dispose();
     if (app != null)
       await app.DisposeAsync();
-    TestEngine.Delete(directory);
   }
 
   static readonly DateRange Recent = DateRange.Last(TimeSpan.FromHours(1));
@@ -205,9 +201,11 @@ public sealed class AspNetCoreTests
   public async Task ReportingApiServesWebReports()
   {
     await TrackVisitsAsync();
-    var (summaryStatus, summary) = await GetJson("/_analytics/api/summary?range=today&compare=previous");
+    var (summaryStatus, summaryReport) = await GetJson("/_analytics/api/summary?range=today&compare=previous-period");
+    var summary = summaryReport.GetProperty("summary");
     var (_, breakdown) = await GetJson("/_analytics/api/breakdown?dimension=source&range=1h");
     var (_, filtered) = await GetJson("/_analytics/api/summary?range=today&filter=source%3D%3DGoogle");
+    var (_, segmented) = await GetJson("/_analytics/api/summary?range=today&segment=visitors%20with%20pageview%20where%20source%3D%3DGoogle");
     var (_, pages) = await GetJson("/_analytics/api/pages?range=today&limit=1");
     var (_, goals) = await GetJson("/_analytics/api/goals?range=today");
     var (_, series) = await GetJson("/_analytics/api/timeseries?range=today&interval=hour");
@@ -219,14 +217,18 @@ public sealed class AspNetCoreTests
       Assert.That(summary.GetProperty("pageViews").GetInt32(), Is.EqualTo(3));
       Assert.That(summary.GetProperty("sessions").GetInt32(), Is.EqualTo(2));
       Assert.That(summary.GetProperty("previous").GetProperty("pageViews").GetInt32(), Is.EqualTo(0));
+      Assert.That(summaryReport.GetProperty("plan").GetProperty("complete").GetBoolean(), Is.True);
+      Assert.That(summaryReport.GetProperty("from").GetDateTimeOffset(), Is.LessThan(summaryReport.GetProperty("to").GetDateTimeOffset()));
       // Both sources have one visitor; Google wins the page view tie-breaker (2 vs 1).
       Assert.That(breakdown.GetProperty("rows")[0].GetProperty("value").GetString(), Is.EqualTo("Google"));
       Assert.That(breakdown.GetProperty("totalRows").GetInt32(), Is.EqualTo(2));
-      Assert.That(filtered.GetProperty("visitors").GetInt32(), Is.EqualTo(1));
+      Assert.That(filtered.GetProperty("summary").GetProperty("visitors").GetInt32(), Is.EqualTo(1));
+      Assert.That(segmented.GetProperty("summary").GetProperty("visitors").GetInt32(), Is.EqualTo(1));
       Assert.That(pages.GetProperty("rows").GetArrayLength(), Is.EqualTo(1));
       Assert.That(pages.GetProperty("totalRows").GetInt32(), Is.EqualTo(2));
       Assert.That(goals.GetProperty("rows")[0].GetProperty("conversionRate").GetDouble(), Is.EqualTo(0.5));
-      Assert.That(series.GetArrayLength(), Is.EqualTo(24));
+      Assert.That(series.GetProperty("rows").GetArrayLength(), Is.EqualTo(24));
+      Assert.That(series.GetProperty("totalRows").GetInt32(), Is.EqualTo(24));
       Assert.That(realtime.GetProperty("visitors").GetInt32(), Is.EqualTo(2));
     });
   }
@@ -242,7 +244,7 @@ public sealed class AspNetCoreTests
       await client.SendAsync(request);
     }
     await Engine.FlushAsync();
-    var (_, summary) = await GetJson("/_analytics/api/summary?range=today");
+    var summary = (await GetJson("/_analytics/api/summary?range=today")).Json.GetProperty("summary");
     var (_, pages) = await GetJson("/_analytics/api/pages?range=today");
     var (botsStatus, bots) = await GetJson("/_analytics/api/bots?range=today");
     var (_, segmented) = await GetJson("/_analytics/api/summary?range=today&filter=source%3D%3DGoogle");
@@ -262,7 +264,7 @@ public sealed class AspNetCoreTests
       Assert.That(rows[0].GetProperty("share").GetDouble(), Is.EqualTo(2.0 / 3).Within(1e-9));
       Assert.That(rows[1].GetProperty("name").GetString(), Is.EqualTo("curl"));
       // Bots have no traffic source, so a source filter leaves bot hits out.
-      Assert.That(segmented.GetProperty("botHits").ValueKind, Is.EqualTo(JsonValueKind.Null));
+      Assert.That(segmented.GetProperty("summary").GetProperty("botHits").ValueKind, Is.EqualTo(JsonValueKind.Null));
     });
   }
 

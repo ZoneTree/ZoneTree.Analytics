@@ -29,6 +29,6 @@ public sealed class QueryOptions
     if (Timeout <= TimeSpan.Zero)
       throw new ArgumentException("Queries.Timeout must be positive, or null for no limit.");
     if (MaxDegreeOfParallelism < 1)
-      throw new ArgumentException("Queries.MaxDegreeOfParallelism must be at least 1.");
+      throw new ArgumentException("Queries.MaxDegreeOfParallelism must be positive.");
   }
 }

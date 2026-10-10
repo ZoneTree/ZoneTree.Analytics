@@ -7,7 +7,7 @@ namespace ZoneTree.Analytics.UnitTests;
 /// Parallel raw scans split ranges into time slices and merge the slices. Their results must
 /// equal those of a sequential scan, also for sessions and funnels that span many slices.
 /// </summary>
-public sealed class ParallelScanTests
+public sealed class ParallelScanTests : DirectoryTest
 {
   static readonly DateTime Day0 = DateTime.UtcNow.Date.AddDays(-5);
 
@@ -19,16 +19,6 @@ public sealed class ParallelScanTests
     ("10.0.0.2", UserAgents.SafariIPhone),
     ("10.0.0.3", UserAgents.SafariIPhone),
   ];
-
-  string directory;
-
-  [SetUp]
-  public void SetUp() => directory = TestEngine.NewDirectory("parallel");
-
-  [TearDown]
-  public void TearDown() => TestEngine.Delete(directory);
-
-  static DateTimeOffset Utc(DateTime value) => new(DateTime.SpecifyKind(value, DateTimeKind.Utc), TimeSpan.Zero);
 
   /// <summary>
   /// Two days of sessions with 1 to 8 events, minutes apart, so that many sessions cross the

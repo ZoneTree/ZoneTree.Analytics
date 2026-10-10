@@ -134,13 +134,26 @@ public sealed record BotStats(string Name, string Category, long Hits, double Sh
 }
 
 /// <summary>
-/// A list report.
+/// A report with rows: a list or a time series.
 /// </summary>
 /// <typeparam name="T">The row type.</typeparam>
 /// <param name="Rows">The rows after offset and limit.</param>
 /// <param name="TotalRows">The number of rows before offset and limit.</param>
-/// <param name="Plan">How the report was answered.</param>
-public sealed record WebReport<T>(IReadOnlyList<T> Rows, int TotalRows, QueryPlan Plan);
+/// <param name="From">The resolved start of the range (inclusive).</param>
+/// <param name="To">The resolved end of the range (exclusive).</param>
+/// <param name="Plan">How the report was answered, including warnings such as an incomplete
+/// result outside raw event retention.</param>
+public sealed record WebReport<T>(IReadOnlyList<T> Rows, int TotalRows, DateTimeOffset From, DateTimeOffset To, QueryPlan Plan);
+
+/// <summary>
+/// The headline metrics of a range.
+/// </summary>
+/// <param name="Summary">The metrics, with <see cref="WebSummary.Previous"/> for a comparison period.</param>
+/// <param name="From">The resolved start of the range (inclusive).</param>
+/// <param name="To">The resolved end of the range (exclusive).</param>
+/// <param name="Plan">How the report was answered, including warnings such as an incomplete
+/// result outside raw event retention.</param>
+public sealed record WebSummaryReport(WebSummary Summary, DateTimeOffset From, DateTimeOffset To, QueryPlan Plan);
 
 /// <summary>
 /// Ready-made web analytics reports.
@@ -250,25 +263,25 @@ public sealed class WebAnalytics
   /// Headline metrics of the range.
   /// </summary>
   /// <inheritdoc cref="AnalyticsEngine.Query(AnalyticsQuery, CancellationToken)" path="/exception"/>
-  public WebSummary GetSummary(WebReportRequest request, CancellationToken cancellationToken = default)
+  public WebSummaryReport GetSummary(WebReportRequest request, CancellationToken cancellationToken = default)
   {
     var sessions = SessionMetricsAvailable(request);
     var bots = BotMetricsAvailable(request);
     var query = NewQuery(request, paged: false);
     AddSummaryMetrics(query, sessions, bots);
     var result = engine.Query(query, cancellationToken);
-    return ToSummary(result.Totals, sessions, bots);
+    return new WebSummaryReport(ToSummary(result.Totals, sessions, bots), result.From, result.To, result.Plan);
   }
 
   /// <inheritdoc cref="GetSummary"/>
-  public Task<WebSummary> GetSummaryAsync(WebReportRequest request, CancellationToken cancellationToken = default) =>
+  public Task<WebSummaryReport> GetSummaryAsync(WebReportRequest request, CancellationToken cancellationToken = default) =>
       Task.Run(() => GetSummary(request, cancellationToken), cancellationToken);
 
   /// <summary>
   /// Headline metrics per time bucket.
   /// </summary>
   /// <inheritdoc cref="AnalyticsEngine.Query(AnalyticsQuery, CancellationToken)" path="/exception"/>
-  public IReadOnlyList<WebTimeseriesPoint> GetTimeseries(
+  public WebReport<WebTimeseriesPoint> GetTimeseries(
       WebReportRequest request, TimeInterval interval, CancellationToken cancellationToken = default)
   {
     if (interval == TimeInterval.None)
@@ -279,11 +292,12 @@ public sealed class WebAnalytics
     query.Interval = interval;
     AddSummaryMetrics(query, sessions, bots);
     var result = engine.Query(query, cancellationToken);
-    return result.Rows.Select(x => new WebTimeseriesPoint(x.Bucket.Value, ToSummary(x, sessions, bots))).ToList();
+    var points = result.Rows.Select(x => new WebTimeseriesPoint(x.Bucket.Value, ToSummary(x, sessions, bots))).ToList();
+    return new WebReport<WebTimeseriesPoint>(points, points.Count, result.From, result.To, result.Plan);
   }
 
   /// <inheritdoc cref="GetTimeseries"/>
-  public Task<IReadOnlyList<WebTimeseriesPoint>> GetTimeseriesAsync(
+  public Task<WebReport<WebTimeseriesPoint>> GetTimeseriesAsync(
       WebReportRequest request, TimeInterval interval, CancellationToken cancellationToken = default) =>
       Task.Run(() => GetTimeseries(request, interval, cancellationToken), cancellationToken);
 
@@ -327,7 +341,7 @@ public sealed class WebAnalytics
     {
       Previous = ToRow(row.Previous)
     };
-    return new WebReport<WebBreakdownRow>(result.Rows.Select(x => ToRow(x)).ToList(), result.TotalRows, result.Plan);
+    return new WebReport<WebBreakdownRow>(result.Rows.Select(ToRow).ToList(), result.TotalRows, result.From, result.To, result.Plan);
   }
 
   /// <inheritdoc cref="GetBreakdown"/>
@@ -394,7 +408,7 @@ public sealed class WebAnalytics
     var rows = result.Rows.Where(x => x.Dimensions[0] != null);
     if (order == Metric.Exits)
       rows = rows.Where(x => x[Metric.Exits] > 0);
-    return new WebReport<PageStats>(rows.Select(x => ToStats(x)).ToList(), result.TotalRows, result.Plan);
+    return new WebReport<PageStats>(rows.Select(ToStats).ToList(), result.TotalRows, result.From, result.To, result.Plan);
   }
 
   /// <summary>
@@ -432,7 +446,7 @@ public sealed class WebAnalytics
     var page = rows.Skip(request.Offset);
     if (request.Limit is { } limit)
       page = page.Take(limit);
-    return new WebReport<GoalStats>(page.ToList(), rows.Count, result.Plan);
+    return new WebReport<GoalStats>(page.ToList(), rows.Count, result.From, result.To, result.Plan);
   }
 
   /// <inheritdoc cref="GetGoals"/>
@@ -465,7 +479,7 @@ public sealed class WebAnalytics
     {
       Previous = ToStats(row.Previous)
     };
-    return new WebReport<BotStats>(result.Rows.Select(x => ToStats(x)).ToList(), result.TotalRows, result.Plan);
+    return new WebReport<BotStats>(result.Rows.Select(ToStats).ToList(), result.TotalRows, result.From, result.To, result.Plan);
   }
 
   /// <inheritdoc cref="GetBots"/>

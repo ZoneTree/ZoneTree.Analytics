@@ -3,16 +3,8 @@ using ZoneTree.Analytics.Storage;
 
 namespace ZoneTree.Analytics.UnitTests;
 
-public sealed class MetaStoreTests
+public sealed class MetaStoreTests : DirectoryTest
 {
-  string directory;
-
-  [SetUp]
-  public void SetUp() => directory = TestEngine.NewDirectory("meta");
-
-  [TearDown]
-  public void TearDown() => TestEngine.Delete(directory);
-
   string[] Files => [Path.Combine(directory, "meta-a.json"), Path.Combine(directory, "meta-b.json")];
 
   static long GenerationOf(string path) =>

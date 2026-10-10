@@ -62,23 +62,23 @@ public sealed class SessionOptions
     if (MaxCachedSessions < 1)
       throw new ArgumentException("Sessions.MaxCachedSessions must be positive.");
     if (Dimensions.Count > MaxDimensions)
-      throw new ArgumentException($"At most {MaxDimensions} custom session dimensions are supported.");
+      throw new ArgumentException($"Sessions.Dimensions can hold at most {MaxDimensions} dimensions.");
     var seen = new HashSet<string>(StringComparer.Ordinal);
     foreach (var name in Dimensions)
     {
       if (string.IsNullOrWhiteSpace(name) || Text.Name(name) != name ||
           name.Contains(',') || name[0] == '$')
-        throw new ArgumentException($"'{name}' is not a valid session dimension name.");
+        throw new ArgumentException($"Sessions.Dimensions: '{name}' is not a valid dimension name.");
       if (StandardDimensions.SessionLevel.Contains(name))
-        throw new ArgumentException($"'{name}' is already a standard session-level dimension.");
+        throw new ArgumentException($"Sessions.Dimensions: '{name}' is already a standard session-level dimension.");
       if (name is StandardDimensions.Page or StandardDimensions.Hostname or StandardDimensions.EntryPage ||
           StandardDimensions.BotLevel.Contains(name))
-        throw new ArgumentException($"'{name}' is maintained by the engine and cannot be a session dimension.");
+        throw new ArgumentException($"Sessions.Dimensions: '{name}' is maintained by the engine and cannot be a session dimension.");
       if (!seen.Add(name))
-        throw new ArgumentException($"Duplicate session dimension '{name}'.");
+        throw new ArgumentException($"Sessions.Dimensions contains '{name}' twice.");
       if (!privacy.IsCustomDimensionAllowed(name))
         throw new ArgumentException(
-            $"The session dimension '{name}' is excluded by Privacy.AllowedDimensions or Privacy.DeniedDimensions.");
+            $"Sessions.Dimensions: '{name}' is excluded by Privacy.AllowedDimensions or Privacy.DeniedDimensions.");
     }
   }
 }

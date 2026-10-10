@@ -26,6 +26,15 @@ sealed class ReportingCalendar
   public static long FloorTicks(long ticks, long unit) => ticks - ticks % unit;
 
   /// <summary>
+  /// The smallest multiple of <paramref name="unit"/> at or after <paramref name="ticks"/>.
+  /// </summary>
+  public static long CeilTicks(long ticks, long unit)
+  {
+    var floor = FloorTicks(ticks, unit);
+    return floor == ticks ? ticks : floor + unit;
+  }
+
+  /// <summary>
   /// Returns the local date (as ticks of local midnight) that contains the UTC instant.
   /// </summary>
   public long LocalDay(long utcTicks)

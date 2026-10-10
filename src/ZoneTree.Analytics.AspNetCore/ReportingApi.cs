@@ -194,13 +194,90 @@ static class ReportingApi
 
   #region Parameters
 
+  /// <summary>
+  /// The parameters every report and query shares. A parameter that is not given keeps the
+  /// default of the request type.
+  /// </summary>
+  sealed class Scope
+  {
+    public string Site;
+
+    public DateRange? Range;
+
+    public TimeZoneInfo TimeZone;
+
+    public ComparisonPeriod Compare;
+
+    public int? Limit;
+
+    public int? Offset;
+
+    public Filter[] Filters;
+
+    public Segment[] Segments;
+
+    public static Scope Parse(ApiParameters parameters) => new()
+    {
+      Site = parameters.Get("site"),
+      Range = ParseRange(parameters),
+      TimeZone = ParseTimeZone(parameters),
+      Compare = ParseComparison(parameters),
+      Limit = parameters.GetInt("limit"),
+      Offset = parameters.GetInt("offset"),
+      Filters = [.. parameters.GetAll("filter").Concat(parameters.GetAll("filters")).Select(Filter.Parse)],
+      Segments = [.. ParseSegments(parameters)]
+    };
+
+    public WebReportRequest ToRequest()
+    {
+      var request = new WebReportRequest { Site = Site, TimeZone = TimeZone, Compare = Compare };
+      if (Range is { } range)
+        request.Range = range;
+      if (Limit is { } limit)
+        request.Limit = limit;
+      if (Offset is { } offset)
+        request.Offset = offset;
+      request.Filters.AddRange(Filters);
+      request.Segments.AddRange(Segments);
+      return request;
+    }
+
+    public AnalyticsQuery ToQuery()
+    {
+      var query = new AnalyticsQuery { Site = Site, TimeZone = TimeZone, Compare = Compare, Limit = Limit };
+      if (Range is { } range)
+        query.Range = range;
+      if (Offset is { } offset)
+        query.Offset = offset;
+      query.Filters.AddRange(Filters);
+      query.Segments.AddRange(Segments);
+      return query;
+    }
+
+    public FunnelQuery ToFunnel()
+    {
+      if (Compare != null || Limit != null || Offset != null)
+        throw new FormatException("Funnels take no 'compare', 'limit' or 'offset'.");
+      var funnel = new FunnelQuery { Site = Site, TimeZone = TimeZone };
+      if (Range is { } range)
+        funnel.Range = range;
+      funnel.Filters.AddRange(Filters);
+      funnel.Segments.AddRange(Segments);
+      return funnel;
+    }
+  }
+
   static TimeZoneInfo ParseTimeZone(ApiParameters parameters)
   {
     var id = parameters.Get("tz");
     return string.IsNullOrWhiteSpace(id) ? null : TimeZoneInfo.FindSystemTimeZoneById(id);
   }
 
-  public static DateRange ParseRange(ApiParameters parameters)
+  /// <summary>
+  /// A range from "range" (see <see cref="DateRange.Parse"/>) or from "from" and "to", which are
+  /// both days (yyyy-MM-dd) or both date-times; null when none is given.
+  /// </summary>
+  static DateRange? ParseRange(ApiParameters parameters)
   {
     var from = parameters.Get("from");
     var to = parameters.Get("to");
@@ -208,58 +285,23 @@ static class ReportingApi
     {
       if (from == null || to == null)
         throw new FormatException("'from' and 'to' must be given together.");
-      if (DateOnly.TryParseExact(from, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var firstDay) &&
-          DateOnly.TryParseExact(to, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var lastDay))
-        return DateRange.Days(firstDay, lastDay);
-      if (DateTimeOffset.TryParse(from, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var start) &&
-          DateTimeOffset.TryParse(to, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var end))
-        return DateRange.Between(start, end);
-      throw new FormatException("'from' and 'to' must both be dates (yyyy-MM-dd) or date-times (ISO 8601).");
+      return DateRange.Parse(from + ".." + to);
     }
-    var range = parameters.Get("range")?.Trim().ToLowerInvariant();
-    switch (range)
-    {
-      case null or "" or "30d":
-        return DateRange.LastDays(30);
-      case "today":
-        return DateRange.Today;
-      case "yesterday":
-        return DateRange.Yesterday;
-      case "month" or "this-month":
-        return DateRange.ThisMonth;
-      case "last-month":
-        return DateRange.LastMonth;
-      case "year" or "this-year":
-        return DateRange.ThisYear;
-    }
-    if (range.Length > 1 && int.TryParse(range[..^1], NumberStyles.None, CultureInfo.InvariantCulture, out var count) && count > 0)
-    {
-      switch (range[^1])
-      {
-        case 'd':
-          return DateRange.LastDays(count);
-        case 'h':
-          return DateRange.Last(TimeSpan.FromHours(count));
-        case 'm':
-          return DateRange.Last(TimeSpan.FromMinutes(count));
-      }
-    }
-    throw new FormatException($"Unknown range '{range}'. Use today, yesterday, 7d, 30d, month, last-month, year, 30m, 12h, or from and to.");
+    var range = parameters.Get("range");
+    return string.IsNullOrWhiteSpace(range) ? null : DateRange.Parse(range);
   }
 
-  static ComparisonPeriod ParseComparison(ApiParameters parameters) => parameters.Get("compare")?.Trim().ToLowerInvariant() switch
+  static ComparisonPeriod ParseComparison(ApiParameters parameters)
   {
-    null or "" or "none" => null,
-    "previous" or "previous-period" => ComparisonPeriod.PreviousPeriod,
-    "year" or "previous-year" => ComparisonPeriod.PreviousYear,
-    var other => throw new FormatException($"Unknown comparison '{other}'. Use previous or year.")
-  };
+    var compare = parameters.Get("compare");
+    return string.IsNullOrWhiteSpace(compare) || compare.Trim() == "none" ? null : ComparisonPeriod.Parse(compare);
+  }
 
-  static TEnum ParseEnum<TEnum>(ApiParameters parameters, string name, TEnum fallback) where TEnum : struct, Enum
+  static TEnum? ParseEnum<TEnum>(ApiParameters parameters, string name) where TEnum : struct, Enum
   {
     var value = parameters.Get(name);
     if (string.IsNullOrWhiteSpace(value))
-      return fallback;
+      return null;
     return Enum.TryParse<TEnum>(value.Replace("-", "").Replace("_", ""), ignoreCase: true, out var result) && Enum.IsDefined(result)
         ? result
         : throw new FormatException($"Unknown {name} '{value}'.");
@@ -271,17 +313,27 @@ static class ReportingApi
     return string.IsNullOrWhiteSpace(value) ? fallback : TimeInterval.Parse(value);
   }
 
-  static IEnumerable<Filter> ParseFilters(ApiParameters parameters) =>
-      parameters.GetAll("filter").Concat(parameters.GetAll("filters")).Select(Filter.Parse);
-
+  /// <summary>
+  /// Segments as text (see <see cref="Segment.Parse"/>) or as objects with "event", "filters",
+  /// "scope" and "exclude".
+  /// </summary>
   static IEnumerable<Segment> ParseSegments(ApiParameters parameters)
   {
     if (parameters.Element("segments") is not { } element)
+    {
+      foreach (var text in parameters.GetAll("segment"))
+        yield return Segment.Parse(text);
       yield break;
+    }
     if (element.ValueKind != JsonValueKind.Array)
       throw new FormatException("'segments' must be an array.");
     foreach (var item in element.EnumerateArray())
     {
+      if (item.ValueKind == JsonValueKind.String)
+      {
+        yield return Segment.Parse(item.GetString());
+        continue;
+      }
       var segment = new ApiParameters(new QueryCollection(), item);
       var eventName = segment.Get("event") ?? throw new FormatException("A segment needs an 'event'.");
       var filters = segment.GetAll("filters").Select(Filter.Parse).ToArray();
@@ -295,58 +347,45 @@ static class ReportingApi
     }
   }
 
-  static WebReportRequest ParseRequest(ApiParameters parameters)
-  {
-    var request = new WebReportRequest
-    {
-      Site = parameters.Get("site"),
-      Range = ParseRange(parameters),
-      TimeZone = ParseTimeZone(parameters),
-      Compare = ParseComparison(parameters),
-      Limit = parameters.GetInt("limit") ?? 10,
-      Offset = parameters.GetInt("offset") ?? 0
-    };
-    request.Filters.AddRange(ParseFilters(parameters));
-    request.Segments.AddRange(ParseSegments(parameters));
-    return request;
-  }
-
   #endregion
 
   #region Handlers
 
   public static async Task SummaryAsync(HttpContext context, ApiParameters parameters, Utf8JsonWriter writer, CancellationToken cancellationToken)
   {
-    var summary = await Engine(context).Web.GetSummaryAsync(ParseRequest(parameters), cancellationToken);
-    WriteSummary(writer, summary);
+    var report = await Engine(context).Web.GetSummaryAsync(Scope.Parse(parameters).ToRequest(), cancellationToken);
+    writer.WriteStartObject();
+    WriteRange(writer, report.From, report.To);
+    writer.WritePropertyName("summary");
+    WriteSummary(writer, report.Summary);
+    WritePlan(writer, report.Plan);
+    writer.WriteEndObject();
   }
 
   public static async Task TimeseriesAsync(HttpContext context, ApiParameters parameters, Utf8JsonWriter writer, CancellationToken cancellationToken)
   {
     var interval = ParseInterval(parameters, TimeInterval.Day);
-    var points = await Engine(context).Web.GetTimeseriesAsync(ParseRequest(parameters), interval, cancellationToken);
-    writer.WriteStartArray();
-    foreach (var point in points)
+    var report = await Engine(context).Web.GetTimeseriesAsync(Scope.Parse(parameters).ToRequest(), interval, cancellationToken);
+    WriteReport(writer, report, (w, point) =>
     {
-      writer.WriteStartObject();
-      writer.WriteString("bucket", point.Bucket);
-      writer.WritePropertyName("summary");
-      WriteSummary(writer, point.Summary);
-      writer.WriteEndObject();
-    }
-    writer.WriteEndArray();
+      w.WriteStartObject();
+      w.WriteString("bucket", point.Bucket);
+      w.WritePropertyName("summary");
+      WriteSummary(w, point.Summary);
+      w.WriteEndObject();
+    });
   }
 
   public static async Task BreakdownAsync(HttpContext context, ApiParameters parameters, Utf8JsonWriter writer, CancellationToken cancellationToken)
   {
     var dimension = parameters.Get("dimension") ?? throw new FormatException("'dimension' is required.");
-    var report = await Engine(context).Web.GetBreakdownAsync(ParseRequest(parameters), dimension, cancellationToken);
+    var report = await Engine(context).Web.GetBreakdownAsync(Scope.Parse(parameters).ToRequest(), dimension, cancellationToken);
     WriteReport(writer, report, WriteBreakdownRow);
   }
 
   public static async Task PagesAsync(HttpContext context, ApiParameters parameters, Utf8JsonWriter writer, bool exits, CancellationToken cancellationToken)
   {
-    var request = ParseRequest(parameters);
+    var request = Scope.Parse(parameters).ToRequest();
     var web = Engine(context).Web;
     var report = exits
         ? await web.GetExitPagesAsync(request, cancellationToken)
@@ -356,7 +395,7 @@ static class ReportingApi
 
   public static async Task GoalsAsync(HttpContext context, ApiParameters parameters, Utf8JsonWriter writer, CancellationToken cancellationToken)
   {
-    var report = await Engine(context).Web.GetGoalsAsync(ParseRequest(parameters), cancellationToken);
+    var report = await Engine(context).Web.GetGoalsAsync(Scope.Parse(parameters).ToRequest(), cancellationToken);
     WriteReport(writer, report, (w, goal) =>
     {
       w.WriteStartObject();
@@ -370,7 +409,7 @@ static class ReportingApi
 
   public static async Task BotsAsync(HttpContext context, ApiParameters parameters, Utf8JsonWriter writer, CancellationToken cancellationToken)
   {
-    var report = await Engine(context).Web.GetBotsAsync(ParseRequest(parameters), cancellationToken);
+    var report = await Engine(context).Web.GetBotsAsync(Scope.Parse(parameters).ToRequest(), cancellationToken);
     WriteReport(writer, report, WriteBotStats);
   }
 
@@ -390,50 +429,27 @@ static class ReportingApi
 
   public static async Task QueryAsync(HttpContext context, ApiParameters parameters, Utf8JsonWriter writer, CancellationToken cancellationToken)
   {
-    var query = new AnalyticsQuery
-    {
-      Site = parameters.Get("site"),
-      Event = parameters.Get("event") ?? StandardEvents.PageView,
-      Range = ParseRange(parameters),
-      TimeZone = ParseTimeZone(parameters),
-      Interval = ParseInterval(parameters, TimeInterval.None),
-      Compare = ParseComparison(parameters),
-      Source = ParseEnum(parameters, "source", QuerySource.Auto),
-      Fill = ParseEnum(parameters, "fill", FillMode.Zero),
-      Limit = parameters.GetInt("limit"),
-      Offset = parameters.GetInt("offset") ?? 0,
-      LimitPerBucket = parameters.GetInt("limitPerBucket")
-    };
+    var query = Scope.Parse(parameters).ToQuery();
+    query.Event = parameters.Get("event") ?? StandardEvents.PageView;
+    query.Interval = ParseInterval(parameters, TimeInterval.None);
+    query.LimitPerBucket = parameters.GetInt("limitPerBucket");
+    if (ParseEnum<QuerySource>(parameters, "source") is { } source)
+      query.Source = source;
+    if (ParseEnum<FillMode>(parameters, "fill") is { } fill)
+      query.Fill = fill;
     if (parameters.Get("onlyRowsWithBaseEvent") == "true")
       query.OnlyRowsWithBaseEvent = true;
     query.GroupBy.AddRange(parameters.GetAll("groupBy"));
-    query.Filters.AddRange(ParseFilters(parameters));
-    query.Segments.AddRange(ParseSegments(parameters));
     query.Metrics.AddRange(parameters.GetAll("metrics").Select(Metric.Parse));
     query.Having.AddRange(parameters.GetAll("having").Select(MetricFilter.Parse));
-    foreach (var key in parameters.GetAll("orderBy"))
-    {
-      var descending = key.StartsWith('-');
-      var name = descending ? key[1..] : key;
-      if (name == "bucket")
-        query.OrderBy.Add(Order.ByBucket(descending));
-      else if (query.GroupBy.Contains(name))
-        query.OrderBy.Add(Order.ByDimension(name, descending));
-      else
-        query.OrderBy.Add(Order.By(Metric.Parse(name), descending));
-    }
+    query.OrderBy.AddRange(parameters.GetAll("orderBy").Select(key => Order.Parse(key, query.GroupBy)));
     var result = await Engine(context).QueryAsync(query, cancellationToken);
     WriteResult(writer, result);
   }
 
   public static async Task FunnelAsync(HttpContext context, ApiParameters parameters, Utf8JsonWriter writer, CancellationToken cancellationToken)
   {
-    var funnel = new FunnelQuery
-    {
-      Site = parameters.Get("site"),
-      Range = ParseRange(parameters),
-      TimeZone = ParseTimeZone(parameters)
-    };
+    var funnel = Scope.Parse(parameters).ToFunnel();
     var window = parameters.Get("windowMinutes");
     if (window != null)
     {
@@ -441,8 +457,6 @@ static class ReportingApi
           ? TimeSpan.FromMinutes(minutes)
           : throw new FormatException("'windowMinutes' must be a positive number.");
     }
-    funnel.Filters.AddRange(ParseFilters(parameters));
-    funnel.Segments.AddRange(ParseSegments(parameters));
     if (parameters.Element("steps") is not { ValueKind: JsonValueKind.Array } steps)
       throw new FormatException("'steps' must be an array.");
     foreach (var item in steps.EnumerateArray())
@@ -456,8 +470,7 @@ static class ReportingApi
     }
     var result = await Engine(context).QueryAsync(funnel, cancellationToken);
     writer.WriteStartObject();
-    writer.WriteString("from", result.From);
-    writer.WriteString("to", result.To);
+    WriteRange(writer, result.From, result.To);
     writer.WriteNumber("conversionRate", result.ConversionRate);
     writer.WriteStartArray("steps");
     foreach (var step in result.Steps)
@@ -556,9 +569,16 @@ static class ReportingApi
     writer.WriteEndObject();
   }
 
+  static void WriteRange(Utf8JsonWriter writer, DateTimeOffset from, DateTimeOffset to)
+  {
+    writer.WriteString("from", from);
+    writer.WriteString("to", to);
+  }
+
   static void WriteReport<T>(Utf8JsonWriter writer, WebReport<T> report, Action<Utf8JsonWriter, T> writeRow)
   {
     writer.WriteStartObject();
+    WriteRange(writer, report.From, report.To);
     writer.WriteNumber("totalRows", report.TotalRows);
     writer.WriteStartArray("rows");
     foreach (var row in report.Rows)
@@ -595,8 +615,7 @@ static class ReportingApi
   static void WriteResult(Utf8JsonWriter writer, AnalyticsResult result)
   {
     writer.WriteStartObject();
-    writer.WriteString("from", result.From);
-    writer.WriteString("to", result.To);
+    WriteRange(writer, result.From, result.To);
     writer.WriteString("timeZone", result.TimeZone.Id);
     writer.WriteString("interval", result.Interval.ToString());
     writer.WriteStartArray("groupBy");

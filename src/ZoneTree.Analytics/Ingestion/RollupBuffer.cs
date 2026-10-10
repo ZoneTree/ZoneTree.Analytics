@@ -85,9 +85,9 @@ enum DimensionScope
 }
 
 /// <summary>
-/// One metric change applied to a rollup row.
+/// One value change applied to a rollup row.
 /// </summary>
-readonly record struct MetricChange(string Name, double Value, bool IsDelta);
+readonly record struct ValueChange(string Name, double Value, bool IsDelta);
 
 /// <summary>
 /// Pre-aggregates rollup rows in memory between flushes. Owned by one worker.
@@ -111,7 +111,7 @@ sealed class RollupBuffer
 
   Dictionary<RollupBufferKey, RollupAccumulator> rows = [];
 
-  readonly Dictionary<string, ValueAggregates> metricAggregates;
+  readonly Dictionary<string, ValueAggregates> valueAggregates;
 
   readonly string[] distinctDimensions;
 
@@ -129,11 +129,11 @@ sealed class RollupBuffer
       ReportingCalendar calendar,
       int precision,
       SessionSchema schema,
-      IReadOnlyDictionary<string, ValueAggregates> metricAggregates,
+      IReadOnlyDictionary<string, ValueAggregates> valueAggregates,
       IReadOnlyCollection<string> distinctDimensions)
   {
     this.definitions = definitions;
-    this.metricAggregates = metricAggregates
+    this.valueAggregates = valueAggregates
         .Where(x => x.Value != ValueAggregates.None)
         .ToDictionary(x => x.Key, x => x.Value, StringComparer.Ordinal);
     this.distinctDimensions = [.. distinctDimensions];
@@ -182,7 +182,7 @@ sealed class RollupBuffer
       IReadOnlyDictionary<string, string> dimensions,
       long count,
       ulong visitor,
-      List<MetricChange> metrics,
+      List<ValueChange> changes,
       DimensionScope scope = DimensionScope.All)
   {
     if (granularities.Length == 0)
@@ -206,7 +206,7 @@ sealed class RollupBuffer
     }
     if (kept == 0)
       return;
-    PrepareOptInAggregates(dimensions, metrics);
+    PrepareOptInAggregates(dimensions, changes);
 
     var scopeAccepts = accepts[(int)scope];
     for (var d = 0; d < definitions.Length; ++d)
@@ -231,18 +231,18 @@ sealed class RollupBuffer
         accumulator.Count += count;
         if (visitor != 0)
           accumulator.AddVisitor(visitor, precision);
-        if (metrics != null)
+        if (changes != null)
         {
-          foreach (var metric in metrics)
+          foreach (var change in changes)
           {
-            if (metric.IsDelta)
-              accumulator.AddMetricDelta(metric.Name, metric.Value);
+            if (change.IsDelta)
+              accumulator.AddValueDelta(change.Name, change.Value);
             else
-              accumulator.AddMetric(metric.Name, metric.Value);
+              accumulator.AddValue(change.Name, change.Value);
           }
         }
         foreach (var detail in eventDetails)
-          accumulator.AddMetricDetail(detail.Name, detail.Value, ticks, detail.Aggregates, detail.Bucket);
+          accumulator.AddValueDetail(detail.Name, detail.Value, ticks, detail.Aggregates, detail.Bucket);
         foreach (var (dimension, hash) in eventDistinct)
           accumulator.AddDistinct(dimension, hash, precision);
       }
@@ -250,20 +250,20 @@ sealed class RollupBuffer
   }
 
   /// <summary>
-  /// Collects the opt-in aggregates of an event: configured metric aggregates and distinct
+  /// Collects the opt-in aggregates of an event: configured value aggregates and distinct
   /// dimension values. Without configuration, this costs two length checks.
   /// </summary>
-  void PrepareOptInAggregates(IReadOnlyDictionary<string, string> dimensions, List<MetricChange> metrics)
+  void PrepareOptInAggregates(IReadOnlyDictionary<string, string> dimensions, List<ValueChange> changes)
   {
     eventDetails.Clear();
-    if (metricAggregates.Count > 0 && metrics != null)
+    if (valueAggregates.Count > 0 && changes != null)
     {
-      foreach (var metric in metrics)
+      foreach (var change in changes)
       {
-        if (metric.IsDelta || !metricAggregates.TryGetValue(metric.Name, out var aggregates))
+        if (change.IsDelta || !valueAggregates.TryGetValue(change.Name, out var aggregates))
           continue;
-        var bucket = (aggregates & ValueAggregates.Percentiles) != 0 ? QuantileSketch.BucketOf(metric.Value) : default;
-        eventDetails.Add((metric.Name, metric.Value, aggregates, bucket));
+        var bucket = (aggregates & ValueAggregates.Percentiles) != 0 ? QuantileSketch.BucketOf(change.Value) : default;
+        eventDetails.Add((change.Name, change.Value, aggregates, bucket));
       }
     }
     eventDistinct.Clear();

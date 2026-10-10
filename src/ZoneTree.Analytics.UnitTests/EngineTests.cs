@@ -13,7 +13,7 @@ namespace ZoneTree.Analytics.UnitTests;
 /// Visitor C (10.0.0.3, Safari/iPhone, DE): / from Google (+20m), then / again (+80m), a new session.
 /// Totals: 6 page views, 3 visitors, 4 sessions, 3 bounces, 180 s total duration.
 /// </remarks>
-public sealed class EngineTests
+public sealed class EngineTests : DirectoryTest
 {
   static readonly DateTime Day0 = DateTime.UtcNow.Date.AddDays(-10);
 
@@ -21,14 +21,11 @@ public sealed class EngineTests
 
   static readonly QuerySource[] Sources = [QuerySource.Rollups, QuerySource.RawEvents];
 
-  string directory;
-
   AnalyticsEngine engine;
 
   [SetUp]
   public void SetUp()
   {
-    directory = TestEngine.NewDirectory("engine");
     engine = TestEngine.Create(directory);
   }
 
@@ -36,7 +33,6 @@ public sealed class EngineTests
   public void TearDown()
   {
     engine?.Dispose();
-    TestEngine.Delete(directory);
   }
 
   void Recreate(Action<AnalyticsOptions> configure)
@@ -45,12 +41,6 @@ public sealed class EngineTests
     TestEngine.Delete(directory);
     engine = TestEngine.Create(directory, configure);
   }
-
-  static DateTimeOffset Utc(DateTime value) => new(DateTime.SpecifyKind(value, DateTimeKind.Utc), TimeSpan.Zero);
-
-  static DateRange Range(DateTime from, DateTime to) => DateRange.Between(Utc(from), Utc(to));
-
-  static DateRange Day(DateTime day) => Range(day, day.AddDays(1));
 
   static AnalyticsEvent PageView(string url, string ip, string ua, DateTime timestamp, string referrer = null) =>
       new(StandardEvents.PageView)
@@ -84,7 +74,7 @@ public sealed class EngineTests
   {
     TrackScenario();
     engine.Flush();
-    var summary = await engine.Web.GetSummaryAsync(new WebReportRequest { Range = Day(Day0) });
+    var summary = (await engine.Web.GetSummaryAsync(new WebReportRequest { Range = Day(Day0) })).Summary;
     Assert.Multiple(() =>
     {
       Assert.That(summary.PageViews, Is.EqualTo(6));
@@ -524,7 +514,7 @@ public sealed class EngineTests
     var browsers = await engine.Web.GetBreakdownAsync(request, StandardDimensions.Browser);
     var byPage = await engine.Web.GetBreakdownAsync(request, StandardDimensions.Page);
     var goals = await engine.Web.GetGoalsAsync(request);
-    var timeseries = await engine.Web.GetTimeseriesAsync(request, TimeInterval.Hour);
+    var timeseries = (await engine.Web.GetTimeseriesAsync(request, TimeInterval.Hour)).Rows;
     Assert.Multiple(() =>
     {
       Assert.That(pages.Rows[0], Is.EqualTo(new PageStats("/", 2, 3, 3, 2, 2.0 / 3, null)));
@@ -922,9 +912,15 @@ public sealed class EngineTests
 
     Assert.Multiple(() =>
     {
-      Assert.That(summary.Item1, Is.EqualTo(summary.Item2));
-      Assert.That(summary.Item1.PageViews, Is.EqualTo(6));
-      Assert.That(series.Item1, Is.EqualTo(series.Item2));
+      Assert.That(summary.Item1.Summary, Is.EqualTo(summary.Item2.Summary));
+      Assert.That(summary.Item1.Summary.PageViews, Is.EqualTo(6));
+      // Every report carries its resolved range and plan.
+      Assert.That((summary.Item1.From, summary.Item1.To), Is.EqualTo((Utc(Day0), Utc(Day0.AddDays(1)))));
+      Assert.That(summary.Item1.Plan.IsComplete, Is.True);
+      Assert.That(series.Item1.Rows, Is.EqualTo(series.Item2.Rows));
+      Assert.That(series.Item1.Rows, Has.Count.EqualTo(24).And.Count.EqualTo(series.Item1.TotalRows));
+      Assert.That((series.Item1.From, series.Item1.To), Is.EqualTo((Utc(Day0), Utc(Day0.AddDays(1)))));
+      Assert.That((pages.Item1.From, pages.Item1.To), Is.EqualTo((Utc(Day0), Utc(Day0.AddDays(1)))));
       Assert.That(breakdown.Item1.Rows, Is.EqualTo(breakdown.Item2.Rows));
       Assert.That(pages.Item1.Rows, Is.EqualTo(pages.Item2.Rows));
       Assert.That(exits.Item1.Rows, Is.EqualTo(exits.Item2.Rows));

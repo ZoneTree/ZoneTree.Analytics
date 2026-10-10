@@ -20,6 +20,17 @@ sealed class ByteWriter
 
   public void Reset() => length = 0;
 
+  /// <summary>
+  /// The writer cached in a thread-static field, created on first use and emptied: each codec
+  /// keeps one per thread, so encoding allocates only the result.
+  /// </summary>
+  public static ByteWriter Reuse(ref ByteWriter cached, int capacity)
+  {
+    cached ??= new ByteWriter(capacity);
+    cached.Reset();
+    return cached;
+  }
+
   public byte[] ToArray() => buffer.AsSpan(0, length).ToArray();
 
   void Ensure(int additional)

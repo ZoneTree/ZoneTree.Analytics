@@ -3,19 +3,9 @@ namespace ZoneTree.Analytics.UnitTests;
 /// <summary>
 /// How configuration behaves across the lifetime of an engine and of a data directory.
 /// </summary>
-public sealed class ConfigurationTests
+public sealed class ConfigurationTests : DirectoryTest
 {
   static readonly DateTime T0 = DateTime.UtcNow.Date.AddDays(-2).AddHours(10);
-
-  string directory;
-
-  [SetUp]
-  public void SetUp() => directory = TestEngine.NewDirectory("configuration");
-
-  [TearDown]
-  public void TearDown() => TestEngine.Delete(directory);
-
-  static DateTimeOffset Utc(DateTime value) => new(DateTime.SpecifyKind(value, DateTimeKind.Utc), TimeSpan.Zero);
 
   static DateRange Range => DateRange.Between(Utc(T0.Date), Utc(T0.Date.AddDays(1)));
 

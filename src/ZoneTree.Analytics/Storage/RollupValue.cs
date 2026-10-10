@@ -8,11 +8,11 @@ namespace ZoneTree.Analytics.Storage;
 /// The aggregate of one measured value.
 /// </summary>
 /// <param name="Sum">The sum of values.</param>
-/// <param name="Count">The number of values. Zero for sum-only metrics, which add deltas.</param>
+/// <param name="Count">The number of values. Zero for sum-only values, which add deltas.</param>
 /// <param name="Min">The smallest value.</param>
 /// <param name="Max">The largest value.</param>
 /// <param name="M2">The sum of squared deviations from the mean, for the variance.</param>
-readonly record struct MetricValue(double Sum, long Count, double Min, double Max, double M2)
+readonly record struct ValueStats(double Sum, long Count, double Min, double Max, double M2)
 {
   /// <summary>
   /// The average of the values, or zero when there are none.
@@ -24,15 +24,15 @@ readonly record struct MetricValue(double Sum, long Count, double Min, double Ma
   /// </summary>
   public double Variance => Count == 0 ? 0 : M2 / Count;
 
-  public static MetricValue Of(double value) => new(value, 1, value, value, 0);
+  public static ValueStats Of(double value) => new(value, 1, value, value, 0);
 
-  public static MetricValue Delta(double delta) => new(delta, 0, 0, 0, 0);
+  public static ValueStats Delta(double delta) => new(delta, 0, 0, 0, 0);
 
   /// <summary>
   /// Combines two aggregates. The variance term merges with Chan's formula, which stays
   /// accurate when the mean is large compared to the spread.
   /// </summary>
-  public static MetricValue Combine(MetricValue a, MetricValue b)
+  public static ValueStats Combine(ValueStats a, ValueStats b)
   {
     if (a.Count == 0)
       return b with { Sum = a.Sum + b.Sum };
@@ -40,7 +40,7 @@ readonly record struct MetricValue(double Sum, long Count, double Min, double Ma
       return a with { Sum = a.Sum + b.Sum };
     var count = a.Count + b.Count;
     var delta = b.Sum / b.Count - a.Sum / a.Count;
-    return new MetricValue(
+    return new ValueStats(
         a.Sum + b.Sum,
         count,
         Math.Min(a.Min, b.Min),
@@ -58,7 +58,7 @@ readonly record struct MetricValue(double Sum, long Count, double Min, double Ma
 /// Ties of first and last values at the same instant are broken by value, so results do not
 /// depend on the order in which rows merge.
 /// </remarks>
-sealed class MetricDetail
+sealed class ValueDetail
 {
   const byte HasFirstLastFlag = 1;
 
@@ -101,7 +101,7 @@ sealed class MetricDetail
     }
   }
 
-  public void MergeWith(MetricDetail other)
+  public void MergeWith(ValueDetail other)
   {
     if (other.HasFirstLast)
     {
@@ -118,7 +118,7 @@ sealed class MetricDetail
     }
   }
 
-  public MetricDetail Clone() => new()
+  public ValueDetail Clone() => new()
   {
     HasFirstLast = HasFirstLast,
     First = First,
@@ -131,7 +131,7 @@ sealed class MetricDetail
   /// <summary>
   /// Merges two stored details without modifying them.
   /// </summary>
-  public static MetricDetail Combine(MetricDetail a, MetricDetail b)
+  public static ValueDetail Combine(ValueDetail a, ValueDetail b)
   {
     if (a == null)
       return b;
@@ -156,10 +156,10 @@ sealed class MetricDetail
     Quantiles?.Write(writer);
   }
 
-  public static MetricDetail Read(ref ByteReader reader)
+  public static ValueDetail Read(ref ByteReader reader)
   {
     var flags = reader.ReadByte();
-    var detail = new MetricDetail();
+    var detail = new ValueDetail();
     if ((flags & HasFirstLastFlag) != 0)
     {
       detail.HasFirstLast = true;
@@ -184,37 +184,37 @@ sealed class RollupValue
 
   public readonly HyperLogLog Visitors;
 
-  public readonly string[] MetricNames;
+  public readonly string[] ValueNames;
 
-  public readonly MetricValue[] Metrics;
+  public readonly ValueStats[] Values;
 
-  // The opt-in parts, null for the rows of metrics without them: queries read many rows, so the
+  // The opt-in parts, null for the rows of values without them: queries read many rows, so the
   // row itself stays small.
   readonly OptInParts optIn;
 
-  sealed record OptInParts(MetricDetail[] Details, string[] DistinctNames, HyperLogLog[] Distinct);
+  sealed record OptInParts(ValueDetail[] Details, string[] DistinctNames, HyperLogLog[] Distinct);
 
   public RollupValue(
       long count,
       HyperLogLog visitors,
-      string[] metricNames,
-      MetricValue[] metrics,
-      MetricDetail[] details = null,
+      string[] valueNames,
+      ValueStats[] values,
+      ValueDetail[] details = null,
       string[] distinctNames = null,
       HyperLogLog[] distinct = null)
   {
     Count = count;
     Visitors = visitors;
-    MetricNames = metricNames ?? [];
-    Metrics = metrics ?? [];
+    ValueNames = valueNames ?? [];
+    Values = values ?? [];
     if (details != null || distinctNames is { Length: > 0 })
       optIn = new OptInParts(details, distinctNames ?? [], distinct ?? []);
   }
 
   /// <summary>
-  /// Opt-in aggregates per metric, aligned with <see cref="MetricNames"/>; null when no metric has any.
+  /// Opt-in aggregates per value, aligned with <see cref="ValueNames"/>; null when no value has any.
   /// </summary>
-  public MetricDetail[] Details => optIn?.Details;
+  public ValueDetail[] Details => optIn?.Details;
 
   /// <summary>
   /// The dimensions whose distinct values are counted, in ordinal order.
@@ -226,7 +226,7 @@ sealed class RollupValue
   /// </summary>
   public HyperLogLog[] Distinct => optIn?.Distinct ?? [];
 
-  public MetricDetail DetailAt(int index) => Details?[index];
+  public ValueDetail DetailAt(int index) => Details?[index];
 
   public static RollupValue Merge(RollupValue existing, RollupValue delta)
   {
@@ -237,23 +237,23 @@ sealed class RollupValue
     var visitors = Union(existing.Visitors, delta.Visitors);
 
     string[] names;
-    MetricValue[] metrics;
-    MetricDetail[] details;
-    if (delta.MetricNames.Length == 0)
+    ValueStats[] values;
+    ValueDetail[] details;
+    if (delta.ValueNames.Length == 0)
     {
-      names = existing.MetricNames;
-      metrics = existing.Metrics;
+      names = existing.ValueNames;
+      values = existing.Values;
       details = existing.Details;
     }
-    else if (existing.MetricNames.Length == 0)
+    else if (existing.ValueNames.Length == 0)
     {
-      names = delta.MetricNames;
-      metrics = delta.Metrics;
+      names = delta.ValueNames;
+      values = delta.Values;
       details = delta.Details;
     }
     else
     {
-      MergeMetrics(existing, delta, out names, out metrics, out details);
+      MergeValues(existing, delta, out names, out values, out details);
     }
 
     string[] distinctNames;
@@ -272,7 +272,7 @@ sealed class RollupValue
     {
       MergeDistinct(existing, delta, out distinctNames, out distinct);
     }
-    return new RollupValue(existing.Count + delta.Count, visitors, names, metrics, details, distinctNames, distinct);
+    return new RollupValue(existing.Count + delta.Count, visitors, names, values, details, distinctNames, distinct);
   }
 
   /// <summary>
@@ -289,44 +289,44 @@ sealed class RollupValue
     return union;
   }
 
-  static void MergeMetrics(
-      RollupValue a, RollupValue b, out string[] names, out MetricValue[] metrics, out MetricDetail[] details)
+  static void MergeValues(
+      RollupValue a, RollupValue b, out string[] names, out ValueStats[] values, out ValueDetail[] details)
   {
-    var capacity = a.MetricNames.Length + b.MetricNames.Length;
+    var capacity = a.ValueNames.Length + b.ValueNames.Length;
     var resultNames = new List<string>(capacity);
-    var resultValues = new List<MetricValue>(capacity);
-    var resultDetails = a.Details != null || b.Details != null ? new List<MetricDetail>(capacity) : null;
+    var resultValues = new List<ValueStats>(capacity);
+    var resultDetails = a.Details != null || b.Details != null ? new List<ValueDetail>(capacity) : null;
     int i = 0, j = 0;
-    while (i < a.MetricNames.Length || j < b.MetricNames.Length)
+    while (i < a.ValueNames.Length || j < b.ValueNames.Length)
     {
-      var cmp = i == a.MetricNames.Length ? 1 :
-          j == b.MetricNames.Length ? -1 :
-          string.CompareOrdinal(a.MetricNames[i], b.MetricNames[j]);
+      var cmp = i == a.ValueNames.Length ? 1 :
+          j == b.ValueNames.Length ? -1 :
+          string.CompareOrdinal(a.ValueNames[i], b.ValueNames[j]);
       if (cmp < 0)
       {
-        resultNames.Add(a.MetricNames[i]);
-        resultValues.Add(a.Metrics[i]);
+        resultNames.Add(a.ValueNames[i]);
+        resultValues.Add(a.Values[i]);
         resultDetails?.Add(a.DetailAt(i));
         ++i;
       }
       else if (cmp > 0)
       {
-        resultNames.Add(b.MetricNames[j]);
-        resultValues.Add(b.Metrics[j]);
+        resultNames.Add(b.ValueNames[j]);
+        resultValues.Add(b.Values[j]);
         resultDetails?.Add(b.DetailAt(j));
         ++j;
       }
       else
       {
-        resultNames.Add(a.MetricNames[i]);
-        resultValues.Add(MetricValue.Combine(a.Metrics[i], b.Metrics[j]));
-        resultDetails?.Add(MetricDetail.Combine(a.DetailAt(i), b.DetailAt(j)));
+        resultNames.Add(a.ValueNames[i]);
+        resultValues.Add(ValueStats.Combine(a.Values[i], b.Values[j]));
+        resultDetails?.Add(ValueDetail.Combine(a.DetailAt(i), b.DetailAt(j)));
         ++i;
         ++j;
       }
     }
     names = [.. resultNames];
-    metrics = [.. resultValues];
+    values = [.. resultValues];
     details = resultDetails?.ToArray();
   }
 
@@ -365,8 +365,8 @@ sealed class RollupValue
 /// A mutable aggregate used by ingestion buffers and query groups.
 /// </summary>
 /// <remarks>
-/// Rows hold few metrics, so they are kept in small arrays searched linearly, which allocates
-/// far less than a dictionary per row. Metrics, sketches and details merged from stored rows are
+/// Rows hold few values, so they are kept in small arrays searched linearly, which allocates
+/// far less than a dictionary per row. Values, sketches and details merged from stored rows are
 /// shared until this accumulator needs to modify them: a query group that reads a single stored
 /// row, such as one hour of an hourly series, copies nothing.
 /// </remarks>
@@ -378,21 +378,21 @@ sealed class RollupAccumulator
 
   bool ownsVisitors;
 
-  string[] metricNames;
+  string[] valueNames;
 
-  MetricValue[] metricValues;
+  ValueStats[] valueStats;
 
-  int metricCount;
+  int valueCount;
 
-  // True while the metric arrays are those of a stored row, which must not be modified.
-  bool sharesMetrics;
+  // True while the value arrays are those of a stored row, which must not be modified.
+  bool sharesValues;
 
   // The opt-in parts, allocated only for rows that have them.
   OptInParts optIn;
 
   sealed class OptInParts
   {
-    public readonly Dictionary<string, Shared<MetricDetail>> Details = new(StringComparer.Ordinal);
+    public readonly Dictionary<string, Shared<ValueDetail>> Details = new(StringComparer.Ordinal);
 
     public readonly Dictionary<string, Shared<HyperLogLog>> Distinct = new(StringComparer.Ordinal);
   }
@@ -410,7 +410,7 @@ sealed class RollupAccumulator
   public HyperLogLog Visitors => visitors;
 
   /// <summary>
-  /// True when the accumulator holds a count, a visitor or a metric value. Groups whose deltas
+  /// True when the accumulator holds a count, a visitor or a value. Groups whose deltas
   /// cancel out, for example an exit that moved on to a later page, hold no data.
   /// </summary>
   public bool HasData
@@ -419,9 +419,9 @@ sealed class RollupAccumulator
     {
       if (Count != 0 || (visitors != null && !visitors.IsEmpty))
         return true;
-      for (var i = 0; i < metricCount; ++i)
+      for (var i = 0; i < valueCount; ++i)
       {
-        if (metricValues[i].Sum != 0 || metricValues[i].Count != 0)
+        if (valueStats[i].Sum != 0 || valueStats[i].Count != 0)
           return true;
       }
       return false;
@@ -429,48 +429,48 @@ sealed class RollupAccumulator
   }
 
   /// <summary>
-  /// The aggregate of a metric; false when the row has none.
+  /// The aggregates of a value; false when the row has none.
   /// </summary>
-  public bool TryGetMetric(string name, out MetricValue value)
+  public bool TryGetValueStats(string name, out ValueStats value)
   {
-    var index = IndexOfMetric(name);
-    value = index < 0 ? default : metricValues[index];
+    var index = IndexOfValue(name);
+    value = index < 0 ? default : valueStats[index];
     return index >= 0;
   }
 
-  int IndexOfMetric(string name)
+  int IndexOfValue(string name)
   {
-    for (var i = 0; i < metricCount; ++i)
+    for (var i = 0; i < valueCount; ++i)
     {
-      var candidate = metricNames[i];
+      var candidate = valueNames[i];
       if (ReferenceEquals(candidate, name) || string.Equals(candidate, name, StringComparison.Ordinal))
         return i;
     }
     return -1;
   }
 
-  void AddMetricSlot(string name, MetricValue value)
+  void AddValueSlot(string name, ValueStats value)
   {
-    OwnMetrics(metricCount + 1);
-    if (metricNames == null)
+    OwnValues(valueCount + 1);
+    if (valueNames == null)
     {
-      metricNames = new string[4];
-      metricValues = new MetricValue[4];
+      valueNames = new string[4];
+      valueStats = new ValueStats[4];
     }
-    else if (metricCount == metricNames.Length)
+    else if (valueCount == valueNames.Length)
     {
-      Array.Resize(ref metricNames, metricCount * 2);
-      Array.Resize(ref metricValues, metricCount * 2);
+      Array.Resize(ref valueNames, valueCount * 2);
+      Array.Resize(ref valueStats, valueCount * 2);
     }
-    metricNames[metricCount] = name;
-    metricValues[metricCount++] = value;
+    valueNames[valueCount] = name;
+    valueStats[valueCount++] = value;
   }
 
   /// <summary>
-  /// The opt-in aggregates of a metric, or null.
+  /// The opt-in aggregates of a value, or null.
   /// </summary>
-  public MetricDetail DetailOf(string metric) =>
-      optIn != null && optIn.Details.TryGetValue(metric, out var detail) ? detail.Value : null;
+  public ValueDetail DetailOf(string valueName) =>
+      optIn != null && optIn.Details.TryGetValue(valueName, out var detail) ? detail.Value : null;
 
   /// <summary>
   /// The distinct value sketch of a dimension, or null.
@@ -503,49 +503,49 @@ sealed class RollupAccumulator
   /// <summary>
   /// Records a measured value.
   /// </summary>
-  public void AddMetric(string name, double value) => MergeMetric(name, MetricValue.Of(value));
+  public void AddValue(string name, double value) => MergeValue(name, ValueStats.Of(value));
 
   /// <summary>
-  /// Adds a delta to a sum-only metric.
+  /// Adds a delta to a sum-only value.
   /// </summary>
-  public void AddMetricDelta(string name, double delta) => MergeMetric(name, MetricValue.Delta(delta));
+  public void AddValueDelta(string name, double delta) => MergeValue(name, ValueStats.Delta(delta));
 
-  void MergeMetric(string name, MetricValue value)
+  void MergeValue(string name, ValueStats value)
   {
-    var index = IndexOfMetric(name);
+    var index = IndexOfValue(name);
     if (index < 0)
     {
-      AddMetricSlot(name, value);
+      AddValueSlot(name, value);
       return;
     }
-    OwnMetrics(metricCount);
-    metricValues[index] = MetricValue.Combine(metricValues[index], value);
+    OwnValues(valueCount);
+    valueStats[index] = ValueStats.Combine(valueStats[index], value);
   }
 
   /// <summary>
-  /// Replaces shared metric arrays with copies that hold at least <paramref name="capacity"/> metrics.
+  /// Replaces shared value arrays with copies that hold at least <paramref name="capacity"/> values.
   /// </summary>
-  void OwnMetrics(int capacity)
+  void OwnValues(int capacity)
   {
-    if (!sharesMetrics)
+    if (!sharesValues)
       return;
     var length = Math.Max(capacity, 4);
     var names = new string[length];
-    var values = new MetricValue[length];
-    Array.Copy(metricNames, names, metricCount);
-    Array.Copy(metricValues, values, metricCount);
-    metricNames = names;
-    metricValues = values;
-    sharesMetrics = false;
+    var values = new ValueStats[length];
+    Array.Copy(valueNames, names, valueCount);
+    Array.Copy(valueStats, values, valueCount);
+    valueNames = names;
+    valueStats = values;
+    sharesValues = false;
   }
 
   /// <summary>
   /// Records the opt-in aggregates of a measured value. <paramref name="bucket"/> is the value's
   /// quantile bucket, used with <see cref="ValueAggregates.Percentiles"/>.
   /// </summary>
-  public void AddMetricDetail(string name, double value, long ticks, ValueAggregates aggregates, QuantileBucket bucket)
+  public void AddValueDetail(string name, double value, long ticks, ValueAggregates aggregates, QuantileBucket bucket)
   {
-    var detail = Own((optIn ??= new()).Details, name, static _ => new MetricDetail(), 0, static x => x.Clone());
+    var detail = Own((optIn ??= new()).Details, name, static _ => new ValueDetail(), 0, static x => x.Clone());
     if ((aggregates & ValueAggregates.FirstAndLast) != 0)
       detail.AddFirstLast(value, ticks);
     if ((aggregates & ValueAggregates.Percentiles) != 0)
@@ -597,26 +597,26 @@ sealed class RollupAccumulator
         visitors.UnionWith(value.Visitors);
       }
     }
-    if (metricCount == 0 && value.MetricNames.Length > 0)
+    if (valueCount == 0 && value.ValueNames.Length > 0)
     {
-      // Share the stored metrics until this accumulator needs to modify them.
-      metricNames = value.MetricNames;
-      metricValues = value.Metrics;
-      metricCount = value.MetricNames.Length;
-      sharesMetrics = true;
-      for (var i = 0; i < metricCount; ++i)
+      // Share the stored values until this accumulator needs to modify them.
+      valueNames = value.ValueNames;
+      valueStats = value.Values;
+      valueCount = value.ValueNames.Length;
+      sharesValues = true;
+      for (var i = 0; i < valueCount; ++i)
       {
         if (value.DetailAt(i) is { } detail)
-          MergeDetail(value.MetricNames[i], detail);
+          MergeDetail(value.ValueNames[i], detail);
       }
     }
     else
     {
-      for (var i = 0; i < value.MetricNames.Length; ++i)
+      for (var i = 0; i < value.ValueNames.Length; ++i)
       {
-        MergeMetric(value.MetricNames[i], value.Metrics[i]);
+        MergeValue(value.ValueNames[i], value.Values[i]);
         if (value.DetailAt(i) is { } detail)
-          MergeDetail(value.MetricNames[i], detail);
+          MergeDetail(value.ValueNames[i], detail);
       }
     }
     var distinctNames = value.DistinctNames;
@@ -641,8 +641,8 @@ sealed class RollupAccumulator
         visitors.UnionWith(other.visitors);
       }
     }
-    for (var i = 0; i < other.metricCount; ++i)
-      MergeMetric(other.metricNames[i], other.metricValues[i]);
+    for (var i = 0; i < other.valueCount; ++i)
+      MergeValue(other.valueNames[i], other.valueStats[i]);
     if (other.optIn == null)
       return;
     // Both accumulators may read a shared value afterwards; neither may modify it.
@@ -661,12 +661,12 @@ sealed class RollupAccumulator
   /// <summary>
   /// Merges details that may be shared: a first one is shared, later ones merge into a copy.
   /// </summary>
-  void MergeDetail(string name, MetricDetail detail)
+  void MergeDetail(string name, ValueDetail detail)
   {
     var details = (optIn ??= new()).Details;
     if (!details.TryGetValue(name, out var slot))
     {
-      details.Add(name, new Shared<MetricDetail>(detail, false));
+      details.Add(name, new Shared<ValueDetail>(detail, false));
       return;
     }
     if (!slot.Owned)
@@ -701,16 +701,16 @@ sealed class RollupAccumulator
   public RollupValue ToValue()
   {
     string[] names = [];
-    MetricValue[] values = [];
-    MetricDetail[] valueDetails = null;
-    if (metricCount > 0)
+    ValueStats[] values = [];
+    ValueDetail[] valueDetails = null;
+    if (valueCount > 0)
     {
-      names = metricNames.AsSpan(0, metricCount).ToArray();
-      values = metricValues.AsSpan(0, metricCount).ToArray();
+      names = valueNames.AsSpan(0, valueCount).ToArray();
+      values = valueStats.AsSpan(0, valueCount).ToArray();
       Array.Sort(names, values, StringComparer.Ordinal);
       if (optIn is { Details.Count: > 0 })
       {
-        valueDetails = new MetricDetail[names.Length];
+        valueDetails = new ValueDetail[names.Length];
         for (var i = 0; i < names.Length; ++i)
           valueDetails[i] = DetailOf(names[i]);
       }
@@ -745,8 +745,8 @@ sealed class RollupAccumulator
 /// <code>
 /// header(1: 0 = deleted, otherwise Present | HasVisitors | HasDetails | HasDistinct)
 /// count(varint) [visitor sketch]
-/// metricCount(varint) [name(string) sum(double) count(varint) [min(double) max(double) [m2(double)]]]*
-/// [detail per metric]           when HasDetails, see MetricDetail.Write; flags 0 for none
+/// nameCount(varint) [name(string) sum(double) count(varint) [min(double) max(double) [m2(double)]]]*
+/// [detail per value]            when HasDetails, see ValueDetail.Write; flags 0 for none
 /// [distinctCount(varint) [dimension(string) sketch]*]   when HasDistinct
 /// </code>
 /// Min and max are written when count is not zero, the variance term when count exceeds one.
@@ -774,10 +774,10 @@ sealed class RollupValueSerializer : ISerializer<RollupValue>
       return null;
     var count = reader.ReadVarInt64();
     var visitors = (header & HasVisitors) != 0 ? HyperLogLog.Read(ref reader) : null;
-    var metricCount = (int)reader.ReadVarUInt64();
-    var names = new string[metricCount];
-    var metrics = new MetricValue[metricCount];
-    for (var i = 0; i < metricCount; ++i)
+    var nameCount = (int)reader.ReadVarUInt64();
+    var names = new string[nameCount];
+    var values = new ValueStats[nameCount];
+    for (var i = 0; i < nameCount; ++i)
     {
       names[i] = reader.ReadString();
       var sum = reader.ReadDouble();
@@ -790,15 +790,15 @@ sealed class RollupValueSerializer : ISerializer<RollupValue>
         if (valueCount > 1)
           m2 = reader.ReadDouble();
       }
-      metrics[i] = new MetricValue(sum, valueCount, min, max, m2);
+      values[i] = new ValueStats(sum, valueCount, min, max, m2);
     }
-    MetricDetail[] details = null;
+    ValueDetail[] details = null;
     if ((header & HasDetails) != 0)
     {
-      details = new MetricDetail[metricCount];
-      for (var i = 0; i < metricCount; ++i)
+      details = new ValueDetail[nameCount];
+      for (var i = 0; i < nameCount; ++i)
       {
-        var detail = MetricDetail.Read(ref reader);
+        var detail = ValueDetail.Read(ref reader);
         details[i] = detail.HasFirstLast || detail.Quantiles != null ? detail : null;
       }
     }
@@ -815,15 +815,14 @@ sealed class RollupValueSerializer : ISerializer<RollupValue>
         distinct[i] = HyperLogLog.Read(ref reader);
       }
     }
-    return new RollupValue(count, visitors, names, metrics, details, distinctNames, distinct);
+    return new RollupValue(count, visitors, names, values, details, distinctNames, distinct);
   }
 
   public Memory<byte> Serialize(in RollupValue entry)
   {
     if (entry == null)
       return new byte[] { Deleted };
-    var writer = threadWriter ??= new ByteWriter(256);
-    writer.Reset();
+    var writer = ByteWriter.Reuse(ref threadWriter, 256);
     var hasVisitors = entry.Visitors != null && !entry.Visitors.IsEmpty;
     var hasDetails = entry.Details != null && Array.Exists(entry.Details, x => x != null);
     var hasDistinct = entry.DistinctNames.Length > 0;
@@ -838,19 +837,19 @@ sealed class RollupValueSerializer : ISerializer<RollupValue>
     writer.WriteVarInt64(entry.Count);
     if (hasVisitors)
       entry.Visitors.Write(writer);
-    writer.WriteVarUInt64((ulong)entry.MetricNames.Length);
-    for (var i = 0; i < entry.MetricNames.Length; ++i)
+    writer.WriteVarUInt64((ulong)entry.ValueNames.Length);
+    for (var i = 0; i < entry.ValueNames.Length; ++i)
     {
-      var metric = entry.Metrics[i];
-      writer.WriteString(entry.MetricNames[i]);
-      writer.WriteDouble(metric.Sum);
-      writer.WriteVarInt64(metric.Count);
-      if (metric.Count != 0)
+      var stats = entry.Values[i];
+      writer.WriteString(entry.ValueNames[i]);
+      writer.WriteDouble(stats.Sum);
+      writer.WriteVarInt64(stats.Count);
+      if (stats.Count != 0)
       {
-        writer.WriteDouble(metric.Min);
-        writer.WriteDouble(metric.Max);
-        if (metric.Count > 1)
-          writer.WriteDouble(metric.M2);
+        writer.WriteDouble(stats.Min);
+        writer.WriteDouble(stats.Max);
+        if (stats.Count > 1)
+          writer.WriteDouble(stats.M2);
       }
     }
     if (hasDetails)

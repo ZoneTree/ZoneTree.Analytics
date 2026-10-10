@@ -73,9 +73,9 @@ public sealed class RollupOptions
     foreach (var definition in Definitions)
     {
       if (definition == null)
-        throw new ArgumentException("Rollup definitions cannot contain null.");
+        throw new ArgumentException("Rollups.Definitions cannot contain null.");
       if (!dimensionSets.Add(definition.Id))
-        throw new ArgumentException($"Duplicate rollup definition for dimensions '{definition.Id}'.");
+        throw new ArgumentException($"Rollups.Definitions contains two definitions of the dimensions '{definition.Id}'.");
     }
     foreach (var (value, aggregates) in ValueAggregates)
     {

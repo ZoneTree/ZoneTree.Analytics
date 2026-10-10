@@ -106,7 +106,7 @@ sealed class DimensionSelector
 /// <code>
 /// name(string) visitor(8) session(8) sessionStartOffset(varint) flags(1)
 /// dimensionCount(varint) [name(string) value(string)]*
-/// metricCount(varint) [name(string) value(double)]*
+/// valueCount(varint) [name(string) value(double)]*
 /// </code>
 /// The timestamp and site are part of the key.
 /// </remarks>
@@ -127,8 +127,7 @@ static class RawEventCodec
       IReadOnlyDictionary<string, string> dimensions,
       IReadOnlyList<KeyValuePair<string, double>> values)
   {
-    var writer = threadWriter ??= new ByteWriter(512);
-    writer.Reset();
+    var writer = ByteWriter.Reuse(ref threadWriter, 512);
     writer.WriteString(name);
     Span<byte> fixed8 = stackalloc byte[8];
     BinaryPrimitives.WriteUInt64LittleEndian(fixed8, visitor);
@@ -206,8 +205,8 @@ static class RawEventCodec
       }
       target.Dimensions.Add(new(selector.Names[index], reader.ReadString(target.Strings)));
     }
-    var metricCount = (int)reader.ReadVarUInt64();
-    for (var i = 0; i < metricCount; ++i)
+    var valueCount = (int)reader.ReadVarUInt64();
+    for (var i = 0; i < valueCount; ++i)
     {
       var key = reader.ReadString(target.Strings);
       var value = reader.ReadDouble();

@@ -17,8 +17,8 @@ analytics.Track(AnalyticsEvent.PageView(
     ipAddress: "203.0.113.7",
     userAgent: request.Headers.UserAgent));
 
-var summary = await analytics.Web.GetSummaryAsync(new WebReportRequest { Range = DateRange.LastDays(30) });
-// Visitors, PageViews, Sessions, BounceRate, AverageSessionDuration, PageViewsPerSession
+var report = await analytics.Web.GetSummaryAsync(new WebReportRequest { Range = DateRange.LastDays(30) });
+// report.Summary: Visitors, PageViews, Sessions, BounceRate, AverageSessionDuration, PageViewsPerSession
 ```
 
 ---
@@ -100,8 +100,8 @@ var request = new WebReportRequest
     Compare = ComparisonPeriod.PreviousPeriod,
 };
 
-WebSummary summary = await analytics.Web.GetSummaryAsync(request);
-var daily     = await analytics.Web.GetTimeseriesAsync(request, TimeInterval.Day);
+WebSummary summary = (await analytics.Web.GetSummaryAsync(request)).Summary;
+var daily     = await analytics.Web.GetTimeseriesAsync(request, TimeInterval.Day);  // daily.Rows
 var pages     = await analytics.Web.GetPagesAsync(request);       // views, visitors, entrances, exits
 var exitPages = await analytics.Web.GetExitPagesAsync(request);
 var sources   = await analytics.Web.GetBreakdownAsync(request, StandardDimensions.Source);
@@ -111,6 +111,8 @@ long? live    = analytics.Web.GetCurrentVisitors();               // last 5 minu
 
 Console.WriteLine($"{summary.Visitors} visitors (previously {summary.Previous.Visitors})");
 ```
+
+Every report carries the range it covered (`From`, `To`) and its `Plan`, whose warnings tell when a result is incomplete, for example because it reaches before raw event retention. List reports and time series are `WebReport<T>` with `Rows` and `TotalRows`; the summary is a `WebSummaryReport` with `Summary`.
 
 Every report takes filters and segments:
 
@@ -264,7 +266,7 @@ A dimension that an event does not carry groups under `null`, so grouped totals 
 
 ```csharp
 DateRange.Today; DateRange.Yesterday; DateRange.LastDays(7); DateRange.LastDays(7, includeToday: false);
-DateRange.ThisMonth; DateRange.LastMonth; DateRange.ThisYear; DateRange.Month(2026, 9); DateRange.Year(2026);
+DateRange.ThisMonth; DateRange.LastMonth; DateRange.ThisYear; DateRange.LastYear; DateRange.Month(2026, 9); DateRange.Year(2026);
 DateRange.Days(new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 14));
 DateRange.Last(TimeSpan.FromMinutes(30));
 DateRange.Between(from, to);
@@ -272,6 +274,21 @@ DateRange.Between(from, to);
 query.TimeZone = TimeZoneInfo.FindSystemTimeZoneById("America/New_York");
 query.Compare = ComparisonPeriod.PreviousPeriod;   // or PreviousYear, or Custom(range)
 ```
+
+**Text forms.** Ranges, comparison periods, filters, metrics, conditions, sort keys, segments and intervals each have a text form: `Parse` reads it, `TryParse` tries to, and `ToString()` writes it back. The reporting API uses the same syntax.
+
+| Type | Examples |
+| --- | --- |
+| `DateRange` | `today`, `yesterday`, `30d`, `today-7..today-1`, `12h`, `30m`, `this-month`, `last-month`, `this-year`, `last-year`, `2026`, `2026-02`, `2026-02-28`, `2026-02-01..2026-02-28`, two ISO 8601 date-times separated by `..` |
+| `ComparisonPeriod` | `previous-period`, `previous-year`, or a date range |
+| `Filter` | `country==DE\|AT`, `page^=/blog/`, `load_time>=500`, `utm_source?` |
+| `Metric` | `visitors`, `sum:revenue`, `p95:load_time`, `percent(visitors)` |
+| `MetricFilter` | `visitors>10` |
+| `Order` | `-visitors`, `page` (a group-by dimension), `bucket` |
+| `Segment` | `visitors with purchase where plan==pro; country==DE`, `not sessions with signup` |
+| `TimeInterval` | `day`, `hour`, `5m`, `6h` |
+
+Invalid text raises `FormatException`; a null text raises `ArgumentNullException`.
 
 Calendar ranges and day, week, month and year buckets follow the query's time zone (the engine's reporting time zone by default). Daily rollups are stored in the reporting time zone; other time zones are answered from hourly rollups. A time series has at most 100,000 buckets; longer ones are rejected rather than truncated.
 
@@ -298,6 +315,7 @@ Positive operators never match a missing dimension; negative operators always do
 query.Segments.Add(Segment.VisitorsWho("purchase"));
 query.Segments.Add(Segment.SessionsWith(StandardEvents.PageView, Filter.Equal("page", "/pricing")));
 query.Segments.Add(Segment.VisitorsWhoViewed("/pricing").Exclude());
+query.Segments.Add(Segment.Parse("visitors with purchase where plan==pro; country==DE"));
 ```
 
 A segment restricts a query to visitors (or sessions) with at least one matching event in the range, or without one when excluded. Segments are evaluated over raw events.
@@ -399,7 +417,7 @@ With `TrackSeparately`, the web reports show bot hits next to human traffic:
 ```csharp
 options.Web.Bots = BotTraffic.TrackSeparately;
 
-var summary = await analytics.Web.GetSummaryAsync(request);   // summary.BotHits next to summary.PageViews
+var summary = (await analytics.Web.GetSummaryAsync(request)).Summary;   // BotHits next to PageViews
 var pages   = await analytics.Web.GetPagesAsync(request);     // PageStats.BotHits per page
 var bots    = await analytics.Web.GetBotsAsync(request);      // name, category, hits and share
 
@@ -451,8 +469,8 @@ Use one of the two page view options, not both. The tracker follows single-page-
 
 | Endpoint | Returns |
 | --- | --- |
-| `GET summary` | headline metrics |
-| `GET timeseries?interval=day` | headline metrics per bucket |
+| `GET summary` | headline metrics: `{ from, to, summary, plan }` |
+| `GET timeseries?interval=day` | headline metrics per bucket: `{ from, to, totalRows, rows, plan }` |
 | `GET breakdown?dimension=source` | rows with visitors, page views, share and session metrics |
 | `GET pages`, `GET exit-pages` | page statistics |
 | `GET goals` | custom events with conversion rates |
@@ -461,7 +479,7 @@ Use one of the two page view options, not both. The tracker follows single-page-
 | `POST query` | any query, as JSON |
 | `POST funnel` | a funnel, as JSON |
 
-Summary, time series and page rows include `botHits` (null unless bots are tracked separately). `interval` accepts `minute`, `hour`, `day`, `week`, `month`, `year` and widths such as `5m` or `6h`; `POST query` also takes `fill` (`none`, `zero`, `previous`, `linear`), `having` conditions and `limitPerBucket`. Common parameters: `site`, `range` (`today`, `yesterday`, `7d`, `30d`, `month`, `last-month`, `year`, `30m`, `12h`) or `from` and `to`, `tz`, `filter` (repeatable, `Filter.Parse` syntax), `compare` (`previous` or `year`), `limit`, `offset`.
+List reports return `{ from, to, totalRows, rows, plan }`. Summary, time series and page rows include `botHits` (null unless bots are tracked separately). `interval` accepts `minute`, `hour`, `day`, `week`, `month`, `year` and widths such as `5m` or `6h`; `POST query` also takes `fill` (`none`, `zero`, `previous`, `linear`), `having` conditions, `orderBy` sort keys and `limitPerBucket`. Common parameters, all in the text forms above: `site`, `range` (default `30d`) or `from` and `to` (days or date-times), `tz`, `filter` (repeatable), `segment` (repeatable; in JSON, `segments` holds texts or objects), `compare` (`previous-period`, `previous-year` or a range), `limit`, `offset`.
 
 ```json
 POST /_analytics/api/query
@@ -471,10 +489,10 @@ POST /_analytics/api/query
   "metrics": ["visitors", "bounce_rate", "conversion_rate:signup"],
   "filters": ["country==DE|AT"],
   "having": ["visitors>10"],
-  "segments": [{ "scope": "visitors", "event": "signup", "exclude": true }],
+  "segments": ["not visitors with signup"],
   "orderBy": ["-visitors"],
   "limit": 10,
-  "compare": "previous"
+  "compare": "previous-period"
 }
 ```
 

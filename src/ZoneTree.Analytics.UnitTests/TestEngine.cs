@@ -3,6 +3,36 @@ using ZoneTree.Options;
 
 namespace ZoneTree.Analytics.UnitTests;
 
+/// <summary>
+/// A fixture with its own data directory, created before and deleted after each test. Fixture
+/// teardowns run before the directory is deleted, so they can still dispose their engines.
+/// </summary>
+public abstract class DirectoryTest
+{
+  protected string directory;
+
+  [SetUp]
+  public void CreateDirectory() => directory = TestEngine.NewDirectory(GetType().Name);
+
+  [TearDown]
+  public void DeleteDirectory() => TestEngine.Delete(directory);
+}
+
+/// <summary>
+/// Time helpers shared by the tests, imported into every file.
+/// </summary>
+static class TestTime
+{
+  /// <summary>The UTC instant of a date and time.</summary>
+  public static DateTimeOffset Utc(DateTime value) => new(DateTime.SpecifyKind(value, DateTimeKind.Utc), TimeSpan.Zero);
+
+  /// <summary>The absolute range [from, to) in UTC.</summary>
+  public static DateRange Range(DateTime from, DateTime to) => DateRange.Between(Utc(from), Utc(to));
+
+  /// <summary>The 24 hours that start at <paramref name="day"/>, in UTC.</summary>
+  public static DateRange Day(DateTime day) => Range(day, day.AddDays(1));
+}
+
 static class TestEngine
 {
   public static string NewDirectory(string name) =>

@@ -233,10 +233,10 @@ public sealed class QueryModelTests
       Assert.That(buyers.ToString(), Is.EqualTo("visitors with purchase where plan==pro"));
       Assert.That(buyers.Exclude().ToString(), Is.EqualTo("not visitors with purchase where plan==pro"));
       Assert.That(Segment.SessionsWith("signup").ToString(), Is.EqualTo("sessions with signup"));
-      Assert.That(DateRange.Day(new DateOnly(2026, 2, 28)).ToString(), Is.EqualTo("2026-02-28..2026-02-28"));
+      Assert.That(DateRange.Day(new DateOnly(2026, 2, 28)).ToString(), Is.EqualTo("2026-02-28"));
       Assert.That(DateRange.Month(2026, 3).ToString(), Is.EqualTo("2026-03"));
       Assert.That(DateRange.Year(2025).ToString(), Is.EqualTo("2025"));
-      Assert.That(DateRange.LastMonth.ToString(), Is.EqualTo("month -1 relative to this month"));
+      Assert.That(DateRange.LastMonth.ToString(), Is.EqualTo("last-month"));
     });
   }
 
@@ -277,6 +277,116 @@ public sealed class QueryModelTests
       Assert.That(TimeInterval.Minutes(120), Is.EqualTo(TimeInterval.Hours(2)));
       Assert.That(TimeInterval.Minutes(120).GetHashCode(), Is.EqualTo(TimeInterval.Hours(2).GetHashCode()));
       Assert.That(new HashSet<TimeInterval> { TimeInterval.Minutes(60), TimeInterval.Hour, TimeInterval.Day }, Has.Count.EqualTo(2));
+    });
+  }
+
+  static IEnumerable<DateRange> RangesOfEveryKind() =>
+  [
+    DateRange.Today,
+    DateRange.Yesterday,
+    DateRange.LastDays(30),
+    DateRange.LastDays(7, includeToday: false),
+    DateRange.Last(TimeSpan.FromHours(12)),
+    DateRange.Last(TimeSpan.FromMinutes(90)),
+    DateRange.Last(TimeSpan.FromSeconds(45)),
+    DateRange.Last(TimeSpan.FromMilliseconds(1500)),
+    DateRange.ThisMonth,
+    DateRange.LastMonth,
+    DateRange.ThisYear,
+    DateRange.LastYear,
+    DateRange.Day(new DateOnly(2026, 2, 28)),
+    DateRange.Days(new DateOnly(2026, 2, 1), new DateOnly(2026, 2, 28)),
+    DateRange.Month(2026, 3),
+    DateRange.Year(2025),
+    DateRange.Between(new DateTimeOffset(2026, 2, 1, 10, 30, 0, TimeSpan.Zero), new DateTimeOffset(2026, 2, 1, 14, 0, 0, TimeSpan.FromHours(2))),
+  ];
+
+  [Test]
+  public void DateRangesRoundTripThroughTheirText()
+  {
+    Assert.Multiple(() =>
+    {
+      foreach (var range in RangesOfEveryKind())
+        Assert.That(DateRange.Parse(range.ToString()), Is.EqualTo(range), range.ToString());
+      Assert.That(DateRange.LastDays(30).ToString(), Is.EqualTo("30d"));
+      Assert.That(DateRange.LastDays(7, includeToday: false).ToString(), Is.EqualTo("today-7..today-1"));
+      Assert.That(DateRange.Last(TimeSpan.FromMinutes(90)).ToString(), Is.EqualTo("90m"));
+      Assert.That(DateRange.Parse("TODAY"), Is.EqualTo(DateRange.Today), "keywords ignore case");
+      Assert.That(DateRange.Parse("1d"), Is.EqualTo(DateRange.Today));
+      Assert.That(DateRange.Parse("today-1"), Is.EqualTo(DateRange.Yesterday));
+      Assert.That(DateRange.Parse(" 2026-02-01 .. 2026-02-28 "), Is.EqualTo(DateRange.Days(new DateOnly(2026, 2, 1), new DateOnly(2026, 2, 28))));
+    });
+  }
+
+  [Test]
+  public void PeriodsOrdersAndSegmentsRoundTripThroughTheirText()
+  {
+    var segments = new[]
+    {
+      Segment.VisitorsWho("purchase"),
+      Segment.VisitorsWho("purchase", Filter.Equal("plan", "pro"), Filter.GreaterThan("amount", 10)).Exclude(),
+      Segment.SessionsWith("order completed", Filter.Contains("note", "a;b", "x|y")),
+      Segment.VisitorsWho("quote \"me\"", Filter.Matches("page", @"^/docs/\d+$")),
+    };
+    var dimensions = new[] { StandardDimensions.Page };
+    var orders = new[] { Order.By(Metric.Visitors), Order.By(Metric.Sum("revenue"), descending: false), Order.ByDimension("page"), Order.ByBucket(descending: true) };
+    Assert.Multiple(() =>
+    {
+      foreach (var period in new[] { ComparisonPeriod.PreviousPeriod, ComparisonPeriod.PreviousYear, ComparisonPeriod.Custom(DateRange.Month(2025, 12)) })
+        Assert.That(ComparisonPeriod.Parse(period.ToString()).ToString(), Is.EqualTo(period.ToString()));
+      Assert.That(ComparisonPeriod.Parse("previous-period"), Is.SameAs(ComparisonPeriod.PreviousPeriod));
+      Assert.That(ComparisonPeriod.Custom(DateRange.Month(2025, 12)).ToString(), Is.EqualTo("2025-12"));
+
+      foreach (var order in orders)
+      {
+        var parsed = Order.Parse(order.ToString(), dimensions);
+        Assert.That((parsed.Metric, parsed.Dimension, parsed.IsBucket, parsed.Descending),
+            Is.EqualTo((order.Metric, order.Dimension, order.IsBucket, order.Descending)), order.ToString());
+      }
+      // Without the group-by dimensions, a name is a metric key.
+      Assert.That(Order.Parse("-visitors").Metric, Is.EqualTo(Metric.Visitors));
+
+      foreach (var segment in segments)
+      {
+        var parsed = Segment.Parse(segment.ToString());
+        Assert.That(parsed.ToString(), Is.EqualTo(segment.ToString()));
+        Assert.That((parsed.Scope, parsed.Event, parsed.IsExcluded), Is.EqualTo((segment.Scope, segment.Event, segment.IsExcluded)));
+        Assert.That(parsed.Filters.Select(x => x.Values), Is.EqualTo(segment.Filters.Select(x => x.Values)), segment.ToString());
+      }
+      Assert.That(segments[1].ToString(), Is.EqualTo("not visitors with purchase where plan==pro; amount>10"));
+      Assert.That(segments[2].ToString(), Is.EqualTo("sessions with \"order completed\" where note~=a\\;b|x\\|y"));
+    });
+  }
+
+  [Test]
+  public void EveryParserSharesOneErrorModel()
+  {
+    var parsers = new (string Name, Func<string, object> Parse, Func<string, bool> TryParse)[]
+    {
+      ("Filter", x => Filter.Parse(x), x => Filter.TryParse(x, out _)),
+      ("Metric", x => Metric.Parse(x), x => Metric.TryParse(x, out _)),
+      ("MetricFilter", x => MetricFilter.Parse(x), x => MetricFilter.TryParse(x, out _)),
+      ("TimeInterval", x => TimeInterval.Parse(x), x => TimeInterval.TryParse(x, out _)),
+      ("DateRange", x => DateRange.Parse(x), x => DateRange.TryParse(x, out _)),
+      ("ComparisonPeriod", x => ComparisonPeriod.Parse(x), x => ComparisonPeriod.TryParse(x, out _)),
+      ("Order", x => Order.Parse(x), x => Order.TryParse(x, null, out _)),
+      ("Segment", x => Segment.Parse(x), x => Segment.TryParse(x, out _)),
+    };
+    Assert.Multiple(() =>
+    {
+      foreach (var (name, parse, tryParse) in parsers)
+      {
+        Assert.Throws<ArgumentNullException>(() => parse(null), name);
+        foreach (var invalid in new[] { "", "  ", "%%%", "==x" })
+        {
+          Assert.Throws<FormatException>(() => parse(invalid), $"{name}: '{invalid}'");
+          Assert.That(tryParse(invalid), Is.False, $"{name}: '{invalid}'");
+        }
+        Assert.That(tryParse(null), Is.False, name);
+      }
+      Assert.Throws<FormatException>(() => DateRange.Parse("0d"), "an empty range");
+      Assert.Throws<FormatException>(() => DateRange.Parse("2026-03-01..2026-02-01"), "a reversed range");
+      Assert.Throws<FormatException>(() => Segment.Parse("visitors with \"unclosed"));
     });
   }
 }

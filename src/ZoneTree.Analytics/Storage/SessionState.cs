@@ -147,8 +147,7 @@ sealed class SessionStateSerializer : ISerializer<SessionState>
   {
     if (entry == null)
       return new byte[] { Deleted };
-    var writer = threadWriter ??= new ByteWriter(256);
-    writer.Reset();
+    var writer = ByteWriter.Reuse(ref threadWriter, 256);
     writer.WriteByte(Present);
     writer.WriteVarUInt64(entry.SessionId);
     writer.WriteVarInt64(entry.StartTicks);

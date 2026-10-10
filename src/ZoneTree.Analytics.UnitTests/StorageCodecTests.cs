@@ -77,15 +77,15 @@ public sealed class StorageCodecTests
         42,
         sketch,
         ["$bounces", "revenue"],
-        [new MetricValue(-3, 0, 0, 0, 0), new MetricValue(99.5, 3, 10, 50, 600.25)]);
+        [new ValueStats(-3, 0, 0, 0, 0), new ValueStats(99.5, 3, 10, 50, 600.25)]);
     var serializer = new RollupValueSerializer();
     var restored = serializer.Deserialize(serializer.Serialize(value));
     Assert.Multiple(() =>
     {
       Assert.That(restored.Count, Is.EqualTo(42));
       Assert.That(restored.Visitors.Estimate(), Is.EqualTo(2));
-      Assert.That(restored.MetricNames, Is.EqualTo(value.MetricNames));
-      Assert.That(restored.Metrics, Is.EqualTo(value.Metrics));
+      Assert.That(restored.ValueNames, Is.EqualTo(value.ValueNames));
+      Assert.That(restored.Values, Is.EqualTo(value.Values));
       Assert.That(serializer.Deserialize(serializer.Serialize(null)), Is.Null);
     });
   }
@@ -95,11 +95,11 @@ public sealed class StorageCodecTests
   {
     var a = new RollupAccumulator { Count = 1 };
     a.AddVisitor(1, 14);
-    a.AddMetric("x", 5);
+    a.AddValue("x", 5);
     var b = new RollupAccumulator { Count = 2 };
     b.AddVisitor(2, 14);
-    b.AddMetric("x", 7);
-    b.AddMetric("y", 1);
+    b.AddValue("x", 7);
+    b.AddValue("y", 1);
     var va = a.ToValue();
     var vb = b.ToValue();
     var merged = RollupValue.Merge(va, vb);
@@ -107,8 +107,8 @@ public sealed class StorageCodecTests
     {
       Assert.That(merged.Count, Is.EqualTo(3));
       Assert.That(merged.Visitors.Estimate(), Is.EqualTo(2));
-      Assert.That(merged.MetricNames, Is.EqualTo(new[] { "x", "y" }));
-      Assert.That(merged.Metrics[0], Is.EqualTo(new MetricValue(12, 2, 5, 7, 2)));
+      Assert.That(merged.ValueNames, Is.EqualTo(new[] { "x", "y" }));
+      Assert.That(merged.Values[0], Is.EqualTo(new ValueStats(12, 2, 5, 7, 2)));
       Assert.That(va.Visitors.Estimate(), Is.EqualTo(1));
       Assert.That(vb.Visitors.Estimate(), Is.EqualTo(1));
     });

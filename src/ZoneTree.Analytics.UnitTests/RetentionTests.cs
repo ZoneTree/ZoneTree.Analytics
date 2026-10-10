@@ -7,21 +7,11 @@ namespace ZoneTree.Analytics.UnitTests;
 /// Retention by deletion predicates: expired records are hidden at once whatever the partition
 /// size, and removed from disk by retention runs.
 /// </summary>
-public sealed class RetentionTests
+public sealed class RetentionTests : DirectoryTest
 {
   static readonly DateTime Old = DateTime.UtcNow.Date.AddDays(-10).AddHours(12);
 
   static readonly DateTime Recent = DateTime.UtcNow.Date.AddDays(-1).AddHours(12);
-
-  string directory;
-
-  [SetUp]
-  public void SetUp() => directory = TestEngine.NewDirectory("retention");
-
-  [TearDown]
-  public void TearDown() => TestEngine.Delete(directory);
-
-  static DateTimeOffset Utc(DateTime value) => new(DateTime.SpecifyKind(value, DateTimeKind.Utc), TimeSpan.Zero);
 
   const int PerSite = 3_000;
 

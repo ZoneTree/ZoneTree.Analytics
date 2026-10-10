@@ -86,9 +86,9 @@ sealed class IngestionWorker
 
   readonly HashSet<ulong> dirtySessions = [];
 
-  readonly List<MetricChange> metricChanges = [];
+  readonly List<ValueChange> valueChanges = [];
 
-  readonly List<MetricChange> metricChangesForSession = [];
+  readonly List<ValueChange> valueChangesForSession = [];
 
   // Reused for every session, entrance and exit row: RollupBuffer.Contribute reads them and
   // keeps nothing.
@@ -247,16 +247,16 @@ sealed class IngestionWorker
     if (storeRawEvents && ev.Ticks >= buffer.Cutoffs.RawEvents)
       WriteRawEvent(ev, session);
 
-    metricChanges.Clear();
+    valueChanges.Clear();
     if (ev.Values != null)
     {
       foreach (var (name, value) in ev.Values)
-        metricChanges.Add(new MetricChange(name, value, IsDelta: false));
+        valueChanges.Add(new ValueChange(name, value, IsDelta: false));
     }
     if (session != null)
-      UpdateSession(ev, session, isNewSession, metricChanges);
+      UpdateSession(ev, session, isNewSession, valueChanges);
     buffer.Contribute(
-        ev.Site, ev.Name, ev.Ticks, dimensions, 1, ev.Visitor, metricChanges,
+        ev.Site, ev.Name, ev.Ticks, dimensions, 1, ev.Visitor, valueChanges,
         ev.IsBot ? DimensionScope.Bot : DimensionScope.All);
     if (ev.IsBot)
       Interlocked.Increment(ref counters.BotsTracked);
@@ -327,7 +327,7 @@ sealed class IngestionWorker
   /// own rollup contribution.
   /// </para>
   /// </remarks>
-  void UpdateSession(EnrichedEvent ev, SessionState session, bool isNewSession, List<MetricChange> eventMetrics)
+  void UpdateSession(EnrichedEvent ev, SessionState session, bool isNewSession, List<ValueChange> eventValues)
   {
     var wasBounce = !isNewSession && session.IsBounce;
     var durationDelta = isNewSession ? 0 : Math.Max(0, ev.Ticks - session.LastTicks);
@@ -357,8 +357,8 @@ sealed class IngestionWorker
     var dimensionsOfSession = GetSessionDimensions(session);
     if (session.LastPage != null)
     {
-      metricChangesForSession.Clear();
-      metricChangesForSession.Add(new MetricChange(StandardMetrics.Exits, -1, IsDelta: true));
+      valueChangesForSession.Clear();
+      valueChangesForSession.Add(new ValueChange(StandardValues.Exits, -1, IsDelta: true));
       buffer.Contribute(
           ev.Site,
           StandardEvents.PageView,
@@ -366,17 +366,17 @@ sealed class IngestionWorker
           pageDimensions.Of(dimensionsOfSession, session.LastPage, session.LastHostname),
           0,
           0,
-          metricChangesForSession,
+          valueChangesForSession,
           DimensionScope.PageView);
     }
     var isEntrance = isNewSession && session.Events == 1;
     if (ev.HasCustomDimensions)
     {
       // Entrances and exits never carry custom dimensions: contribute them separately.
-      metricChangesForSession.Clear();
-      metricChangesForSession.Add(new MetricChange(StandardMetrics.Exits, 1, IsDelta: true));
+      valueChangesForSession.Clear();
+      valueChangesForSession.Add(new ValueChange(StandardValues.Exits, 1, IsDelta: true));
       if (isEntrance)
-        metricChangesForSession.Add(new MetricChange(StandardMetrics.Entrances, 1, IsDelta: true));
+        valueChangesForSession.Add(new ValueChange(StandardValues.Entrances, 1, IsDelta: true));
       buffer.Contribute(
           ev.Site,
           StandardEvents.PageView,
@@ -384,14 +384,14 @@ sealed class IngestionWorker
           pageDimensions.Of(dimensionsOfSession, ev.Page, ev.Hostname),
           0,
           0,
-          metricChangesForSession,
+          valueChangesForSession,
           DimensionScope.PageView);
     }
     else
     {
-      eventMetrics.Add(new MetricChange(StandardMetrics.Exits, 1, IsDelta: true));
+      eventValues.Add(new ValueChange(StandardValues.Exits, 1, IsDelta: true));
       if (isEntrance)
-        eventMetrics.Add(new MetricChange(StandardMetrics.Entrances, 1, IsDelta: true));
+        eventValues.Add(new ValueChange(StandardValues.Entrances, 1, IsDelta: true));
     }
     session.LastPage = ev.Page;
     session.LastHostname = ev.Hostname ?? "";
@@ -405,16 +405,16 @@ sealed class IngestionWorker
   {
     if (!session.HasPendingDeltas || session.Site == null)
       return;
-    metricChangesForSession.Clear();
+    valueChangesForSession.Clear();
     if (session.PendingBounces != 0)
-      metricChangesForSession.Add(new MetricChange(StandardMetrics.Bounces, session.PendingBounces, IsDelta: true));
+      valueChangesForSession.Add(new ValueChange(StandardValues.Bounces, session.PendingBounces, IsDelta: true));
     if (session.PendingDurationTicks != 0)
     {
-      metricChangesForSession.Add(new MetricChange(
-          StandardMetrics.Duration, (double)session.PendingDurationTicks / TimeSpan.TicksPerSecond, IsDelta: true));
+      valueChangesForSession.Add(new ValueChange(
+          StandardValues.Duration, (double)session.PendingDurationTicks / TimeSpan.TicksPerSecond, IsDelta: true));
     }
     if (session.PendingPageViews != 0)
-      metricChangesForSession.Add(new MetricChange(StandardMetrics.SessionPageViews, session.PendingPageViews, IsDelta: true));
+      valueChangesForSession.Add(new ValueChange(StandardValues.SessionPageViews, session.PendingPageViews, IsDelta: true));
     buffer.Contribute(
         session.Site,
         StandardEvents.Session,
@@ -422,7 +422,7 @@ sealed class IngestionWorker
         GetSessionDimensions(session),
         session.PendingStart ? 1 : 0,
         session.PendingStart ? session.PendingVisitor : 0,
-        metricChangesForSession,
+        valueChangesForSession,
         DimensionScope.Session);
     session.ClearPendingDeltas();
   }

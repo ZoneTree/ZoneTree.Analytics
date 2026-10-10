@@ -17,7 +17,7 @@ analytics.Track(new AnalyticsEvent("purchase")
     Values = { ["revenue"] = 49.0 },
 });
 
-var summary = await analytics.Web.GetSummaryAsync(new WebReportRequest
+var report = await analytics.Web.GetSummaryAsync(new WebReportRequest
 {
     Range = DateRange.LastDays(30),
     Compare = ComparisonPeriod.PreviousPeriod,

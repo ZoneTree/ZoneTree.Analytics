@@ -3,21 +3,9 @@ namespace ZoneTree.Analytics.UnitTests;
 /// <summary>
 /// Opening an engine, its properties, and tracking under queue pressure.
 /// </summary>
-public sealed class EngineEntryPointTests
+public sealed class EngineEntryPointTests : DirectoryTest
 {
   static readonly DateTime Day0 = DateTime.UtcNow.Date.AddDays(-10);
-
-  string directory;
-
-  [SetUp]
-  public void SetUp() => directory = TestEngine.NewDirectory("entry");
-
-  [TearDown]
-  public void TearDown() => TestEngine.Delete(directory);
-
-  static DateTimeOffset Utc(DateTime value) => new(DateTime.SpecifyKind(value, DateTimeKind.Utc), TimeSpan.Zero);
-
-  static DateRange Day(DateTime day) => DateRange.Between(Utc(day), Utc(day.AddDays(1)));
 
   static double Events(AnalyticsEngine engine, string eventName, DateRange range, string site = null) =>
       engine.Query(new AnalyticsQuery { Site = site, Event = eventName, Range = range, Metrics = { Metric.Events } })

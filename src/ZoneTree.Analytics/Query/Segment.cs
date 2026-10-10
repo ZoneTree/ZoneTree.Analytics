@@ -1,3 +1,5 @@
+using System.Text;
+using ZoneTree.Analytics.Internal;
 using ZoneTree.Analytics.Storage;
 
 namespace ZoneTree.Analytics;
@@ -71,11 +73,127 @@ public sealed class Segment
 
   internal bool Matches(RawEvent rawEvent) => rawEvent.Matches(Event, filters);
 
-  /// <inheritdoc/>
+  /// <summary>
+  /// The text form, which <see cref="Parse"/> reads back, for example
+  /// <c>visitors with purchase where plan==pro; country==DE</c>.
+  /// </summary>
   public override string ToString()
   {
-    var prefix = IsExcluded ? "not " : "";
-    var conditions = Filters.Count == 0 ? "" : " where " + string.Join(" and ", Filters);
-    return $"{prefix}{Scope.ToString().ToLowerInvariant()} with {Event}{conditions}";
+    var text = new StringBuilder();
+    if (IsExcluded)
+      text.Append("not ");
+    text.Append(Scope == SegmentScope.Visitors ? "visitors" : "sessions").Append(" with ").Append(QuoteEvent(Event));
+    if (filters.Length > 0)
+      text.Append(" where ").AppendJoin("; ", filters.Select(x => x.ToString()));
+    return text.ToString();
+  }
+
+  /// <summary>
+  /// Parses a segment: <c>visitors</c> or <c>sessions</c>, <c>with</c> and an event name, and
+  /// optionally <c>where</c> and filters separated by <c>;</c> (see <see cref="Filter.Parse"/>),
+  /// for example <c>visitors with purchase where plan==pro; country==DE</c>. A leading <c>not</c>
+  /// excludes the matching visitors or sessions. Event names with spaces, quotes or <c>;</c> are
+  /// written in double quotes, with <c>\"</c> and <c>\\</c> for quotes and backslashes.
+  /// </summary>
+  /// <exception cref="ArgumentNullException"><paramref name="text"/> is null.</exception>
+  /// <exception cref="FormatException">The text is not a segment.</exception>
+  public static Segment Parse(string text) => Parsing.Parse(text, "segment", ParseCore);
+
+  /// <summary>
+  /// Tries to parse a segment. See <see cref="Parse"/>.
+  /// </summary>
+  public static bool TryParse(string text, out Segment segment) => Parsing.TryParse(text, Parse, out segment);
+
+  static Segment ParseCore(string text)
+  {
+    var rest = text;
+    var excluded = TakeWord(ref rest, "not");
+    var scope = TakeWord(ref rest, "visitors") ? SegmentScope.Visitors :
+        TakeWord(ref rest, "sessions") ? SegmentScope.Sessions :
+        throw new FormatException($"'{text}' is not a segment: it must start with 'visitors' or 'sessions'.");
+    if (!TakeWord(ref rest, "with"))
+      throw new FormatException($"'{text}' is not a segment: the scope must be followed by 'with' and an event name.");
+    rest = rest.TrimStart();
+    string eventName;
+    if (rest.StartsWith('"'))
+    {
+      eventName = ReadQuoted(ref rest, text);
+    }
+    else
+    {
+      var where = rest.IndexOf(" where ", StringComparison.OrdinalIgnoreCase);
+      eventName = (where < 0 ? rest : rest[..where]).Trim();
+      rest = where < 0 ? "" : rest[where..];
+    }
+    Filter[] conditions = [];
+    if (rest.Trim().Length > 0)
+    {
+      if (!TakeWord(ref rest, "where"))
+        throw new FormatException($"'{text}' is not a segment: the event name must be followed by 'where' and filters.");
+      conditions = [.. SplitFilters(rest).Select(Filter.Parse)];
+    }
+    var segment = new Segment(scope, eventName, conditions, false);
+    return excluded ? segment.Exclude() : segment;
+  }
+
+  static bool TakeWord(ref string text, string word)
+  {
+    var trimmed = text.TrimStart();
+    if (!trimmed.StartsWith(word, StringComparison.OrdinalIgnoreCase) ||
+        (trimmed.Length > word.Length && !char.IsWhiteSpace(trimmed[word.Length])))
+      return false;
+    text = trimmed[word.Length..];
+    return true;
+  }
+
+  static string QuoteEvent(string name) =>
+      name.Any(c => char.IsWhiteSpace(c) || c is '"' or ';' or '\\')
+          ? "\"" + name.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\""
+          : name;
+
+  static string ReadQuoted(ref string rest, string text)
+  {
+    var value = new StringBuilder();
+    for (var i = 1; i < rest.Length; ++i)
+    {
+      var c = rest[i];
+      if (c == '\\' && i + 1 < rest.Length)
+      {
+        value.Append(rest[++i]);
+        continue;
+      }
+      if (c == '"')
+      {
+        rest = rest[(i + 1)..];
+        return value.ToString();
+      }
+      value.Append(c);
+    }
+    throw new FormatException($"'{text}' is not a segment: the quoted event name is not closed.");
+  }
+
+  /// <summary>
+  /// Splits filters at the semicolons that are not escaped as <c>\;</c>.
+  /// </summary>
+  static IEnumerable<string> SplitFilters(string text)
+  {
+    var current = new StringBuilder();
+    for (var i = 0; i < text.Length; ++i)
+    {
+      var c = text[i];
+      if (c == '\\' && i + 1 < text.Length && text[i + 1] is '|' or ';' or '\\')
+      {
+        current.Append(c).Append(text[++i]);
+        continue;
+      }
+      if (c == ';')
+      {
+        yield return current.ToString();
+        current.Clear();
+        continue;
+      }
+      current.Append(c);
+    }
+    yield return current.ToString();
   }
 }

@@ -45,14 +45,22 @@ static class KeyCodec
   [ThreadStatic]
   static ByteWriter threadWriter;
 
-  static ByteWriter Writer
+  static ByteWriter Writer => ByteWriter.Reuse(ref threadWriter, 256);
+
+  static void WriteSegment(ByteWriter writer, string segment)
   {
-    get
-    {
-      var writer = threadWriter ??= new ByteWriter(256);
-      writer.Reset();
-      return writer;
-    }
+    writer.WriteRawUtf8(segment);
+    writer.WriteByte(Terminator);
+  }
+
+  /// <summary>
+  /// Writes the head of a rollup series: site, event and dimension set.
+  /// </summary>
+  static void WriteSeries(ByteWriter writer, string site, string eventName, string dimensionSetId)
+  {
+    WriteSegment(writer, site);
+    WriteSegment(writer, eventName);
+    WriteSegment(writer, dimensionSetId);
   }
 
   /// <summary>
@@ -61,12 +69,7 @@ static class KeyCodec
   public static byte[] RollupPrefix(string site, string eventName, string dimensionSetId)
   {
     var writer = Writer;
-    writer.WriteRawUtf8(site);
-    writer.WriteByte(Terminator);
-    writer.WriteRawUtf8(eventName);
-    writer.WriteByte(Terminator);
-    writer.WriteRawUtf8(dimensionSetId);
-    writer.WriteByte(Terminator);
+    WriteSeries(writer, site, eventName, dimensionSetId);
     return writer.ToArray();
   }
 
@@ -76,8 +79,7 @@ static class KeyCodec
   public static byte[] SitePrefix(string site)
   {
     var writer = Writer;
-    writer.WriteRawUtf8(site);
-    writer.WriteByte(Terminator);
+    WriteSegment(writer, site);
     return writer.ToArray();
   }
 
@@ -85,12 +87,7 @@ static class KeyCodec
       string site, string eventName, string dimensionSetId, long bucket, string value)
   {
     var writer = Writer;
-    writer.WriteRawUtf8(site);
-    writer.WriteByte(Terminator);
-    writer.WriteRawUtf8(eventName);
-    writer.WriteByte(Terminator);
-    writer.WriteRawUtf8(dimensionSetId);
-    writer.WriteByte(Terminator);
+    WriteSeries(writer, site, eventName, dimensionSetId);
     writer.WriteUInt64BigEndian((ulong)bucket);
     writer.WriteRawUtf8(value);
     return writer.ToArray();
@@ -129,8 +126,7 @@ static class KeyCodec
   public static Memory<byte> RawKey(string site, long ticks, long sequence)
   {
     var writer = Writer;
-    writer.WriteRawUtf8(site);
-    writer.WriteByte(Terminator);
+    WriteSegment(writer, site);
     writer.WriteUInt64BigEndian((ulong)ticks);
     writer.WriteUInt64BigEndian((ulong)sequence);
     return writer.ToArray();

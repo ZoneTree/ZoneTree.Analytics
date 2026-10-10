@@ -158,7 +158,7 @@ sealed class QueryEngine
     public List<PlanSegment> Plan = [];
 
     /// <summary>The opt-in aggregates the query reads, by value name; null when none.</summary>
-    public Dictionary<string, ValueAggregates> MetricDetails;
+    public Dictionary<string, ValueAggregates> ValueDetails;
 
     /// <summary>The dimensions whose distinct values the query counts.</summary>
     public string[] DistinctDimensions = [];
@@ -369,14 +369,14 @@ sealed class QueryEngine
           source.DistinctDimensions = [.. source.DistinctDimensions, metric.Argument];
         continue;
       }
-      source.MetricDetails ??= new(StringComparer.Ordinal);
-      source.MetricDetails[metric.Argument] = source.MetricDetails.GetValueOrDefault(metric.Argument) | required;
+      source.ValueDetails ??= new(StringComparer.Ordinal);
+      source.ValueDetails[metric.Argument] = source.ValueDetails.GetValueOrDefault(metric.Argument) | required;
     }
     foreach (var source in context.Sources.Values)
     {
       long since = 0;
       var missing = new List<string>();
-      foreach (var (metric, required) in source.MetricDetails ?? [])
+      foreach (var (metric, required) in source.ValueDetails ?? [])
       {
         var at = activations.AggregatesSince(metric, required);
         if (at == long.MaxValue)
@@ -562,8 +562,8 @@ sealed class QueryEngine
   static long Ceil(QueryContext context, Level level, long ticks) => level switch
   {
     Level.Day => context.Calendar.CeilToDayBoundary(ticks),
-    Level.Hour => CeilTicks(ticks, TimeSpan.TicksPerHour),
-    Level.Minute => CeilTicks(ticks, TimeSpan.TicksPerMinute),
+    Level.Hour => ReportingCalendar.CeilTicks(ticks, TimeSpan.TicksPerHour),
+    Level.Minute => ReportingCalendar.CeilTicks(ticks, TimeSpan.TicksPerMinute),
     _ => ticks
   };
 
@@ -574,12 +574,6 @@ sealed class QueryEngine
     Level.Minute => ReportingCalendar.FloorTicks(ticks, TimeSpan.TicksPerMinute),
     _ => ticks
   };
-
-  static long CeilTicks(long ticks, long unit)
-  {
-    var floor = ReportingCalendar.FloorTicks(ticks, unit);
-    return floor == ticks ? ticks : floor + unit;
-  }
 
   bool IsAvailable(QueryContext context, SourceContext source, Level level, long from)
   {
@@ -937,11 +931,11 @@ sealed class QueryEngine
     accumulator.AddVisitor(rawEvent.Visitor, context.Precision);
     foreach (var (name, value) in rawEvent.Values)
     {
-      accumulator.AddMetric(name, value);
-      if (source.MetricDetails != null && source.MetricDetails.TryGetValue(name, out var aggregates))
+      accumulator.AddValue(name, value);
+      if (source.ValueDetails != null && source.ValueDetails.TryGetValue(name, out var aggregates))
       {
         var bucket = (aggregates & ValueAggregates.Percentiles) != 0 ? QuantileSketch.BucketOf(value) : default;
-        accumulator.AddMetricDetail(name, value, rawEvent.Ticks, aggregates, bucket);
+        accumulator.AddValueDetail(name, value, rawEvent.Ticks, aggregates, bucket);
       }
     }
     foreach (var dimension in source.DistinctDimensions)
@@ -1011,12 +1005,12 @@ sealed class QueryEngine
     var accumulator = GetGroup(groups, context.Calendar.Bucket(session.Start, context.Interval), groupValues);
     ++accumulator.Count;
     accumulator.AddVisitor(session.Visitor, context.Precision);
-    accumulator.AddMetricDelta(StandardMetrics.Bounces, session.Interactions <= 1 ? 1 : 0);
+    accumulator.AddValueDelta(StandardValues.Bounces, session.Interactions <= 1 ? 1 : 0);
     var duration = session.Last - session.Start;
     if (duration > 0)
-      accumulator.AddMetricDelta(StandardMetrics.Duration, (double)duration / TimeSpan.TicksPerSecond);
+      accumulator.AddValueDelta(StandardValues.Duration, (double)duration / TimeSpan.TicksPerSecond);
     if (session.PageViews > 0)
-      accumulator.AddMetricDelta(StandardMetrics.SessionPageViews, session.PageViews);
+      accumulator.AddValueDelta(StandardValues.SessionPageViews, session.PageViews);
   }
 
   /// <summary>
@@ -1037,7 +1031,7 @@ sealed class QueryEngine
       if (MatchAndGroup(context, source, dimensions, groupValues))
       {
         GetGroup(groups, context.Calendar.Bucket(session.Start, context.Interval), groupValues)
-            .AddMetricDelta(StandardMetrics.Entrances, 1);
+            .AddValueDelta(StandardValues.Entrances, 1);
       }
     }
     if (session.LastPage != null && session.LastPageTicks >= segment.From && session.LastPageTicks < segment.To)
@@ -1046,7 +1040,7 @@ sealed class QueryEngine
       if (MatchAndGroup(context, source, dimensions, groupValues))
       {
         GetGroup(groups, context.Calendar.Bucket(session.LastPageTicks, context.Interval), groupValues)
-            .AddMetricDelta(StandardMetrics.Exits, 1);
+            .AddValueDelta(StandardValues.Exits, 1);
       }
     }
   }

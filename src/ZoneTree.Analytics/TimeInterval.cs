@@ -111,9 +111,13 @@ public readonly struct TimeInterval : IEquatable<TimeInterval>
   /// Parses "none", "minute", "hour", "day", "week", "month", "year", or a width such as "5m",
   /// "15m" or "6h".
   /// </summary>
+  /// <exception cref="ArgumentNullException"><paramref name="text"/> is null.</exception>
   /// <exception cref="FormatException">The text is not an interval.</exception>
-  public static TimeInterval Parse(string text) =>
-      TryParse(text, out var interval) ? interval : throw new FormatException($"'{text}' is not a time interval.");
+  public static TimeInterval Parse(string text)
+  {
+    ArgumentNullException.ThrowIfNull(text);
+    return TryParse(text, out var interval) ? interval : throw new FormatException($"'{text}' is not a time interval.");
+  }
 
   /// <summary>
   /// Tries to parse an interval. See <see cref="Parse"/>.
