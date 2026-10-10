@@ -14,8 +14,9 @@ namespace ZoneTree.Analytics.Storage;
 /// <remarks>
 /// Raw events and rollup rows older than retention are deleted by the stores' deletion
 /// predicates, which compare the time in the key with the <see cref="RetentionClock"/>: retention
-/// hides them from every reader at once, merges remove them from disk (see
-/// <see cref="ExpiredRecords"/>), and partitions that expire as a whole are dropped.
+/// hides them from every reader at once, merges remove them from disk and drop disk segment
+/// parts that expired as a whole without reading them (see <see cref="ExpiredRecords"/>), and
+/// partitions that expire as a whole are dropped.
 /// </remarks>
 sealed class StoreFactory
 {
@@ -132,11 +133,14 @@ sealed class StoreFactory
 
   ZoneTreeFactory<Memory<byte>, Memory<byte>> RawEventsFactory(string directory)
   {
+    ExpiredKeyPredicate isExpired = retention.IsRawEventExpired;
     // A deleted event has an empty value; encoded events are never empty.
     return Create<Memory<byte>, Memory<byte>>(directory, storage.RawEvents)
         .SetComparer(new ByteArrayLexicographicComparerAscending())
         .SetIsDeletedDelegate((in Memory<byte> key, in Memory<byte> value) =>
-            value.Length == 0 || retention.IsRawEventExpired(key.Span))
+            value.Length == 0 || isExpired(key.Span))
+        .SetIsRangeDeletedDelegate((in Memory<byte> first, in Memory<byte> _, in Memory<byte> last, in Memory<byte> _) =>
+            ExpiredRecords.IsRangeExpired(first.Span, last.Span, 1, isExpired))
         .SetMarkValueDeletedDelegate((ref Memory<byte> value) => value = Memory<byte>.Empty);
   }
 
@@ -148,11 +152,14 @@ sealed class StoreFactory
 
   ZoneTreeFactory<Memory<byte>, RollupValue> RollupsFactory(string directory, Granularity granularity)
   {
+    ExpiredKeyPredicate isExpired = key => retention.IsRollupExpired(granularity, key);
     return Create<Memory<byte>, RollupValue>(directory, storage.Rollups)
         .SetComparer(new ByteArrayLexicographicComparerAscending())
         .SetValueSerializer(new RollupValueSerializer())
         .SetIsDeletedDelegate((in Memory<byte> key, in RollupValue value) =>
-            value == null || retention.IsRollupExpired(granularity, key.Span))
+            value == null || isExpired(key.Span))
+        .SetIsRangeDeletedDelegate((in Memory<byte> first, in RollupValue _, in Memory<byte> last, in RollupValue _) =>
+            ExpiredRecords.IsRangeExpired(first.Span, last.Span, 3, isExpired))
         .SetMarkValueDeletedDelegate((ref RollupValue value) => value = null);
   }
 

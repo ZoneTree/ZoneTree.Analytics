@@ -105,6 +105,30 @@ public sealed class RetentionTests
   }).Totals[Metric.Events];
 
   [Test]
+  public void RangesExpireOnlyWithinOneHead()
+  {
+    const long cutoff = 1_000;
+    ExpiredKeyPredicate rawExpired = key => KeyCodec.ReadRawTicks(key) < cutoff;
+    ExpiredKeyPredicate rollupExpired = key => KeyCodec.ReadRollupBucket(key) < cutoff;
+    bool Raw(Memory<byte> first, Memory<byte> last) => ExpiredRecords.IsRangeExpired(first.Span, last.Span, 1, rawExpired);
+    bool Rollups(Memory<byte> first, Memory<byte> last) => ExpiredRecords.IsRangeExpired(first.Span, last.Span, 3, rollupExpired);
+    Assert.Multiple(() =>
+    {
+      // One site, older than the cutoff up to the last key: every event between is older too.
+      Assert.That(Raw(KeyCodec.RawKey("a", 10, 1), KeyCodec.RawKey("a", 999, 7)), Is.True);
+      Assert.That(Raw(KeyCodec.RawKey("a", 10, 1), KeyCodec.RawKey("a", 1_000, 1)), Is.False);
+      // Across sites the range holds the newest events of the first site.
+      Assert.That(Raw(KeyCodec.RawKey("a", 10, 1), KeyCodec.RawKey("b", 20, 1)), Is.False);
+      // A site that prefixes another is a different head.
+      Assert.That(Raw(KeyCodec.RawKey("sit", 10, 1), KeyCodec.RawKey("site", 20, 1)), Is.False);
+      Assert.That(Rollups(KeyCodec.RollupKey("s", "e", "page", 10, "/a"), KeyCodec.RollupKey("s", "e", "page", 999, "/z")), Is.True);
+      Assert.That(Rollups(KeyCodec.RollupKey("s", "e", "page", 10, "/a"), KeyCodec.RollupKey("s", "e", "page", 1_000, "/a")), Is.False);
+      Assert.That(Rollups(KeyCodec.RollupKey("s", "e", "", 10, ""), KeyCodec.RollupKey("s", "e", "page", 20, "/a")), Is.False);
+      Assert.That(Rollups(KeyCodec.RollupKey("s", "e", "page", 10, "/a"), KeyCodec.RollupKey("s", "f", "page", 20, "/a")), Is.False);
+    });
+  }
+
+  [Test]
   public void CutoffsMoveInWholeDaysOrHours()
   {
     var now = new DateTime(2026, 10, 10, 15, 42, 7, DateTimeKind.Utc).Ticks;

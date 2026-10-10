@@ -25,9 +25,32 @@ delegate bool ExpiredKeyPredicate(ReadOnlySpan<byte> key);
 /// them. Deleting an expired record loses nothing, and a tree that receives no new events gets
 /// the record a merge needs to run.
 /// </para>
+/// <para>
+/// Merges skip reading a part altogether when <see cref="IsRangeExpired"/> proves from its
+/// first and last keys that every record in it has expired: ZoneTree's range deletion drops
+/// the part without decompressing it. That holds for the parts that lie within one head, such
+/// as the old events of a busy site; parts that span heads are read and filtered as above.
+/// </para>
 /// </remarks>
 static class ExpiredRecords
 {
+  /// <summary>
+  /// True when every key from <paramref name="first"/> to <paramref name="last"/> has expired:
+  /// both keys share a head and the last one has expired. Keys of one head are ordered by time,
+  /// so every key between them is older than the last. A range that spans heads holds the end
+  /// of its first head, its newest records, so it is never reported expired.
+  /// </summary>
+  /// <param name="first">The first key of the range.</param>
+  /// <param name="last">The last key of the range.</param>
+  /// <param name="headSegments">The number of key segments that make up a head.</param>
+  /// <param name="isExpired">The retention part of the tree's deletion predicate.</param>
+  public static bool IsRangeExpired(
+      ReadOnlySpan<byte> first, ReadOnlySpan<byte> last, int headSegments, ExpiredKeyPredicate isExpired)
+  {
+    var head = KeyCodec.HeadLength(first, headSegments);
+    return last.Length > head && last[..head].SequenceEqual(first[..head]) && isExpired(last);
+  }
+
   /// <summary>
   /// Deletes the first record of every head whose first record has expired.
   /// Returns the number of records deleted.
