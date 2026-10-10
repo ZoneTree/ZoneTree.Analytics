@@ -68,6 +68,25 @@ public sealed class ApiShapeTests
     });
   }
 
+  [Test]
+  public void ExceptionConstructorsKeepMessageAndCause()
+  {
+    var cause = new IOException("disk full");
+    Assert.Multiple(() =>
+    {
+      foreach (var type in PublicTypes.Where(x => typeof(Exception).IsAssignableFrom(x)))
+      {
+        var wrapped = (Exception)Activator.CreateInstance(type, "query failed", cause);
+        Assert.That(wrapped.Message, Is.EqualTo("query failed"), type.Name);
+        Assert.That(wrapped.InnerException, Is.SameAs(cause), type.Name);
+        Assert.That(((Exception)Activator.CreateInstance(type)).Message, Is.Not.Empty, type.Name);
+        Assert.That(((Exception)Activator.CreateInstance(type, "only a message")).InnerException, Is.Null, type.Name);
+      }
+      Assert.That(new AnalyticsQueryTimeoutException("no timeout given").Timeout, Is.Null);
+      Assert.That(new AnalyticsQueryTimeoutException(TimeSpan.FromSeconds(30)).Message, Does.Contain("30 seconds"));
+    });
+  }
+
   /// <summary>
   /// Option groups and collections can be set in place but not replaced, so they are never
   /// null. Allow-lists are the exception: null means "no restriction".
