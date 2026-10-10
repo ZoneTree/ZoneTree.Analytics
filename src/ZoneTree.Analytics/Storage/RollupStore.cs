@@ -7,9 +7,8 @@ namespace ZoneTree.Analytics.Storage;
 /// Pre-aggregated rows of every enabled granularity.
 /// </summary>
 /// <remarks>
-/// Each granularity has its own partitioned store, partitioned as configured in
-/// <see cref="PartitioningOptions"/> (by default minute rows by day, hour rows by month and
-/// day rows by year), so retention can drop whole partitions.
+/// Each granularity has its own partitioned store, which starts a new partition after the
+/// number of rows configured in <see cref="PartitioningOptions"/>.
 /// Rows are merged with ZoneTree's atomic add-or-update, which keeps concurrent
 /// flushes from several ingestion workers consistent.
 /// </remarks>
@@ -34,11 +33,11 @@ sealed class RollupStore : IDisposable
   {
     this.definitions = definitions;
     if ((granularities & Granularity.Minute) != 0)
-      stores[0] = new(Path.Combine(rootDirectory, "minute"), new PartitionScheme(partitioning.MinuteRollups), factory.OpenRollups, logger, factory.CreateRollupsMaintainer, factory.WriteAheadLogDirectoryOf);
+      stores[0] = new(Path.Combine(rootDirectory, "minute"), partitioning.MinuteRollups, directory => factory.OpenRollups(directory, Granularity.Minute), logger, factory.CreateRollupsMaintainer, factory.WriteAheadLogDirectoryOf);
     if ((granularities & Granularity.Hour) != 0)
-      stores[1] = new(Path.Combine(rootDirectory, "hour"), new PartitionScheme(partitioning.HourRollups), factory.OpenRollups, logger, factory.CreateRollupsMaintainer, factory.WriteAheadLogDirectoryOf);
+      stores[1] = new(Path.Combine(rootDirectory, "hour"), partitioning.HourRollups, directory => factory.OpenRollups(directory, Granularity.Hour), logger, factory.CreateRollupsMaintainer, factory.WriteAheadLogDirectoryOf);
     if ((granularities & Granularity.Day) != 0)
-      stores[2] = new(Path.Combine(rootDirectory, "day"), new PartitionScheme(partitioning.DayRollups), factory.OpenRollups, logger, factory.CreateRollupsMaintainer, factory.WriteAheadLogDirectoryOf);
+      stores[2] = new(Path.Combine(rootDirectory, "day"), partitioning.DayRollups, directory => factory.OpenRollups(directory, Granularity.Day), logger, factory.CreateRollupsMaintainer, factory.WriteAheadLogDirectoryOf);
   }
 
   static int IndexOf(Granularity granularity) => granularity switch
@@ -67,7 +66,7 @@ sealed class RollupStore : IDisposable
     foreach (var (key, accumulator) in rows)
     {
       var store = GetStore(key.Granularity);
-      var partition = store.Scheme.NameOf(key.Bucket);
+      var partition = store.Route(key.Bucket);
       if (!groups.TryGetValue((key.Granularity, partition), out var list))
       {
         list = [];
@@ -79,7 +78,7 @@ sealed class RollupStore : IDisposable
     }
     foreach (var ((granularity, partition), list) in groups)
     {
-      using var lease = GetStore(granularity).Acquire(partition, create: true);
+      using var lease = GetStore(granularity).Acquire(partition);
       if (lease == null)
         continue; // The partition is being dropped by retention.
       var tree = lease.Tree;
@@ -115,9 +114,9 @@ sealed class RollupStore : IDisposable
       return;
     var prefix = KeyCodec.RollupPrefix(site, eventName, dimensionSetId);
     var seekKey = KeyCodec.SeekKey(prefix, fromBucket);
-    foreach (var partition in store.Scheme.NamesInRange(fromBucket, toBucket))
+    foreach (var partition in store.PartitionsInRange(fromBucket, toBucket))
     {
-      using var lease = store.Acquire(partition, create: false);
+      using var lease = store.Acquire(partition.Name);
       if (lease == null)
         continue;
       // Dashboards repeat rollup queries: cached blocks spare decompressing them again.
@@ -151,9 +150,9 @@ sealed class RollupStore : IDisposable
     if (store == null)
       return result;
     var sitePrefix = KeyCodec.SitePrefix(site);
-    foreach (var partition in store.Scheme.NamesInRange(fromBucket, toBucket))
+    foreach (var partition in store.PartitionsInRange(fromBucket, toBucket))
     {
-      using var lease = store.Acquire(partition, create: false);
+      using var lease = store.Acquire(partition.Name);
       if (lease == null)
         continue;
       using var iterator = lease.Tree.CreateIterator();

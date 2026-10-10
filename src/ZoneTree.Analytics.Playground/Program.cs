@@ -87,6 +87,8 @@ using (var engine = new AnalyticsEngine(options))
   events = null;
   var liveHeap = GC.GetTotalMemory(true);
   Console.WriteLine($"Working set: {process.WorkingSet64 / 1024 / 1024:N0} MB, heap: {heapBefore / 1024 / 1024:N0} MB, live heap after GC (events released): {liveHeap / 1024 / 1024:N0} MB");
+  foreach (var partition in engine.GetStatistics().Partitions)
+    Console.WriteLine($"  {partition.Directory,-28} {partition.ApproximateRecordCount:N0} records");
   if (Environment.GetEnvironmentVariable("ZT_PAUSE") == "1")
   {
     Console.WriteLine("PID " + Environment.ProcessId + " paused");

@@ -33,7 +33,7 @@ public sealed class ReadmeExamplesTests
         },
         Storage =
         {
-          Partitioning = { RawEvents = PartitionPeriod.Day },
+          Partitioning = { RawEvents = 50_000_000 },
           Rollups = { ConfigureMaintainer = maintainer => maintainer.InactiveBlockCacheCleanupInterval = TimeSpan.FromMinutes(1) },
         },
         Privacy = { GeoPrecision = GeoPrecision.Country },

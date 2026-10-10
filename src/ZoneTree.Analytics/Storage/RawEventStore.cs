@@ -26,9 +26,9 @@ sealed class RawEventStore : IDisposable
   const long MinSliceTicks = TimeSpan.TicksPerMinute;
 
   public RawEventStore(
-      string rootDirectory, PartitionPeriod period, StoreFactory factory, ILogger logger)
+      string rootDirectory, long recordsPerPartition, StoreFactory factory, ILogger logger)
   {
-    Store = new(rootDirectory, new PartitionScheme(period), factory.OpenRawEvents, logger, factory.CreateRawEventsMaintainer, factory.WriteAheadLogDirectoryOf);
+    Store = new(rootDirectory, recordsPerPartition, factory.OpenRawEvents, logger, factory.CreateRawEventsMaintainer, factory.WriteAheadLogDirectoryOf);
   }
 
   public PartitionedStore<Memory<byte>, Memory<byte>> Store { get; }
@@ -64,14 +64,13 @@ sealed class RawEventStore : IDisposable
     try
     {
       var ranges = new List<Slice>();
-      var scheme = Store.Scheme;
-      for (var start = scheme.StartOf(fromTicks); start < toTicks; start = scheme.NextStart(start))
+      foreach (var partition in Store.PartitionsInRange(fromTicks, toTicks))
       {
-        var lease = Store.Acquire(scheme.NameOf(start), create: false);
+        var lease = Store.Acquire(partition.Name);
         if (lease == null)
           continue;
         leases.Add(lease);
-        ranges.Add(new Slice(lease.Tree, Math.Max(fromTicks, start), Math.Min(toTicks, scheme.NextStart(start))));
+        ranges.Add(new Slice(lease.Tree, Math.Max(fromTicks, partition.From), Math.Min(toTicks, partition.To)));
       }
       var slices = maxDegreeOfParallelism == 1 ? ranges : Split(ranges, maxDegreeOfParallelism * SlicesPerThread);
       var sitePrefix = KeyCodec.SitePrefix(site);

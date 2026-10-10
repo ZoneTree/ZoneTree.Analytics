@@ -94,13 +94,16 @@ public sealed class ConfigurationTests
     {
       o.DataDirectory = Path.Combine(directory, "data");
       o.Storage.WriteAheadLogDirectory = logs;
-      o.Storage.Partitioning.RawEvents = PartitionPeriod.Day;
+      o.Storage.Partitioning.RawEvents = 1;
     }
     var old = DateTime.UtcNow.Date.AddDays(-10).AddHours(12);
     using (var engine = TestEngine.Create(directory, Separate))
     {
-      engine.Track(Event("purchase", "pro", 0));
+      // The old event fills the first raw partition; the next one starts a few days later.
       engine.Track(new AnalyticsEvent("purchase") { VisitorId = "old", Timestamp = Utc(old) });
+      engine.Flush();
+      Assert.That(engine.RollOverPartitions(old.Ticks), Is.EqualTo(1));
+      engine.Track(Event("purchase", "pro", 0));
     }
     var oldDay = old.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
     Assert.Multiple(() =>

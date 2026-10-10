@@ -46,6 +46,30 @@ public sealed class AnalyticsStatistics
 
   /// <summary>Partitions removed by retention.</summary>
   public long PartitionsDropped { get; init; }
+
+  /// <summary>
+  /// Every ZoneTree partition of the raw event and rollup tiers, in time order per tier.
+  /// </summary>
+  public IReadOnlyList<PartitionStatistics> Partitions { get; init; } = [];
+}
+
+/// <summary>
+/// A ZoneTree partition of a data tier.
+/// </summary>
+public sealed class PartitionStatistics
+{
+  /// <summary>
+  /// The partition directory relative to the data directory, for example
+  /// <c>events/2026-10-11</c>. The last segment is the day the partition starts.
+  /// </summary>
+  public string Directory { get; init; }
+
+  /// <summary>
+  /// The approximate number of records in the partition: deleted records that merges have not
+  /// removed yet are included. Null for a partition that was not opened since the engine
+  /// started, as counting would open it.
+  /// </summary>
+  public long? ApproximateRecordCount { get; init; }
 }
 
 sealed class Counters

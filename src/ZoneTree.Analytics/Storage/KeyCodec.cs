@@ -142,6 +142,31 @@ static class KeyCodec
   }
 
   /// <summary>
+  /// The timestamp of a raw key, read from its fixed-size end without locating the site.
+  /// </summary>
+  public static long ReadRawTicks(ReadOnlySpan<byte> key) =>
+      (long)BinaryPrimitives.ReadUInt64BigEndian(key.Slice(key.Length - 16, 8));
+
+  /// <summary>
+  /// The bucket of a rollup key: the 8 bytes after its third terminator.
+  /// </summary>
+  public static long ReadRollupBucket(ReadOnlySpan<byte> key) =>
+      (long)BinaryPrimitives.ReadUInt64BigEndian(key.Slice(HeadLength(key, 3), 8));
+
+  /// <summary>
+  /// The length of the leading segments of a key up to and including its
+  /// <paramref name="segments"/>-th terminator: the site of a raw key (1), or the site, event and
+  /// dimension set of a rollup key (3). Rows of one head are ordered by time.
+  /// </summary>
+  public static int HeadLength(ReadOnlySpan<byte> key, int segments)
+  {
+    var length = 0;
+    for (var i = 0; i < segments; ++i)
+      length += key[length..].IndexOf(Terminator) + 1;
+    return length;
+  }
+
+  /// <summary>
   /// Reads the segment that starts at <paramref name="offset"/> and ends at the next terminator.
   /// </summary>
   public static string ReadSegment(ReadOnlySpan<byte> key, int offset, out int next)

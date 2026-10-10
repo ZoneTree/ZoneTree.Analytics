@@ -18,19 +18,3 @@ public enum Granularity
   /// <summary>Calendar days in the configured reporting time zone.</summary>
   Day = 4,
 }
-
-/// <summary>
-/// The period of one storage partition. Each partition is a separate ZoneTree; retention
-/// drops whole partitions. See <see cref="PartitioningOptions"/>.
-/// </summary>
-public enum PartitionPeriod
-{
-  /// <summary>One ZoneTree per day.</summary>
-  Day,
-
-  /// <summary>One ZoneTree per month.</summary>
-  Month,
-
-  /// <summary>One ZoneTree per year.</summary>
-  Year,
-}

@@ -7,10 +7,16 @@ namespace ZoneTree.Analytics.Storage;
 
 /// <summary>
 /// Creates the ZoneTree instances of every store: the engine chooses comparers, serializers and
-/// deletion markers (the storage format), <see cref="StoreOptions"/> everything else. Byte keys
+/// deletion predicates (the storage format), <see cref="StoreOptions"/> everything else. Byte keys
 /// use <see cref="ByteArrayLexicographicComparerAscending"/>: the prefix seeks of
 /// <see cref="KeyCodec"/> rely on a key sorting before every longer key it is a prefix of.
 /// </summary>
+/// <remarks>
+/// Raw events and rollup rows older than retention are deleted by the stores' deletion
+/// predicates, which compare the time in the key with the <see cref="RetentionClock"/>: retention
+/// hides them from every reader at once, merges remove them from disk (see
+/// <see cref="ExpiredRecords"/>), and partitions that expire as a whole are dropped.
+/// </remarks>
 sealed class StoreFactory
 {
   readonly StorageOptions storage;
@@ -21,9 +27,12 @@ sealed class StoreFactory
 
   readonly ILogger logger;
 
-  public StoreFactory(StorageOptions storage, string dataRoot, ILogger logger)
+  readonly RetentionClock retention;
+
+  public StoreFactory(StorageOptions storage, string dataRoot, ILogger logger, RetentionClock retention)
   {
     this.storage = storage;
+    this.retention = retention;
     this.dataRoot = dataRoot;
     writeAheadLogRoot = storage.WriteAheadLogDirectory == null ? null : Path.GetFullPath(storage.WriteAheadLogDirectory);
     this.logger = logger;
@@ -83,16 +92,17 @@ sealed class StoreFactory
   {
     if (storage.StoreRawEvents)
       RawEventsFactory(null).Validate();
-    RollupsFactory(null).Validate();
+    RollupsFactory(null, Granularity.Hour).Validate();
     SessionsFactory(null, schema).Validate();
   }
 
   /// <summary>
-  /// Creates the maintainer of a tree and applies <see cref="StoreOptions.ConfigureMaintainer"/>.
+  /// Creates the maintainer of a tree, which also merges bottom segments (see
+  /// <see cref="StoreMaintainer{TKey, TValue}"/>), and applies <see cref="StoreOptions.ConfigureMaintainer"/>.
   /// </summary>
-  static IMaintainer CreateMaintainer<TKey, TValue>(IZoneTree<TKey, TValue> tree, StoreOptions store)
+  static StoreMaintainer<TKey, TValue> CreateMaintainer<TKey, TValue>(IZoneTree<TKey, TValue> tree, StoreOptions store)
   {
-    var maintainer = tree.CreateMaintainer();
+    var maintainer = new StoreMaintainer<TKey, TValue>(tree);
     try
     {
       store.ConfigureMaintainer?.Invoke(maintainer);
@@ -122,24 +132,27 @@ sealed class StoreFactory
 
   ZoneTreeFactory<Memory<byte>, Memory<byte>> RawEventsFactory(string directory)
   {
-    // ZoneTree's default deletion marker for Memory<byte> values is an empty value; encoded
-    // events are never empty.
+    // A deleted event has an empty value; encoded events are never empty.
     return Create<Memory<byte>, Memory<byte>>(directory, storage.RawEvents)
-        .SetComparer(new ByteArrayLexicographicComparerAscending());
+        .SetComparer(new ByteArrayLexicographicComparerAscending())
+        .SetIsDeletedDelegate((in Memory<byte> key, in Memory<byte> value) =>
+            value.Length == 0 || retention.IsRawEventExpired(key.Span))
+        .SetMarkValueDeletedDelegate((ref Memory<byte> value) => value = Memory<byte>.Empty);
   }
 
   /// <summary>
-  /// Rollups: order-preserving binary keys, <see cref="RollupValue"/> values.
+  /// Rollups of a granularity: order-preserving binary keys, <see cref="RollupValue"/> values.
   /// </summary>
-  public IZoneTree<Memory<byte>, RollupValue> OpenRollups(string directory) =>
-      RollupsFactory(directory).OpenOrCreate();
+  public IZoneTree<Memory<byte>, RollupValue> OpenRollups(string directory, Granularity granularity) =>
+      RollupsFactory(directory, granularity).OpenOrCreate();
 
-  ZoneTreeFactory<Memory<byte>, RollupValue> RollupsFactory(string directory)
+  ZoneTreeFactory<Memory<byte>, RollupValue> RollupsFactory(string directory, Granularity granularity)
   {
     return Create<Memory<byte>, RollupValue>(directory, storage.Rollups)
         .SetComparer(new ByteArrayLexicographicComparerAscending())
         .SetValueSerializer(new RollupValueSerializer())
-        .SetIsDeletedDelegate((in Memory<byte> _, in RollupValue value) => value == null)
+        .SetIsDeletedDelegate((in Memory<byte> key, in RollupValue value) =>
+            value == null || retention.IsRollupExpired(granularity, key.Span))
         .SetMarkValueDeletedDelegate((ref RollupValue value) => value = null);
   }
 

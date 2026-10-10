@@ -485,7 +485,7 @@ Invalid requests return 400 with an `error` message; queries that exceed `Querie
 * **Secret management.** Supply `Privacy.VisitorIdSecret` from your secret store to keep the hashing key away from the data files.
 * **Data minimization.** `GeoPrecision`, `CollectUserAgentDetails`, `CollectVersions`, `IncludeQueryString` (off by default), `AllowedDimensions`, `DeniedDimensions`, `MaxCustomDimensions`, `MaxCustomMetrics`, `MaxValueLength`.
 * **Filtering.** `EventFilters` drop events before they are queued, for example internal traffic or visitors who opted out. Bot traffic is excluded by default.
-* **Retention** per data tier, see below. Late events older than a tier's retention are not written to that tier, so backfilled history only lands where it is kept.
+* **Retention** per data tier, see [Retention](#retention). Expired data is hidden at once and removed from disk; late events older than a tier's retention are not written to that tier, so backfilled history only lands where it is kept.
 * **Erasure.** `await analytics.EraseVisitorAsync(userId)` deletes the raw events and the session of an explicitly identified visitor. Rollups contain only aggregates and sketches, never identifiers.
 
 With daily rotation, a person who visits on several days counts once per day in multi-day totals. Use `PersistentHash` or explicit visitor ids for cross-day unique visitors.
@@ -513,7 +513,7 @@ var options = new AnalyticsOptions
     },
     Storage =
     {
-        Partitioning = { RawEvents = PartitionPeriod.Day },  // one ZoneTree per day of raw events
+        Partitioning = { RawEvents = 50_000_000 },  // 50 million raw events per ZoneTree
         Rollups = { ConfigureMaintainer = maintainer => maintainer.InactiveBlockCacheCleanupInterval = TimeSpan.FromMinutes(1) },
     },
     Privacy = { GeoPrecision = GeoPrecision.Country },
@@ -526,48 +526,57 @@ var options = new AnalyticsOptions
 };
 ```
 
-The engine copies the options when it is created; changing them afterwards has no effect. The reporting time zone, sketch precision and partitioning define the storage format. They are persisted on creation; reopening with different values throws `AnalyticsConfigurationException`.
+The engine copies the options when it is created; changing them afterwards has no effect. The reporting time zone and sketch precision define the storage format. They are persisted on creation; reopening with different values throws `AnalyticsConfigurationException`.
+
+### Retention
+
+`Retention` keeps raw events for 90 days, minute rollups for 2 days, hourly rollups for 400 days and daily rollups forever by default. Retention works inside every tree, whatever its size:
+
+* **Hidden at once.** The stores' ZoneTree deletion predicates compare the time in each key with the tier's cutoff, so expired records disappear for every reader as soon as the cutoff passes them. Cutoffs move in whole UTC days (whole hours for retention under a day): data is kept for its retention and at most one more day.
+* **Removed from disk.** Retention runs, hourly by default (`Retention.CheckInterval`) or through `ApplyRetention()`, drop the partitions that expired as a whole. In the other partitions they delete the first record of every expired key range (a site's raw events; a rollup series), which makes the next merge read the disk segment parts that hold expired records and rewrite them without those records. A tier does this once per cutoff step, so the oldest part of each range is rewritten at most once a day.
+* **Large trees.** A tree larger than `Storage.<store>.DiskSegmentMaxItemCount` (20 million records by default) keeps older data in bottom segments; expired records there leave the disk when the bottom segments merge, which the engine starts whenever two or more exist.
+* **Late events.** Events older than a tier's retention are not written to that tier.
 
 ### Partitioning
 
-Each data tier is split over time into partitions, and each partition is a separate ZoneTree. `Storage.Partitioning` sets the period per tier:
+Each data tier is a sequence of partitions, and each partition is a separate ZoneTree that holds a contiguous time range. A tier writes to its latest partition until that partition holds the number of records set in `Storage.Partitioning`, then starts a new one:
 
-| Tier | Option | Default | Allowed |
-| --- | --- | --- | --- |
-| Raw events | `RawEvents` | `Month` | `Day`, `Month`, `Year` |
-| Minute rollups | `MinuteRollups` | `Day` | `Day`, `Month`, `Year` |
-| Hourly rollups | `HourRollups` | `Month` | `Day`, `Month`, `Year` |
-| Daily rollups | `DayRollups` | `Year` | `Month`, `Year` |
+| Tier | Option | Default |
+| --- | --- | ---: |
+| Raw events | `RawEvents` | 10,000,000 |
+| Minute rollups | `MinuteRollups` | 10,000,000 |
+| Hourly rollups | `HourRollups` | 10,000,000 |
+| Daily rollups | `DayRollups` | 10,000,000 |
 
-Retention drops whole partitions once they end before the cutoff, so a tier keeps data for up to one partition period longer than its retention. Smaller partitions make retention more precise and keep trees, merges and drops small; larger partitions mean fewer trees and directories, and fewer trees per long-range query. Use `Day` for raw events of high-volume sites or short raw retention. A partition period longer than the tier's retention is rejected, for example monthly minute rollups with two-day retention.
+A ZoneTree comfortably holds tens of millions of records (ZoneTree's reference benchmark keeps 100 million in one tree), and one large tree ingests and answers long-range queries faster than several small ones. A tier therefore never starts a tree for time alone: a site that stores a million events a year keeps one raw event tree for a decade. The limit can be changed at any time and applies to the next partition; raise it for very high-volume sites.
+
+* **Rollover.** Housekeeping checks the latest partition of each tier every minute. Once the latest partition holds the limit, the next partition starts at a later UTC day boundary, beyond any event the engine can still receive (`Ingestion.MaxFutureSkew`, one hour by default, plus a day). Until then the latest partition keeps receiving events, so partitions slightly exceed the limit. Partition directories are named after their start day.
+* **Ranges.** The first partition of a tier also holds events older than its start, and the latest one every newer event. Queries read only the partitions that overlap their range.
+* **Backfills.** Events with an explicit `Timestamp` go to the partition that holds their time, so a backfill adds to existing partitions instead of creating new ones.
+* **Counts.** Records are counted approximately: deleted records that merges have not removed yet are included. `GetStatistics().Partitions` lists every partition with its approximate record count.
+
+Retention does not depend on partitions: expired records are deleted inside every tree (see [Retention](#retention)), and a partition is dropped once its whole range is older than its tier's retention.
 
 #### How many ZoneTrees an engine creates
 
-The number of ZoneTrees depends only on the time span the data covers, the partition periods and retention. It does not grow with the number of events, sites or rollup definitions: all sites and all rollup definitions of a tier and period share one tree.
+The number of ZoneTrees depends on the number of records each tier retains, not on the number of sites or rollup definitions: all sites and all rollup definitions of a tier share its trees.
 
 ```
 trees = 1 (sessions, when enabled)
-      + raw event partitions within raw event retention
-      + for each enabled rollup granularity: its partitions within its retention
+      + for raw events and each enabled rollup granularity:
+          about (records within retention / records per partition) + 1
 ```
 
-A partition is created when the first event of its period arrives, and dropped once it ends before its tier's retention cutoff. With the defaults (raw events monthly for 90 days, hourly rollups monthly for 400 days, daily rollups yearly and kept forever, minute rollups disabled):
+With the defaults (10 million records per partition; raw events for 90 days, hourly rollups for 400 days, daily rollups forever; minute rollups disabled):
 
 | Scenario | Raw | Minute | Hourly | Daily | Sessions | Trees on disk |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1 million events over 30 days (the playground) | 2 | 0 | 2 | 1 | 1 | **6** |
-| One year of live traffic | 3–4 | 0 | 13–14 | 1–2 | 1 | **about 20** |
-| Five years of live traffic | 3–4 | 0 | 14 | 5–6 | 1 | **about 25** |
-| Defaults plus minute rollups (daily partitions, 2-day retention) | 3–4 | 3 | 14 | | 1 | **+3** |
-| Raw events partitioned by day, 90-day retention | 91 | 0 | 14 | | 1 | **about 107** |
+| 1 million events over 30 days (the playground) | 1 | 0 | 1 | 1 | 1 | **4** |
+| The playground's traffic for years: 10 million events a year (2.5 million within retention), 1.4 million hourly rows within retention, 56,000 daily rows a year | 1 | 0 | 1 | 1 | 1 | **4** |
+| 100 million events a year: 25 million raw events within retention | 3–4 | 0 | 1–2 | 1 | 1 | **6–8** |
+| Defaults plus minute rollups (2-day retention) | | 1 | | | | **+1** |
 
-Only recently used trees are open: a partition that has not been written or read for `Storage.PartitionIdleTimeout` (10 minutes) is merged to disk and closed. Live traffic writes to the current partition of each tier, so an ingesting engine with the defaults holds 4 trees open, plus the partitions that recent queries read.
-
-What creates more trees, and how to keep the count small:
-
-* **Short partition periods with long retention.** Daily raw partitions with a year of retention are 366 trees. Keep monthly partitions unless retention is short or a day of raw events is very large.
-* **Minute rollups with long retention.** Minute rollups are partitioned by day; keep their retention to a few days.
-* **Backfilled timestamps.** Events tracked with an explicit `Timestamp` create the partitions of their periods, but only within each tier's retention: an event older than raw event retention writes no raw partition. Daily rollups are kept forever by default, so events spread over many years create one daily rollup tree per year; set `Retention.DayRollups` to bound them. The ASP.NET Core endpoint always uses the server's clock, so clients cannot create old partitions.
+Only recently used trees are open: a partition that has not been written or read for `Storage.PartitionIdleTimeout` (10 minutes) is merged to disk and closed. Live traffic writes to the latest partition of each tier, so an ingesting engine with the defaults holds 4 trees open, plus the partitions that recent queries read.
 
 ### Storage tuning
 
@@ -576,10 +585,12 @@ What creates more trees, and how to keep the count small:
 | Setting | Default |
 | --- | --- |
 | `WriteAheadLogMode` | `AsyncCompressed` |
-| `MutableSegmentMaxItemCount` | raw events 50,000, rollups 20,000, sessions 50,000 |
+| `MutableSegmentMaxItemCount` | raw events 50,000, rollups 100,000, sessions 50,000 |
 | `MutableSegmentBloomFilterBitsPerItem` | raw events 0 (scanned, never point-read); ZoneTree's default otherwise |
 | `DiskSegmentMaxItemCount`, `BTreeLockMode`, `BTreeNodeSize`, `BTreeLeafSize`, `EnableSingleSegmentGarbageCollection`, `AllowUnsafeOptionValues` | ZoneTree's defaults |
 | `ConfigureWriteAheadLog`, `ConfigureDiskSegments`, `ConfigureMaintainer` | hooks for every other write-ahead-log, disk segment and maintainer option |
+
+Rollup keys are ordered by series, then time, so the rows of a new hour spread over the whole key range of a rollup tree and merges rewrite most of its disk segment. A larger rollup mutable segment merges less often and absorbs repeated updates of the same row; a smaller one holds less memory, as rows carry visitor sketches. With one hourly rollup tree, raising it from 20,000 to 100,000 rows lowered ingestion CPU time by about 7%, and to 200,000 by about 11%.
 
 ```csharp
 options.Storage.RawEvents.ConfigureDiskSegments = disk => disk.CompressionMethod = CompressionMethod.Zstd;
@@ -587,7 +598,7 @@ options.Storage.Rollups.ConfigureMaintainer = maintainer => maintainer.Threshold
 options.Storage.WriteAheadLogDirectory = "/fast-disk/analytics-wal";
 ```
 
-`Storage.WriteAheadLogDirectory` moves write-ahead logs to their own root, for example a faster disk; it is fixed once the data directory exists. Comparers, serializers and deletion markers define the storage format and are chosen by the engine. The current partition of every store is opened at start, so ZoneTree validates these settings before the first event.
+`Storage.WriteAheadLogDirectory` moves write-ahead logs to their own root, for example a faster disk; it is fixed once the data directory exists. Comparers, serializers and deletion predicates define the storage format and are chosen by the engine. ZoneTree validates these settings when the engine starts, before the first event.
 
 ---
 
@@ -640,15 +651,16 @@ data/analytics/
   engine.lock                 held by the engine that has the directory open
   meta/                       configuration, secrets, daily salts, rollup activations (two checksummed files)
   sessions/                   active sessions keyed by visitor hash (TTL deletion)
-  events/2026-10/             raw events, one ZoneTree per month by default
-  rollups/day/2026/           daily rollups, one ZoneTree per year by default
-  rollups/hour/2026-10/       hourly rollups, one ZoneTree per month by default
-  rollups/minute/2026-10-08/  minute rollups, one ZoneTree per day by default
+  events/2026-10-11/          raw events, 10 million per ZoneTree by default
+  rollups/day/2026-10-11/     daily rollups, likewise
+  rollups/hour/2026-10-11/    hourly rollups, likewise
+  rollups/minute/2026-10-11/  minute rollups, likewise
 ```
 
 * **Order-preserving keys.** Rollup keys are `site · event · dimension-set · bucket · values`, so every rollup sub-query is one contiguous range scan. Raw event keys are `site · timestamp · sequence`.
 * **Pre-aggregation with atomic merges.** Workers aggregate in memory and merge rows with `TryAtomicAddOrUpdate`. Stored values are immutable; every merge creates a new value.
-* **Time partitioning.** Each period is its own ZoneTree with its own maintainer; the period of every tier is configurable, see [Partitioning](#partitioning). Idle partitions are merged to disk and closed; retention drops whole partitions with `Maintenance.Drop()`.
+* **Partitioning by size.** Each tier is a sequence of ZoneTrees, each with its own maintainer and a contiguous time range; a tier starts a new tree when the latest one holds 10 million records by default, see [Partitioning](#partitioning). Idle partitions are merged to disk and closed; partitions that expire as a whole are dropped with `Maintenance.Drop()`.
+* **Retention by deletion predicate.** Raw event and rollup trees treat records older than retention as deleted, so readers skip them and merges drop them. Deleting the first record of each expired key range makes merges read parts they would otherwise copy unchanged, so expired data leaves the disk inside large, long-lived trees too. Maintainers merge bottom segments whenever two or more exist.
 * **Sessions with TTL.** Expired sessions disappear through ZoneTree's deletion predicate and are removed by normal merges.
 * **Bounded memory.** Memory is governed by ZoneTree's mutable segment limits per open partition, not by the amount of data.
 * **Durability.** Data stores use ZoneTree's asynchronous compressed write-ahead log by default. The few kilobytes of engine metadata live in two files written alternately, each flushed to disk and checksummed, so a crash during a write never loses the previous state.
@@ -688,10 +700,10 @@ Rollup query time depends on the number of rows in the range, not on the number 
 
 * **Freshness.** Rollup-based answers lag ingestion by at most `Ingestion.FlushInterval` (2 seconds). `await analytics.FlushAsync()` makes everything tracked so far visible. Raw events, and therefore `GetCurrentVisitors`, are real-time.
 * **Durability.** After a crash, aggregates buffered since the last flush are lost, and recent records follow ZoneTree's write-ahead log guarantees. A graceful `Dispose` processes the queue and flushes everything.
-* **Statistics.** `analytics.GetStatistics()` reports accepted, dropped, processed, rejected, filtered and bot events, sessions, flushes, errors, queue length and open partitions.
+* **Statistics.** `analytics.GetStatistics()` reports accepted, dropped, processed, rejected, filtered and bot events, sessions, flushes, errors, queue length, open partitions, and every partition with its approximate record count.
 * **Logging.** Pass `Storage.Logger` (a ZoneTree `ILogger`); the ASP.NET Core package bridges to `Microsoft.Extensions.Logging`.
 * **Backups.** Every partition is a regular ZoneTree directory. For a consistent offline backup, dispose the engine and copy the data directory, and `Storage.WriteAheadLogDirectory` when it is set: the logs hold records that are not in disk segments yet.
-* **Retention** runs hourly by default (`Retention.CheckInterval`) and can be triggered with `ApplyRetention()`.
+* **Retention** hides expired data at once and removes it from disk hourly by default (`Retention.CheckInterval`) or through `ApplyRetention()`; see [Retention](#retention).
 * **Compaction.** Each store moves its in-memory segment to disk and merges in the background when the segment reaches `Storage.<store>.MutableSegmentMaxItemCount`. `await analytics.CompactAsync()` flushes and moves everything to disk now, and waits for the merges: useful after a bulk import to release memory, or to measure queries against data on disk.
 
 ---

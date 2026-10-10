@@ -127,7 +127,7 @@ public sealed class AnalyticsOptions
     Retention.Validate();
     Privacy.Validate();
     Sessions.Validate(Privacy);
-    Storage.Validate(Retention, Rollups.Granularities);
+    Storage.Validate();
     Queries.Validate();
   }
 }

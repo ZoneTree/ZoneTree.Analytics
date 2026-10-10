@@ -7,9 +7,17 @@ namespace ZoneTree.Analytics.Internal;
 /// <see cref="long.MinValue"/> means the tier is kept forever.
 /// </summary>
 /// <remarks>
-/// One definition serves every consumer: retention drops partitions that end before a cutoff,
-/// ingestion skips late events older than a cutoff (writing them would recreate partitions that
-/// retention already dropped), and queries only plan reads at or after a cutoff.
+/// <para>
+/// One definition serves every consumer: the stores treat older records as deleted, retention
+/// drops partitions that end before a cutoff and removes older records from the others,
+/// ingestion skips late events older than a cutoff, and queries only plan reads at or after a
+/// cutoff.
+/// </para>
+/// <para>
+/// Cutoffs move in whole UTC days, or whole hours for retention shorter than a day: data is
+/// kept for its retention and at most one more day (or hour). Removing expired records from disk
+/// rewrites the oldest part of each key range once per step, rather than on every merge.
+/// </para>
 /// </remarks>
 /// <param name="RawEvents">The raw event cutoff (UTC ticks).</param>
 /// <param name="MinuteRollups">The minute rollup cutoff (UTC ticks).</param>
@@ -38,8 +46,14 @@ readonly record struct RetentionCutoffs(
         day == long.MinValue ? long.MinValue : calendar.LocalDay(day));
   }
 
-  static long Cutoff(TimeSpan? retention, long nowUtcTicks) =>
-      retention.HasValue ? nowUtcTicks - Math.Min(retention.Value.Ticks, nowUtcTicks) : long.MinValue;
+  static long Cutoff(TimeSpan? retention, long nowUtcTicks)
+  {
+    if (!retention.HasValue)
+      return long.MinValue;
+    var cutoff = nowUtcTicks - Math.Min(retention.Value.Ticks, nowUtcTicks);
+    var step = retention.Value.Ticks >= TimeSpan.TicksPerDay ? TimeSpan.TicksPerDay : TimeSpan.TicksPerHour;
+    return ReportingCalendar.FloorTicks(cutoff, step);
+  }
 
   /// <summary>
   /// The UTC cutoff of a rollup granularity.

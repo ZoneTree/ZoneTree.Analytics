@@ -1,4 +1,4 @@
-using System.Globalization;
+using ZoneTree.Analytics.Internal;
 using ZoneTree.Analytics.Storage;
 using ZoneTree.Analytics.Web;
 
@@ -742,19 +742,29 @@ public sealed class EngineTests
   [Test]
   public void RetentionDropsExpiredPartitions()
   {
+    static void SmallPartitions(AnalyticsOptions o)
+    {
+      o.Storage.Partitioning.RawEvents = 1;
+      o.Storage.Partitioning.HourRollups = 1;
+    }
     // Data written while retention was longer (here: unlimited), then retention is shortened.
+    Recreate(SmallPartitions);
     var old = DateTime.UtcNow.Date.AddDays(-200).AddHours(12);
     var recent = DateTime.UtcNow.Date.AddDays(-1).AddHours(12);
     engine.Track(new AnalyticsEvent("e") { VisitorId = "1", Timestamp = Utc(old) });
+    engine.Flush();
+    // The old event fills the first partitions; the next ones start a few days later.
+    Assert.That(engine.RollOverPartitions(old.Ticks), Is.EqualTo(2), "raw and hourly partitions");
     engine.Track(new AnalyticsEvent("e") { VisitorId = "1", Timestamp = Utc(recent) });
     engine.Flush();
     engine.Dispose();
     engine = TestEngine.Create(directory, o =>
     {
+      SmallPartitions(o);
       o.Retention.RawEvents = TimeSpan.FromDays(30);
       o.Retention.HourRollups = TimeSpan.FromDays(60);
     });
-    Assert.That(engine.ApplyRetention(), Is.EqualTo(2), "raw and hourly partitions of the old month");
+    Assert.That(engine.ApplyRetention(), Is.EqualTo(2), "the first raw and hourly partitions");
 
     var oldDay = engine.Query(new AnalyticsQuery { Event = "e", Range = Day(old.Date) });
     var oldRaw = engine.Query(new AnalyticsQuery { Event = "e", Range = Day(old.Date), Source = QuerySource.RawEvents });
@@ -787,8 +797,8 @@ public sealed class EngineTests
       // The event lands in daily rollups, which are kept forever, and nowhere else.
       Assert.That(daily.Totals[Metric.Events], Is.EqualTo(1));
       Assert.That(daily.Plan.UsedRawEvents, Is.False);
-      Assert.That(Directory.Exists(Path.Combine(directory, "events", old.ToString("yyyy-MM", CultureInfo.InvariantCulture))), Is.False);
-      Assert.That(Directory.Exists(Path.Combine(directory, "rollups", "hour", old.ToString("yyyy-MM", CultureInfo.InvariantCulture))), Is.False);
+      Assert.That(Directory.GetDirectories(Path.Combine(directory, "events")), Is.Empty);
+      Assert.That(Directory.GetDirectories(Path.Combine(directory, "rollups", "hour")), Is.Empty);
       Assert.That(engine.ApplyRetention(), Is.EqualTo(0));
       Assert.That(engine.GetStatistics().EventsProcessed, Is.EqualTo(1));
     });
@@ -804,8 +814,12 @@ public sealed class EngineTests
     var options = TestEngine.Options(directory);
     using (var raw = new RawEventStore(
         Path.Combine(directory, "events"),
-        PartitionPeriod.Month,
-        new StoreFactory(options.Storage, Path.GetFullPath(directory), new ZoneTree.Logger.ConsoleLogger()),
+        options.Storage.Partitioning.RawEvents,
+        new StoreFactory(
+            options.Storage,
+            Path.GetFullPath(directory),
+            new ZoneTree.Logger.ConsoleLogger(),
+            new RetentionClock(options.Retention, new ReportingCalendar(options.TimeZone, options.FirstDayOfWeek))),
         new ZoneTree.Logger.ConsoleLogger()))
     {
       raw.Scan("default", Day0.Ticks, Day0.AddDays(1).Ticks, 1, () => events, (list, ticks, value) =>

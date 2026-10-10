@@ -430,12 +430,12 @@ sealed class IngestionWorker
   void WriteRawEvent(EnrichedEvent ev, SessionState session)
   {
     var store = services.RawEvents.Store;
-    var partition = store.Scheme.NameOf(ev.Ticks);
+    var partition = store.Route(ev.Ticks);
     if (rawLease == null || rawLease.Name != partition)
     {
       rawLease?.Dispose();
       rawLease = null;
-      rawLease = store.Acquire(partition, create: true);
+      rawLease = store.Acquire(partition);
       if (rawLease == null)
         return; // The partition is being dropped by retention.
     }

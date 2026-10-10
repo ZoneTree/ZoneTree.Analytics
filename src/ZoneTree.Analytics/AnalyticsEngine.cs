@@ -21,26 +21,30 @@ namespace ZoneTree.Analytics;
 /// queued and processed by background workers.
 /// </para>
 /// <para>
-/// Storage layout under <see cref="AnalyticsOptions.DataDirectory"/>, with the default
-/// <see cref="PartitioningOptions"/>:
+/// Storage layout under <see cref="AnalyticsOptions.DataDirectory"/>. Each data tier is a
+/// sequence of partitions named after their start day; a tier starts a new partition when the
+/// latest one holds the records configured in <see cref="PartitioningOptions"/> (10 million by
+/// default):
 /// <code>
 /// engine.lock                 held exclusively while the engine is open
 /// meta/                       configuration, secrets, salts (two checksummed files)
 /// sessions/                   active sessions
-/// events/2026-10/             raw events, one ZoneTree per month
-/// rollups/minute/2026-10-08/  minute rollups, one ZoneTree per day
-/// rollups/hour/2026-10/       hourly rollups, one ZoneTree per month
-/// rollups/day/2026/           daily rollups, one ZoneTree per year
+/// events/2026-10-11/          raw events
+/// rollups/minute/2026-10-11/  minute rollups
+/// rollups/hour/2026-10-11/    hourly rollups
+/// rollups/day/2026-10-11/     daily rollups
 /// </code>
 /// </para>
 /// </remarks>
 public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
 {
-  const string FormatVersion = "2";
+  const string FormatVersion = "3";
 
   readonly AnalyticsOptions options;
 
   readonly ILogger logger;
+
+  readonly string dataRoot;
 
   readonly DirectoryLock directoryLock;
 
@@ -79,6 +83,11 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
 
   long lastRetentionTicks;
 
+  readonly RetentionClock retentionClock;
+
+  // The cutoffs up to which expired records were last removed from disk, per tier.
+  RetentionCutoffs removedUpTo = RetentionCutoffs.None;
+
   int housekeepingRunning;
 
   int disposed;
@@ -101,11 +110,12 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
     this.options = options;
     logger = options.Storage.Logger ?? new ConsoleLogger();
     calendar = new ReportingCalendar(options.TimeZone, options.FirstDayOfWeek);
-    var root = Path.GetFullPath(options.DataDirectory);
+    var root = dataRoot = Path.GetFullPath(options.DataDirectory);
     Directory.CreateDirectory(root);
     // Storage reports errors on its own threads: count them like every other error.
     var storageLogger = new CountingLogger(logger, counters);
-    var factory = new StoreFactory(options.Storage, root, storageLogger);
+    retentionClock = new RetentionClock(options.Retention, calendar);
+    var factory = new StoreFactory(options.Storage, root, storageLogger, retentionClock);
 
     directoryLock = new DirectoryLock(root);
     try
@@ -189,6 +199,10 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
 
   internal SessionSchema Schema => enricher.Schema;
 
+  internal RawEventStore RawEventStore => rawEvents;
+
+  internal RollupStore RollupStore => rollups;
+
   /// <summary>
   /// The default reporting time zone.
   /// </summary>
@@ -212,7 +226,6 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
   /// </summary>
   bool ValidateConfiguration()
   {
-    var partitioning = options.Storage.Partitioning;
     var walDirectory = options.Storage.WriteAheadLogDirectory == null
         ? ""
         : Path.GetFullPath(options.Storage.WriteAheadLogDirectory);
@@ -220,10 +233,6 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
     [
       ("time-zone", options.TimeZone.Id, "time zone"),
       ("hll-precision", options.Rollups.HyperLogLogPrecision.ToString(CultureInfo.InvariantCulture), "HyperLogLog precision"),
-      ("raw-partitioning", partitioning.RawEvents.ToString(), "raw event partitioning"),
-      ("minute-partitioning", partitioning.MinuteRollups.ToString(), "minute rollup partitioning"),
-      ("hour-partitioning", partitioning.HourRollups.ToString(), "hourly rollup partitioning"),
-      ("day-partitioning", partitioning.DayRollups.ToString(), "daily rollup partitioning"),
       ("wal-directory", walDirectory, "write-ahead-log directory"),
     ];
     if (meta.Get("format-version") == null)
@@ -557,7 +566,7 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
       ParallelWork.For(partitions.Count, options.Queries.MaxDegreeOfParallelism, i =>
       {
         cancellationToken.ThrowIfCancellationRequested();
-        using var lease = store.Acquire(partitions[i], create: false);
+        using var lease = store.Acquire(partitions[i]);
         if (lease == null)
           return;
         var toDelete = new List<Memory<byte>>();
@@ -583,8 +592,10 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
   }
 
   /// <summary>
-  /// Applies retention immediately: drops expired partitions and destroys old salts.
-  /// Returns the number of dropped partitions.
+  /// Applies retention immediately: drops the partitions that expired as a whole, removes the
+  /// expired records of the others from disk, and destroys old salts. Queries never see expired
+  /// data, with or without this call; it reclaims disk space. Returns the number of dropped
+  /// partitions.
   /// </summary>
   public int ApplyRetention()
   {
@@ -596,7 +607,8 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
   int ApplyRetentionCore()
   {
     var now = DateTime.UtcNow;
-    var cutoffs = RetentionCutoffs.Compute(options.Retention, calendar, now.Ticks);
+    retentionClock.Refresh(now.Ticks);
+    var cutoffs = retentionClock.Current;
     var dropped = 0;
     if (rawEvents != null && cutoffs.RawEvents != long.MinValue)
       dropped += rawEvents.Store.DropPartitionsEndingBefore(cutoffs.RawEvents);
@@ -608,10 +620,62 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
       var cutoff = granularity == Granularity.Day ? cutoffs.DayRollupsLocalDay : cutoffs.Of(granularity);
       dropped += rollups.GetStore(granularity).DropPartitionsEndingBefore(cutoff);
     }
+    RemoveExpiredRecords(cutoffs);
     visitorHasher.RotateSalts(now);
     Interlocked.Add(ref counters.PartitionsDropped, dropped);
     lastRetentionTicks = now.Ticks;
     return dropped;
+  }
+
+  /// <summary>
+  /// Removes expired records from disk in the partitions that remain, for every tier whose
+  /// cutoff moved since the last time: cutoffs move in whole days, so each remaining partition
+  /// rewrites at most the oldest part of each key range once a day.
+  /// </summary>
+  void RemoveExpiredRecords(RetentionCutoffs cutoffs)
+  {
+    if (rawEvents != null && cutoffs.RawEvents != long.MinValue && cutoffs.RawEvents != removedUpTo.RawEvents)
+    {
+      rawEvents.Store.RemoveExpired(
+          cutoffs.RawEvents, tree => ExpiredRecords.DeleteFirstOfExpiredHeads(tree, 1, retentionClock.IsRawEventExpired));
+      removedUpTo = removedUpTo with { RawEvents = cutoffs.RawEvents };
+    }
+    foreach (var granularity in RollupStore.Granularities)
+    {
+      var cutoff = granularity == Granularity.Day ? cutoffs.DayRollupsLocalDay : cutoffs.Of(granularity);
+      var removed = granularity == Granularity.Day ? removedUpTo.DayRollupsLocalDay : removedUpTo.Of(granularity);
+      if (!rollups.IsEnabled(granularity) || cutoff == long.MinValue || cutoff == removed)
+        continue;
+      rollups.GetStore(granularity).RemoveExpired(
+          cutoff, tree => ExpiredRecords.DeleteFirstOfExpiredHeads(tree, 3, key => retentionClock.IsRollupExpired(granularity, key)));
+      removedUpTo = granularity switch
+      {
+        Granularity.Minute => removedUpTo with { MinuteRollups = cutoff },
+        Granularity.Hour => removedUpTo with { HourRollups = cutoff },
+        _ => removedUpTo with { DayRollups = cutoffs.DayRollups, DayRollupsLocalDay = cutoff }
+      };
+    }
+  }
+
+  /// <summary>
+  /// Starts a new partition in every tier whose latest partition holds its configured number of
+  /// records. A new partition starts at a day boundary later than any event the engine can
+  /// still receive: events up to <see cref="IngestionOptions.MaxFutureSkew"/> ahead, whose daily
+  /// rollup buckets are local days up to 14 hours ahead of UTC. Returns the number of started
+  /// partitions.
+  /// </summary>
+  internal int RollOverPartitions(long nowUtcTicks)
+  {
+    var earliestStart = nowUtcTicks + options.Ingestion.MaxFutureSkew.Ticks + TimeSpan.TicksPerDay;
+    var started = 0;
+    if (rawEvents != null && rawEvents.Store.RollOver(earliestStart))
+      ++started;
+    foreach (var store in rollups.AllStores)
+    {
+      if (store.RollOver(earliestStart))
+        ++started;
+    }
+    return started;
   }
 
   /// <summary>
@@ -635,8 +699,25 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
       Errors = Interlocked.Read(ref counters.Errors),
       PartitionsDropped = Interlocked.Read(ref counters.PartitionsDropped),
       QueueLength = workers.Sum(x => (long)x.QueueLength),
-      OpenPartitions = openPartitions
+      OpenPartitions = openPartitions,
+      Partitions = DescribePartitions()
     };
+  }
+
+  List<PartitionStatistics> DescribePartitions()
+  {
+    var result = new List<PartitionStatistics>();
+    void Add<TValue>(PartitionedStore<Memory<byte>, TValue> store)
+    {
+      var tier = Path.GetRelativePath(dataRoot, store.RootDirectory).Replace('\\', '/');
+      foreach (var (name, count) in store.Describe())
+        result.Add(new PartitionStatistics { Directory = tier + "/" + name, ApproximateRecordCount = count });
+    }
+    if (rawEvents != null)
+      Add(rawEvents.Store);
+    foreach (var store in rollups.AllStores)
+      Add(store);
+    return result;
   }
 
   void OnTimer(object state)
@@ -662,11 +743,15 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
           if (IsDisposed)
             return;
           PersistSequence();
-          var idle = options.Storage.PartitionIdleTimeout;
           var current = DateTime.UtcNow.Ticks;
-          rawEvents?.Store.CloseIdle(idle, rawEvents.Store.Scheme.NameOf(current));
+          // Expired records are hidden as soon as a cutoff passes them, between retention runs too.
+          retentionClock.Refresh(current);
+          var idle = options.Storage.PartitionIdleTimeout;
+          // Ingestion writes to the latest raw partition continuously.
+          rawEvents?.Store.CloseIdle(idle, keepLatestOpen: true);
           foreach (var store in rollups.AllStores)
-            store.CloseIdle(idle);
+            store.CloseIdle(idle, keepLatestOpen: false);
+          RollOverPartitions(current);
           var interval = options.Retention.CheckInterval;
           if (interval.HasValue && current - lastRetentionTicks >= interval.Value.Ticks)
             ApplyRetentionCore();
