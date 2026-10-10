@@ -214,6 +214,45 @@ public sealed class LimitsTests : DirectoryTest
   }
 
   [Test]
+  public void QueryLimitsAreConfigurable()
+  {
+    var defaults = new QueryOptions();
+    Assert.That((defaults.MaxGroupBy, defaults.MaxTimeBuckets, defaults.MaxFilledRows), Is.EqualTo((8, 100_000, 1_000_000)));
+    using var engine = TestEngine.Create(directory, o =>
+    {
+      o.Queries.MaxGroupBy = 1;
+      o.Queries.MaxTimeBuckets = 24;
+      o.Queries.MaxFilledRows = 30;
+    });
+    engine.Track(new AnalyticsEvent(StandardEvents.PageView) { Url = "/a", VisitorId = "1", Timestamp = Utc(T0) });
+    engine.Track(new AnalyticsEvent(StandardEvents.PageView) { Url = "/b", VisitorId = "2", Timestamp = Utc(T0) });
+    engine.Flush();
+    AnalyticsQuery Hourly(params string[] groupBy)
+    {
+      var query = new AnalyticsQuery { Range = Range, Interval = TimeInterval.Hour };
+      query.GroupBy.AddRange(groupBy);
+      return query;
+    }
+    var groupBy = Assert.Throws<AnalyticsQueryException>(() => engine.Query(Hourly(StandardDimensions.Page, StandardDimensions.Country)));
+    var buckets = Assert.Throws<AnalyticsQueryException>(() => engine.Query(new AnalyticsQuery
+    {
+      Range = DateRange.Between(Utc(T0.Date), Utc(T0.Date.AddDays(2))),
+      Interval = TimeInterval.Hour
+    }));
+    var filled = Assert.Throws<AnalyticsQueryException>(() => engine.Query(Hourly(StandardDimensions.Page)));
+    Assert.Multiple(() =>
+    {
+      Assert.That(groupBy.Message, Does.Contain("Queries.MaxGroupBy"));
+      Assert.That(buckets.Message, Does.Contain("24 hour buckets").And.Contain("Queries.MaxTimeBuckets"));
+      Assert.That(filled.Message, Does.Contain("30 rows").And.Contain("Queries.MaxFilledRows"));
+      // Within the limits: 24 buckets of one group, or two groups without filling.
+      Assert.That(engine.Query(Hourly()).Rows, Has.Count.EqualTo(24));
+      Assert.That(engine.Query(new AnalyticsQuery { Range = Range, Interval = TimeInterval.Hour, Fill = FillMode.None, GroupBy = { StandardDimensions.Page } }).Rows, Has.Count.EqualTo(2));
+      Assert.Throws<ArgumentException>(() => TestEngine.Create(directory, o => o.Queries.MaxTimeBuckets = 0).Dispose());
+    });
+  }
+
+  [Test]
   public async Task SlowQueriesTimeOut()
   {
     var query = new AnalyticsQuery { Event = "e", Range = Range, Source = QuerySource.RawEvents };

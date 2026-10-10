@@ -234,7 +234,7 @@ Series functions run along each group's buckets in time order and need an `Inter
 
 **Intervals.** `Minute`, `Hour`, `Day`, `Week`, `Month` and `Year`, or fixed widths `TimeInterval.Minutes(n)` and `TimeInterval.Hours(n)` that divide a day (5, 15 or 30 minutes; 2, 3, 4, 6, 8 or 12 hours), aligned to UTC midnight. Minute and hour buckets are UTC; day and longer buckets follow the query's time zone. Widths are answered from the finest rollups that fit: minute rollups for minutes, hourly rollups for hours.
 
-**Fill.** `Fill` decides what a time series does with buckets without data, for every group with data in the range: `FillMode.Zero` (the default) adds them with zero values, `None` leaves them out, `Previous` repeats the previous values with data (for gauges), and `Linear` interpolates between the buckets with data around them. Filling applies to aggregates; formulas and series functions are computed from the filled values. A fill that would create more than 1,000,000 rows is rejected.
+**Fill.** `Fill` decides what a time series does with buckets without data, for every group with data in the range: `FillMode.Zero` (the default) adds them with zero values, `None` leaves them out, `Previous` repeats the previous values with data (for gauges), and `Linear` interpolates between the buckets with data around them. Filling applies to aggregates; formulas and series functions are computed from the filled values. A fill that would create more than `Queries.MaxFilledRows` rows (1,000,000 by default) is rejected.
 
 **Having.** `Having` keeps rows whose metric values satisfy every condition, like SQL `HAVING`; `TotalRows` counts the rows that remain, totals are not affected. `MetricFilter.Parse("pageviews>100")` accepts `==`, `!=`, `>`, `>=`, `<` and `<=`.
 
@@ -290,7 +290,7 @@ query.Compare = ComparisonPeriod.PreviousPeriod;   // or PreviousYear, or Custom
 
 Invalid text raises `FormatException`; a null text raises `ArgumentNullException`.
 
-Calendar ranges and day, week, month and year buckets follow the query's time zone (the engine's reporting time zone by default). Daily rollups are stored in the reporting time zone; other time zones are answered from hourly rollups. A time series has at most 100,000 buckets; longer ones are rejected rather than truncated.
+Calendar ranges and day, week, month and year buckets follow the query's time zone (the engine's reporting time zone by default). Daily rollups are stored in the reporting time zone; other time zones are answered from hourly rollups. A time series has at most `Queries.MaxTimeBuckets` buckets (100,000 by default); longer ones are rejected rather than truncated. A query groups by at most `Queries.MaxGroupBy` dimensions (8 by default).
 
 Queries and funnels that run longer than `Queries.Timeout` (30 seconds by default) are cancelled with an `AnalyticsQueryTimeoutException`, a kind of `AnalyticsQueryException`, so an expensive ad-hoc query cannot tie up the host application.
 

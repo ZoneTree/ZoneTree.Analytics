@@ -40,14 +40,6 @@ sealed class QueryEngine
 
   const int CancellationCheckInterval = RawEventStore.CancellationCheckInterval;
 
-  const int MaxGroupBy = 8;
-
-  // Time series longer than this are rejected rather than truncated.
-  const int MaxBuckets = 100_000;
-
-  // Filling time series that would create more rows than this is rejected.
-  const int MaxFilledRows = 1_000_000;
-
   readonly AnalyticsOptions options;
 
   readonly ReportingCalendar storageCalendar;
@@ -85,6 +77,8 @@ sealed class QueryEngine
   sealed class QueryContext
   {
     public string Site;
+
+    public int MaxFilledRows;
 
     public string BaseEvent;
 
@@ -228,11 +222,13 @@ sealed class QueryEngine
     var (from, to) = query.Range.Resolve(calendar, now);
     if (from >= to)
       throw new AnalyticsQueryException("The query range is empty.");
+    var limits = options.Queries;
     if (query.Interval != TimeInterval.None &&
-        EnumerateBuckets(calendar, from, to, query.Interval).Skip(MaxBuckets).Any())
+        EnumerateBuckets(calendar, from, to, query.Interval).Skip(limits.MaxTimeBuckets).Any())
     {
       throw new AnalyticsQueryException(
-          $"The range has more than {MaxBuckets.ToString("N0", CultureInfo.InvariantCulture)} {query.Interval} buckets. Use a larger interval or a shorter range.");
+          $"The range has more than {limits.MaxTimeBuckets.ToString("N0", CultureInfo.InvariantCulture)} {query.Interval} buckets " +
+          "(Queries.MaxTimeBuckets). Use a larger interval or a shorter range.");
     }
 
     var groupBy = query.GroupBy
@@ -241,8 +237,8 @@ sealed class QueryEngine
         .ToArray();
     if (groupBy.Distinct(StringComparer.Ordinal).Count() != groupBy.Length)
       throw new AnalyticsQueryException("Group-by dimensions must be distinct.");
-    if (groupBy.Length > MaxGroupBy)
-      throw new AnalyticsQueryException($"At most {MaxGroupBy} group-by dimensions are supported.");
+    if (groupBy.Length > limits.MaxGroupBy)
+      throw new AnalyticsQueryException($"At most {limits.MaxGroupBy} group-by dimensions are supported (Queries.MaxGroupBy).");
     var filters = query.Filters.Where(x => x != null).ToArray();
     var segments = query.Segments.Where(x => x != null).ToArray();
     var metrics = query.Metrics.Where(x => x != null).Distinct().ToArray();
@@ -299,6 +295,7 @@ sealed class QueryEngine
       Metrics = metrics,
       Having = having,
       Fill = query.Fill,
+      MaxFilledRows = limits.MaxFilledRows,
       Precision = options.Rollups.HyperLogLogPrecision,
       CancellationToken = cancellationToken,
       NowTicks = now,
@@ -1203,10 +1200,10 @@ sealed class QueryEngine
         ? [""]
         : rowKeys.Select(x => x.Values).Distinct(StringComparer.Ordinal).ToList();
     var buckets = EnumerateBuckets(context.Calendar, context.From, context.To, context.Interval).ToList();
-    if ((long)groups.Count * buckets.Count > MaxFilledRows)
+    if ((long)groups.Count * buckets.Count > context.MaxFilledRows)
       throw new AnalyticsQueryException(
-          $"Filling the time series would create more than {MaxFilledRows.ToString("N0", CultureInfo.InvariantCulture)} rows. " +
-          "Use a coarser interval, fewer groups or FillMode.None.");
+          $"Filling the time series would create more than {context.MaxFilledRows.ToString("N0", CultureInfo.InvariantCulture)} rows " +
+          "(Queries.MaxFilledRows). Use a coarser interval, fewer groups or FillMode.None.");
     foreach (var group in groups)
     {
       foreach (var bucket in buckets)
@@ -1275,16 +1272,15 @@ sealed class QueryEngine
     return 0;
   }
 
+  /// <summary>
+  /// The buckets of a range, lazily: a query checks the count against
+  /// <see cref="QueryOptions.MaxTimeBuckets"/> before anything enumerates them all.
+  /// </summary>
   static IEnumerable<long> EnumerateBuckets(ReportingCalendar calendar, long from, long to, TimeInterval interval)
   {
-    var bucket = calendar.Bucket(from, interval);
-    for (var i = 0; i <= MaxBuckets; ++i)
-    {
-      if (calendar.UtcStartOfBucket(bucket, interval) >= to)
-        yield break;
+    for (var bucket = calendar.Bucket(from, interval); calendar.UtcStartOfBucket(bucket, interval) < to;
+        bucket = ReportingCalendar.NextBucket(bucket, interval))
       yield return bucket;
-      bucket = ReportingCalendar.NextBucket(bucket, interval);
-    }
   }
 
   static void AttachComparison(
