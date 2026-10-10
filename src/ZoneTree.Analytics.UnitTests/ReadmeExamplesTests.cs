@@ -109,7 +109,7 @@ public sealed class ReadmeExamplesTests
         Segments = { Segment.VisitorsWho("purchase") },
         Metrics = { Metric.PageViews, Metric.Visitors },
       });
-      var funnel = await analytics.QueryFunnelAsync(new FunnelQuery
+      var funnel = await analytics.QueryAsync(new FunnelQuery
       {
         Steps =
         {

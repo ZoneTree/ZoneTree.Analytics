@@ -30,7 +30,10 @@ if (mode.Contains("noraw"))
 if (mode.Contains("nosessions"))
   options.Sessions.Enabled = false;
 if (mode.Contains("totalsonly"))
-  options.Rollups.Definitions = [new RollupDefinition()];
+{
+  options.Rollups.Definitions.Clear();
+  options.Rollups.Definitions.Add(new RollupDefinition());
+}
 if (mode.Contains("norollups"))
   options.Rollups.Granularities = Granularity.None;
 // Page load times with percentile rollups, to measure what time series features cost.
@@ -137,7 +140,7 @@ using (var engine = new AnalyticsEngine(options))
     Segments = { Segment.VisitorsWhoViewed("/pricing") },
     Metrics = { Metric.Visitors, Metric.PageViews }
   }));
-  Measure("Funnel: / -> /pricing -> /signup (7 days, raw)", () => engine.QueryFunnelAsync(new FunnelQuery
+  Measure("Funnel: / -> /pricing -> /signup (7 days, raw)", () => engine.QueryAsync(new FunnelQuery
   {
     Range = Range(to.AddDays(-7), to),
     Steps = { FunnelStep.Page("Home", "/"), FunnelStep.Page("Pricing", "/pricing"), FunnelStep.Page("Signup", "/signup") }

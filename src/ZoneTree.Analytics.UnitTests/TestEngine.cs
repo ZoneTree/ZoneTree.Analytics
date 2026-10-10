@@ -13,27 +13,35 @@ static class TestEngine
     var options = new AnalyticsOptions
     {
       DataDirectory = directory,
-      Retention = new RetentionOptions
-      {
-        RawEvents = null,
-        MinuteRollups = null,
-        HourRollups = null,
-        DayRollups = null,
-        CheckInterval = null
-      },
-      Ingestion = new IngestionOptions
-      {
-        // Tests flush explicitly.
-        FlushInterval = TimeSpan.FromHours(1),
-        QueueFullBehavior = QueueFullBehavior.Wait
-      },
-      Web = new WebOptions
-      {
-        GeoLocator = new StubGeoLocator()
-      }
+      Web = { GeoLocator = new StubGeoLocator() }
     };
+    UseTestDefaults(options);
     configure?.Invoke(options);
     return options;
+  }
+
+  /// <summary>
+  /// Settings every test engine uses: data is kept forever, and tests flush explicitly.
+  /// </summary>
+  public static void UseTestDefaults(AnalyticsOptions options)
+  {
+    options.Retention.RawEvents = null;
+    options.Retention.MinuteRollups = null;
+    options.Retention.HourRollups = null;
+    options.Retention.DayRollups = null;
+    options.Retention.CheckInterval = null;
+    options.Ingestion.FlushInterval = TimeSpan.FromHours(1);
+    options.Ingestion.QueueFullBehavior = QueueFullBehavior.Wait;
+  }
+
+  /// <summary>
+  /// Applies retention and returns the number of partitions it dropped.
+  /// </summary>
+  public static long ApplyRetentionCountingDrops(this AnalyticsEngine engine)
+  {
+    var before = engine.GetStatistics().PartitionsDropped;
+    engine.ApplyRetention();
+    return engine.GetStatistics().PartitionsDropped - before;
   }
 
   public static AnalyticsEngine Create(string directory, Action<AnalyticsOptions> configure = null) =>

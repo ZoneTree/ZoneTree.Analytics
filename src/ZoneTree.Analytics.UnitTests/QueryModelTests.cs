@@ -2,18 +2,18 @@ namespace ZoneTree.Analytics.UnitTests;
 
 public sealed class QueryModelTests
 {
-  [TestCase("country==DE", "country", FilterOperator.Equals, new[] { "DE" }, false)]
-  [TestCase("country==DE|US", "country", FilterOperator.Equals, new[] { "DE", "US" }, false)]
-  [TestCase("page!=/", "page", FilterOperator.NotEquals, new[] { "/" }, false)]
+  [TestCase("country==DE", "country", FilterOperator.Equal, new[] { "DE" }, false)]
+  [TestCase("country==DE|US", "country", FilterOperator.Equal, new[] { "DE", "US" }, false)]
+  [TestCase("page!=/", "page", FilterOperator.NotEqual, new[] { "/" }, false)]
   [TestCase("page~=docs", "page", FilterOperator.Contains, new[] { "docs" }, false)]
   [TestCase("page!~=docs", "page", FilterOperator.NotContains, new[] { "docs" }, false)]
   [TestCase("page^=/blog", "page", FilterOperator.StartsWith, new[] { "/blog" }, false)]
   [TestCase("page$=.html", "page", FilterOperator.EndsWith, new[] { ".html" }, false)]
   [TestCase(@"page=~^/blog/\d+", "page", FilterOperator.Matches, new[] { @"^/blog/\d+" }, false)]
   [TestCase("page!=~^/admin", "page", FilterOperator.NotMatches, new[] { "^/admin" }, false)]
-  [TestCase("browser==/iCHROME", "browser", FilterOperator.Equals, new[] { "CHROME" }, true)]
-  [TestCase("page==/search?", "page", FilterOperator.Equals, new[] { "/search?" }, false)]
-  [TestCase(@"tag==x\|y|z", "tag", FilterOperator.Equals, new[] { "x|y", "z" }, false)]
+  [TestCase("browser==/iCHROME", "browser", FilterOperator.Equal, new[] { "CHROME" }, true)]
+  [TestCase("page==/search?", "page", FilterOperator.Equal, new[] { "/search?" }, false)]
+  [TestCase(@"tag==x\|y|z", "tag", FilterOperator.Equal, new[] { "x|y", "z" }, false)]
   [TestCase("plan?", "plan", FilterOperator.IsSet, new string[0], false)]
   [TestCase("!plan?", "plan", FilterOperator.IsNotSet, new string[0], false)]
   public void ParsesFilters(string expression, string dimension, FilterOperator op, string[] values, bool ignoreCase)
@@ -49,7 +49,7 @@ public sealed class QueryModelTests
       Assert.That(Filter.IsSet("d").IsMatch(""), Is.True);
       Assert.That(Filter.IsNotSet("d").IsMatch(null), Is.True);
       Assert.That(Filter.Equal("d", "").IsMatch(""), Is.True);
-      Assert.That(new Filter("d", FilterOperator.Equals, ignoreCase: true, "ABC").IsMatch("abc"), Is.True);
+      Assert.That(new Filter("d", FilterOperator.Equal, ignoreCase: true, "ABC").IsMatch("abc"), Is.True);
     });
   }
 

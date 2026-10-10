@@ -36,7 +36,7 @@ public sealed class AnalyticsWebOptions
   /// <summary>
   /// Path prefixes the middleware never tracks. The <see cref="PathPrefix"/> is always excluded.
   /// </summary>
-  public List<string> ExcludedPaths { get; set; } = ["/api", "/health", "/favicon.ico"];
+  public List<string> ExcludedPaths { get; } = ["/api", "/health", "/favicon.ico"];
 
   /// <summary>
   /// Event names accepted from the browser beacon. Null accepts any non-reserved name.

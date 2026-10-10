@@ -97,13 +97,13 @@ sealed class ReferrerClassifier
 
   public ReferrerClassifier(WebOptions options)
   {
-    if (options.ReferrerSources != null)
+    if (options.ReferrerSources.Count > 0)
     {
       customSources = new(StringComparer.OrdinalIgnoreCase);
       foreach (var (host, name) in options.ReferrerSources)
         customSources[UrlParser.NormalizeHost(host)] = name;
     }
-    if (options.InternalHosts != null)
+    if (options.InternalHosts.Count > 0)
     {
       internalHosts = new(StringComparer.OrdinalIgnoreCase);
       foreach (var host in options.InternalHosts)

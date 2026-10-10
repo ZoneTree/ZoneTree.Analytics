@@ -10,10 +10,10 @@ namespace ZoneTree.Analytics;
 public enum FilterOperator
 {
   /// <summary>Equal to one of the values.</summary>
-  Equals,
+  Equal,
 
   /// <summary>Not equal to any of the values. A missing dimension matches.</summary>
-  NotEquals,
+  NotEqual,
 
   /// <summary>Contains one of the values.</summary>
   Contains,
@@ -57,7 +57,7 @@ public enum FilterOperator
 /// </summary>
 /// <remarks>
 /// A dimension that an event does not carry is "missing": positive operators never match it,
-/// negative operators (<see cref="FilterOperator.NotEquals"/>, <see cref="FilterOperator.NotContains"/>,
+/// negative operators (<see cref="FilterOperator.NotEqual"/>, <see cref="FilterOperator.NotContains"/>,
 /// <see cref="FilterOperator.NotMatches"/>) always do, and <see cref="FilterOperator.IsNotSet"/>
 /// selects exactly the missing ones. An empty string is a known empty value, for example the
 /// referrer of direct traffic.
@@ -72,8 +72,8 @@ public sealed class Filter
   [
     ("!=~", FilterOperator.NotMatches),
     ("!~=", FilterOperator.NotContains),
-    ("==", FilterOperator.Equals),
-    ("!=", FilterOperator.NotEquals),
+    ("==", FilterOperator.Equal),
+    ("!=", FilterOperator.NotEqual),
     ("~=", FilterOperator.Contains),
     ("^=", FilterOperator.StartsWith),
     ("$=", FilterOperator.EndsWith),
@@ -146,10 +146,10 @@ public sealed class Filter
   public bool IgnoreCase { get; }
 
   /// <summary>Equal to one of the values.</summary>
-  public static Filter Equal(string dimension, params string[] values) => new(dimension, FilterOperator.Equals, values);
+  public static Filter Equal(string dimension, params string[] values) => new(dimension, FilterOperator.Equal, values);
 
   /// <summary>Not equal to any of the values.</summary>
-  public static Filter NotEqual(string dimension, params string[] values) => new(dimension, FilterOperator.NotEquals, values);
+  public static Filter NotEqual(string dimension, params string[] values) => new(dimension, FilterOperator.NotEqual, values);
 
   /// <summary>Contains one of the values.</summary>
   public static Filter Contains(string dimension, params string[] values) => new(dimension, FilterOperator.Contains, values);
@@ -211,7 +211,7 @@ public sealed class Filter
     }
     if (IsNumeric(Operator))
       return value != null && MatchesNumber(value);
-    var negated = Operator is FilterOperator.NotEquals or FilterOperator.NotContains or FilterOperator.NotMatches;
+    var negated = Operator is FilterOperator.NotEqual or FilterOperator.NotContains or FilterOperator.NotMatches;
     if (value == null)
       return negated;
     var matched = Operator is FilterOperator.Matches or FilterOperator.NotMatches
@@ -227,7 +227,7 @@ public sealed class Filter
     {
       var matched = Operator switch
       {
-        FilterOperator.Equals or FilterOperator.NotEquals => string.Equals(value, candidate, comparison),
+        FilterOperator.Equal or FilterOperator.NotEqual => string.Equals(value, candidate, comparison),
         FilterOperator.Contains or FilterOperator.NotContains => value.Contains(candidate, comparison),
         FilterOperator.StartsWith => value.StartsWith(candidate, comparison),
         _ => value.EndsWith(candidate, comparison)

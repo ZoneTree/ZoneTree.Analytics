@@ -18,7 +18,7 @@ public sealed class StorageOptions
   /// How many records each ZoneTree partition of a data tier holds before the tier starts a new
   /// one. It can be changed at any time; it applies to the partitions started afterwards.
   /// </summary>
-  public PartitioningOptions Partitioning { get; set; } = new();
+  public PartitioningOptions Partitioning { get; private set; } = new();
 
   /// <summary>
   /// ZoneTree settings of raw event partitions. Raw events are only scanned, never point-read,
@@ -70,7 +70,7 @@ public sealed class StorageOptions
   internal StorageOptions Clone()
   {
     var clone = (StorageOptions)MemberwiseClone();
-    clone.Partitioning = Partitioning?.Clone();
+    clone.Partitioning = Partitioning.Clone();
     clone.RawEvents = RawEvents.Clone();
     clone.Rollups = Rollups.Clone();
     clone.Sessions = Sessions.Clone();
@@ -86,7 +86,6 @@ public sealed class StorageOptions
     RawEvents.Validate(nameof(RawEvents));
     Rollups.Validate(nameof(Rollups));
     Sessions.Validate(nameof(Sessions));
-    Partitioning ??= new();
     Partitioning.Validate();
   }
 }

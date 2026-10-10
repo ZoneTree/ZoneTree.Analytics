@@ -123,7 +123,7 @@ public sealed class ConfigurationTests
       o.Retention.RawEvents = TimeSpan.FromDays(3);
     }))
     {
-      Assert.That(engine.ApplyRetention(), Is.EqualTo(1));
+      Assert.That(engine.ApplyRetentionCountingDrops(), Is.EqualTo(1));
       Assert.That(engine.Query(new AnalyticsQuery { Event = "purchase", Range = Range, Metrics = { Metric.Events } })
           .Totals[Metric.Events], Is.EqualTo(1));
     }
@@ -179,7 +179,7 @@ public sealed class ConfigurationTests
     using var engine = new AnalyticsEngine(options);
 
     // None of these reach the running engine.
-    options.Privacy.DeniedDimensions = new HashSet<string> { "plan" };
+    options.Privacy.DeniedDimensions.Add("plan");
     options.Privacy.MaxCustomDimensions = 0;
     options.EventFilters.Add(EventFilter.Create(_ => false));
     options.Rollups.Definitions.Clear();

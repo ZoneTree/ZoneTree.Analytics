@@ -44,20 +44,22 @@ public sealed class WebOptions
 
   /// <summary>
   /// Additional referrer host to source name mappings, for example
-  /// "news.ycombinator.com" to "Hacker News". Hosts match exactly or as a parent domain.
+  /// "news.ycombinator.com" to "Hacker News". Hosts match exactly or as a parent domain,
+  /// ignoring case. Empty by default.
   /// </summary>
-  public IDictionary<string, string> ReferrerSources { get; set; }
+  public IDictionary<string, string> ReferrerSources { get; private set; } =
+      new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
   /// <summary>
-  /// Hosts treated as internal. Referrers from these hosts, or from the page host itself,
-  /// count as direct traffic.
+  /// Hosts treated as internal, ignoring case. Referrers from these hosts, or from the page host
+  /// itself, count as direct traffic. Empty by default.
   /// </summary>
-  public ISet<string> InternalHosts { get; set; }
+  public ISet<string> InternalHosts { get; private set; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
   internal WebOptions Clone()
   {
     var clone = (WebOptions)MemberwiseClone();
-    clone.BotDetectors = BotDetectors == null ? [] : [.. BotDetectors];
+    clone.BotDetectors = [.. BotDetectors];
     clone.ReferrerSources = Copies.Of(ReferrerSources);
     clone.InternalHosts = Copies.Of(InternalHosts);
     return clone;

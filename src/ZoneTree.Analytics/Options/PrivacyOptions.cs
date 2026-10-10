@@ -42,14 +42,14 @@ public sealed class PrivacyOptions
   public bool IncludeQueryString { get; set; }
 
   /// <summary>
-  /// When set, only these custom dimensions are kept. Null keeps all.
+  /// When set, only these custom dimensions are kept. Null (the default) keeps all.
   /// </summary>
   public ISet<string> AllowedDimensions { get; set; }
 
   /// <summary>
-  /// Custom dimensions that are always discarded.
+  /// Custom dimensions that are always discarded. Empty by default.
   /// </summary>
-  public ISet<string> DeniedDimensions { get; set; }
+  public ISet<string> DeniedDimensions { get; private set; } = new HashSet<string>(StringComparer.Ordinal);
 
   /// <summary>
   /// Maximum number of custom dimensions kept per event. Default is 32.
@@ -71,7 +71,7 @@ public sealed class PrivacyOptions
   /// True when <see cref="AllowedDimensions"/> and <see cref="DeniedDimensions"/> keep a custom dimension.
   /// </summary>
   internal bool IsCustomDimensionAllowed(string name) =>
-      DeniedDimensions?.Contains(name) != true &&
+      !DeniedDimensions.Contains(name) &&
       (AllowedDimensions == null || AllowedDimensions.Contains(name));
 
   internal PrivacyOptions Clone()

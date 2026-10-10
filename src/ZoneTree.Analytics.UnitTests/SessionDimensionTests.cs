@@ -191,7 +191,7 @@ public sealed class SessionDimensionTests
   {
     engine.Dispose();
     engine = null;
-    Assert.Throws<ArgumentException>(() => Create(o => o.Privacy.DeniedDimensions = new HashSet<string> { Variant }).Dispose());
+    Assert.Throws<ArgumentException>(() => Create(o => o.Privacy.DeniedDimensions.Add(Variant)).Dispose());
     Assert.Throws<ArgumentException>(() => Create(o => o.Privacy.AllowedDimensions = new HashSet<string> { "plan" }).Dispose());
   }
 }
@@ -241,7 +241,7 @@ public sealed class LimitsTests
       var funnel = new FunnelQuery { Range = Range, Steps = { FunnelStep.Goal("e"), FunnelStep.Goal("f") } };
       var timeout = Assert.Throws<AnalyticsQueryTimeoutException>(() => engine.Query(query));
       Assert.ThrowsAsync<AnalyticsQueryTimeoutException>(() => engine.QueryAsync(query));
-      Assert.ThrowsAsync<AnalyticsQueryTimeoutException>(() => engine.QueryFunnelAsync(funnel));
+      Assert.ThrowsAsync<AnalyticsQueryTimeoutException>(() => engine.QueryAsync(funnel));
       Assert.That(timeout.Timeout, Is.EqualTo(TimeSpan.FromTicks(1)));
     }
 

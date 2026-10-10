@@ -487,11 +487,11 @@ public sealed class EngineTests
       funnel.Steps.Add(FunnelStep.Page("Signup", "/signup"));
       return funnel;
     }
-    var bySession = await engine.QueryFunnelAsync(Funnel(null));
-    var byWindow = await engine.QueryFunnelAsync(Funnel(TimeSpan.FromMinutes(2)));
+    var bySession = await engine.QueryAsync(Funnel(null));
+    var byWindow = await engine.QueryAsync(Funnel(TimeSpan.FromMinutes(2)));
     var safariFunnel = Funnel(null);
     safariFunnel.Filters.Add(Filter.Equal(StandardDimensions.Browser, "Safari"));
-    var safari = await engine.QueryFunnelAsync(safariFunnel);
+    var safari = await engine.QueryAsync(safariFunnel);
     Assert.Multiple(() =>
     {
       Assert.That(bySession.Steps.Select(x => x.Visitors), Is.EqualTo(new long[] { 2, 1, 1 }));
@@ -502,13 +502,13 @@ public sealed class EngineTests
       Assert.That(byWindow.Steps.Select(x => x.Visitors), Is.EqualTo(new long[] { 2, 1, 0 }));
       Assert.That(safari.Steps.Select(x => x.Visitors), Is.EqualTo(new long[] { 1, 0, 0 }));
     });
-    Assert.ThrowsAsync<AnalyticsQueryException>(async () => await engine.QueryFunnelAsync(new FunnelQuery()));
+    Assert.ThrowsAsync<AnalyticsQueryException>(async () => await engine.QueryAsync(new FunnelQuery()));
     var tooLong = new FunnelQuery { Range = Day(Day0) };
     tooLong.Steps.AddRange(Enumerable.Repeat(FunnelStep.Page("Home", "/"), FunnelQuery.MaxSteps + 1));
-    Assert.ThrowsAsync<AnalyticsQueryException>(async () => await engine.QueryFunnelAsync(tooLong));
+    Assert.ThrowsAsync<AnalyticsQueryException>(async () => await engine.QueryAsync(tooLong));
     var longest = new FunnelQuery { Range = Day(Day0) };
     longest.Steps.AddRange(Enumerable.Repeat(FunnelStep.Page("Home", "/"), FunnelQuery.MaxSteps));
-    Assert.That((await engine.QueryFunnelAsync(longest)).Steps, Has.Count.EqualTo(FunnelQuery.MaxSteps));
+    Assert.That((await engine.QueryAsync(longest)).Steps, Has.Count.EqualTo(FunnelQuery.MaxSteps));
   }
 
   [Test]
@@ -764,7 +764,7 @@ public sealed class EngineTests
       o.Retention.RawEvents = TimeSpan.FromDays(30);
       o.Retention.HourRollups = TimeSpan.FromDays(60);
     });
-    Assert.That(engine.ApplyRetention(), Is.EqualTo(2), "the first raw and hourly partitions");
+    Assert.That(engine.ApplyRetentionCountingDrops(), Is.EqualTo(2), "the first raw and hourly partitions");
 
     var oldDay = engine.Query(new AnalyticsQuery { Event = "e", Range = Day(old.Date) });
     var oldRaw = engine.Query(new AnalyticsQuery { Event = "e", Range = Day(old.Date), Source = QuerySource.RawEvents });
@@ -799,7 +799,7 @@ public sealed class EngineTests
       Assert.That(daily.Plan.UsedRawEvents, Is.False);
       Assert.That(Directory.GetDirectories(Path.Combine(directory, "events")), Is.Empty);
       Assert.That(Directory.GetDirectories(Path.Combine(directory, "rollups", "hour")), Is.Empty);
-      Assert.That(engine.ApplyRetention(), Is.EqualTo(0));
+      Assert.That(engine.ApplyRetentionCountingDrops(), Is.EqualTo(0));
       Assert.That(engine.GetStatistics().EventsProcessed, Is.EqualTo(1));
     });
   }
@@ -878,6 +878,62 @@ public sealed class EngineTests
     {
       Assert.That(deleted, Is.EqualTo(2));
       Assert.That(Query(q => q.Source = QuerySource.RawEvents).Totals[Metric.Events], Is.EqualTo(1));
+    });
+  }
+
+  [Test]
+  public void EraseVisitorWorksSynchronously()
+  {
+    engine.Track(new AnalyticsEvent(StandardEvents.PageView) { Url = "/", VisitorId = "alice", Timestamp = Utc(T0) });
+    engine.Track(new AnalyticsEvent(StandardEvents.PageView) { Url = "/", VisitorId = "bob", Timestamp = Utc(T0) });
+    Assert.Multiple(() =>
+    {
+      Assert.That(engine.EraseVisitor("alice"), Is.EqualTo(1));
+      Assert.That(engine.EraseVisitor("alice"), Is.Zero);
+      Assert.That(Query(q => q.Source = QuerySource.RawEvents).Totals[Metric.Events], Is.EqualTo(1));
+    });
+  }
+
+  [Test]
+  public async Task SynchronousAndAsynchronousFormsAgree()
+  {
+    TrackScenario();
+    engine.Track(new AnalyticsEvent("signup") { VisitorId = "u", Timestamp = Utc(T0) });
+    engine.Flush();
+    var request = new WebReportRequest { Range = Day(Day0) };
+    var funnel = new FunnelQuery
+    {
+      Range = Day(Day0),
+      Steps = { FunnelStep.Page("Home", "/"), FunnelStep.Page("Pricing", "/pricing") }
+    };
+
+    var summary = (engine.Web.GetSummary(request), await engine.Web.GetSummaryAsync(request));
+    var series = (engine.Web.GetTimeseries(request, TimeInterval.Hour), await engine.Web.GetTimeseriesAsync(request, TimeInterval.Hour));
+    var breakdown = (engine.Web.GetBreakdown(request, StandardDimensions.Device), await engine.Web.GetBreakdownAsync(request, StandardDimensions.Device));
+    var pages = (engine.Web.GetPages(request), await engine.Web.GetPagesAsync(request));
+    var exits = (engine.Web.GetExitPages(request), await engine.Web.GetExitPagesAsync(request));
+    var goals = (engine.Web.GetGoals(request), await engine.Web.GetGoalsAsync(request));
+    var bots = (engine.Web.GetBots(request), await engine.Web.GetBotsAsync(request));
+    var live = (engine.Web.GetCurrentVisitors(), await engine.Web.GetCurrentVisitorsAsync());
+    var funnels = (engine.Query(funnel), await engine.QueryAsync(funnel));
+    var names = (engine.GetEventNames(Day(Day0)), await engine.GetEventNamesAsync(Day(Day0)));
+    await engine.ApplyRetentionAsync();
+    await engine.CompactAsync();
+
+    Assert.Multiple(() =>
+    {
+      Assert.That(summary.Item1, Is.EqualTo(summary.Item2));
+      Assert.That(summary.Item1.PageViews, Is.EqualTo(6));
+      Assert.That(series.Item1, Is.EqualTo(series.Item2));
+      Assert.That(breakdown.Item1.Rows, Is.EqualTo(breakdown.Item2.Rows));
+      Assert.That(pages.Item1.Rows, Is.EqualTo(pages.Item2.Rows));
+      Assert.That(exits.Item1.Rows, Is.EqualTo(exits.Item2.Rows));
+      Assert.That(goals.Item1.Rows, Is.EqualTo(goals.Item2.Rows));
+      Assert.That(goals.Item1.Rows.Single().Name, Is.EqualTo("signup"));
+      Assert.That(bots.Item1.Rows, Is.EqualTo(bots.Item2.Rows));
+      Assert.That(live.Item1, Is.EqualTo(live.Item2));
+      Assert.That(funnels.Item1.Steps, Is.EqualTo(funnels.Item2.Steps));
+      Assert.That(names.Item1, Is.EqualTo(names.Item2).And.Contains("signup"));
     });
   }
 

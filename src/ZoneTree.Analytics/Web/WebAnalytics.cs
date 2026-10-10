@@ -25,8 +25,8 @@ public sealed class WebReportRequest
   /// <summary>An optional comparison period. Results then carry <c>Previous</c> values.</summary>
   public Comparison Compare { get; set; }
 
-  /// <summary>Maximum number of rows of list reports. Default is 10.</summary>
-  public int Limit { get; set; } = 10;
+  /// <summary>Maximum number of rows of list reports. Default is 10; null returns every row.</summary>
+  public int? Limit { get; set; } = 10;
 
   /// <summary>Rows to skip, for paging list reports.</summary>
   public int Offset { get; set; }
@@ -155,11 +155,12 @@ public sealed record WebReport<T>(IReadOnlyList<T> Rows, int TotalRows, QueryPla
 /// <para>
 /// When <see cref="WebOptions.Bots"/> is <see cref="BotTraffic.TrackSeparately"/>, the summary,
 /// time series and page reports carry bot hits next to page views, and
-/// <see cref="GetBotsAsync"/> lists the bots. Bot traffic never counts as visitors or page views.
+/// <see cref="GetBots"/> lists the bots. Bot traffic never counts as visitors or page views.
 /// </para>
 /// <para>
-/// Reports are built on <see cref="AnalyticsEngine.QueryAsync"/>; use it directly for anything
-/// these reports do not cover.
+/// Reports are built on <see cref="AnalyticsEngine.Query(AnalyticsQuery, CancellationToken)"/>;
+/// use it directly for anything these reports do not cover. Every report has a synchronous
+/// method and an asynchronous one, which runs it on a thread-pool thread.
 /// </para>
 /// </remarks>
 public sealed class WebAnalytics
@@ -248,20 +249,26 @@ public sealed class WebAnalytics
   /// <summary>
   /// Headline metrics of the range.
   /// </summary>
-  public async Task<WebSummary> GetSummaryAsync(WebReportRequest request, CancellationToken cancellationToken = default)
+  /// <inheritdoc cref="AnalyticsEngine.Query(AnalyticsQuery, CancellationToken)" path="/exception"/>
+  public WebSummary GetSummary(WebReportRequest request, CancellationToken cancellationToken = default)
   {
     var sessions = SessionMetricsAvailable(request);
     var bots = BotMetricsAvailable(request);
     var query = NewQuery(request, paged: false);
     AddSummaryMetrics(query, sessions, bots);
-    var result = await engine.QueryAsync(query, cancellationToken).ConfigureAwait(false);
+    var result = engine.Query(query, cancellationToken);
     return ToSummary(result.Totals, sessions, bots);
   }
+
+  /// <inheritdoc cref="GetSummary"/>
+  public Task<WebSummary> GetSummaryAsync(WebReportRequest request, CancellationToken cancellationToken = default) =>
+      Task.Run(() => GetSummary(request, cancellationToken), cancellationToken);
 
   /// <summary>
   /// Headline metrics per time bucket.
   /// </summary>
-  public async Task<IReadOnlyList<WebTimeseriesPoint>> GetTimeseriesAsync(
+  /// <inheritdoc cref="AnalyticsEngine.Query(AnalyticsQuery, CancellationToken)" path="/exception"/>
+  public IReadOnlyList<WebTimeseriesPoint> GetTimeseries(
       WebReportRequest request, TimeInterval interval, CancellationToken cancellationToken = default)
   {
     if (interval == TimeInterval.None)
@@ -271,9 +278,14 @@ public sealed class WebAnalytics
     var query = NewQuery(request, paged: false);
     query.Interval = interval;
     AddSummaryMetrics(query, sessions, bots);
-    var result = await engine.QueryAsync(query, cancellationToken).ConfigureAwait(false);
+    var result = engine.Query(query, cancellationToken);
     return result.Rows.Select(x => new WebTimeseriesPoint(x.Bucket.Value, ToSummary(x, sessions, bots))).ToList();
   }
+
+  /// <inheritdoc cref="GetTimeseries"/>
+  public Task<IReadOnlyList<WebTimeseriesPoint>> GetTimeseriesAsync(
+      WebReportRequest request, TimeInterval interval, CancellationToken cancellationToken = default) =>
+      Task.Run(() => GetTimeseries(request, interval, cancellationToken), cancellationToken);
 
   /// <summary>
   /// Visitors, page views and, for session-level dimensions, session metrics grouped by a dimension,
@@ -283,7 +295,8 @@ public sealed class WebAnalytics
   /// <see cref="StandardDimensions.Device"/>, <see cref="StandardDimensions.Browser"/>,
   /// <see cref="StandardDimensions.EntryPage"/> or any custom dimension.
   /// </summary>
-  public async Task<WebReport<WebBreakdownRow>> GetBreakdownAsync(
+  /// <inheritdoc cref="AnalyticsEngine.Query(AnalyticsQuery, CancellationToken)" path="/exception"/>
+  public WebReport<WebBreakdownRow> GetBreakdown(
       WebReportRequest request, string dimension, CancellationToken cancellationToken = default)
   {
     ArgumentException.ThrowIfNullOrWhiteSpace(dimension);
@@ -301,7 +314,7 @@ public sealed class WebAnalytics
     }
     query.OrderBy.Add(Order.By(Metric.Visitors));
     query.OrderBy.Add(Order.By(Metric.PageViews));
-    var result = await engine.QueryAsync(query, cancellationToken).ConfigureAwait(false);
+    var result = engine.Query(query, cancellationToken);
 
     WebBreakdownRow ToRow(AnalyticsRow row) => row == null ? null : new WebBreakdownRow(
         row.Dimensions[0],
@@ -314,24 +327,38 @@ public sealed class WebAnalytics
     {
       Previous = ToRow(row.Previous)
     };
-    return new WebReport<WebBreakdownRow>(result.Rows.Select(ToRow).ToList(), result.TotalRows, result.Plan);
+    return new WebReport<WebBreakdownRow>(result.Rows.Select(x => ToRow(x)).ToList(), result.TotalRows, result.Plan);
   }
+
+  /// <inheritdoc cref="GetBreakdown"/>
+  public Task<WebReport<WebBreakdownRow>> GetBreakdownAsync(
+      WebReportRequest request, string dimension, CancellationToken cancellationToken = default) =>
+      Task.Run(() => GetBreakdown(request, dimension, cancellationToken), cancellationToken);
 
   /// <summary>
   /// Pages ordered by page views, with entrances, exits, exit rate and, when bots are tracked
   /// separately, bot hits. Pages visited only by bots are not listed.
   /// </summary>
+  /// <inheritdoc cref="AnalyticsEngine.Query(AnalyticsQuery, CancellationToken)" path="/exception"/>
+  public WebReport<PageStats> GetPages(WebReportRequest request, CancellationToken cancellationToken = default) =>
+      GetPages(request, Metric.PageViews, cancellationToken);
+
+  /// <inheritdoc cref="GetPages(WebReportRequest, CancellationToken)"/>
   public Task<WebReport<PageStats>> GetPagesAsync(WebReportRequest request, CancellationToken cancellationToken = default) =>
-      GetPagesAsync(request, Metric.PageViews, cancellationToken);
+      Task.Run(() => GetPages(request, cancellationToken), cancellationToken);
 
   /// <summary>
   /// Pages where most sessions ended.
   /// </summary>
-  public Task<WebReport<PageStats>> GetExitPagesAsync(WebReportRequest request, CancellationToken cancellationToken = default) =>
-      GetPagesAsync(request, Metric.Exits, cancellationToken);
+  /// <inheritdoc cref="AnalyticsEngine.Query(AnalyticsQuery, CancellationToken)" path="/exception"/>
+  public WebReport<PageStats> GetExitPages(WebReportRequest request, CancellationToken cancellationToken = default) =>
+      GetPages(request, Metric.Exits, cancellationToken);
 
-  async Task<WebReport<PageStats>> GetPagesAsync(
-      WebReportRequest request, Metric order, CancellationToken cancellationToken)
+  /// <inheritdoc cref="GetExitPages"/>
+  public Task<WebReport<PageStats>> GetExitPagesAsync(WebReportRequest request, CancellationToken cancellationToken = default) =>
+      Task.Run(() => GetExitPages(request, cancellationToken), cancellationToken);
+
+  WebReport<PageStats> GetPages(WebReportRequest request, Metric order, CancellationToken cancellationToken)
   {
     var pageMetrics = PageMetricsAvailable(request);
     var bots = BotMetricsAvailable(request);
@@ -351,7 +378,7 @@ public sealed class WebAnalytics
       query.Metrics.Add(Metric.BotHits);
     query.OrderBy.Add(Order.By(order));
     query.OrderBy.Add(Order.By(Metric.Visitors));
-    var result = await engine.QueryAsync(query, cancellationToken).ConfigureAwait(false);
+    var result = engine.Query(query, cancellationToken);
 
     PageStats ToStats(AnalyticsRow row) => row == null ? null : new PageStats(
         row.Dimensions[0],
@@ -367,16 +394,17 @@ public sealed class WebAnalytics
     var rows = result.Rows.Where(x => x.Dimensions[0] != null);
     if (order == Metric.Exits)
       rows = rows.Where(x => x[Metric.Exits] > 0);
-    return new WebReport<PageStats>(rows.Select(ToStats).ToList(), result.TotalRows, result.Plan);
+    return new WebReport<PageStats>(rows.Select(x => ToStats(x)).ToList(), result.TotalRows, result.Plan);
   }
 
   /// <summary>
   /// Custom events with visitors, events and conversion rate, ordered by visitors.
   /// </summary>
-  public async Task<WebReport<GoalStats>> GetGoalsAsync(WebReportRequest request, CancellationToken cancellationToken = default)
+  /// <inheritdoc cref="AnalyticsEngine.Query(AnalyticsQuery, CancellationToken)" path="/exception"/>
+  public WebReport<GoalStats> GetGoals(WebReportRequest request, CancellationToken cancellationToken = default)
   {
     ArgumentNullException.ThrowIfNull(request);
-    var goals = engine.GetEventNames(request.Range, request.Site, request.TimeZone)
+    var goals = engine.GetEventNames(request.Range, request.Site, request.TimeZone, cancellationToken)
         .Where(x => x is not (StandardEvents.PageView or StandardEvents.Session or StandardEvents.Bot))
         .ToList();
     var query = NewQuery(request, paged: false);
@@ -388,7 +416,7 @@ public sealed class WebAnalytics
       query.Metrics.Add(Metric.EventsOf(goal));
       query.Metrics.Add(Metric.ConversionRate(goal));
     }
-    var result = await engine.QueryAsync(query, cancellationToken).ConfigureAwait(false);
+    var result = engine.Query(query, cancellationToken);
     var totals = result.Totals;
     var rows = goals
         .Select(x => new GoalStats(
@@ -401,9 +429,15 @@ public sealed class WebAnalytics
         .ThenByDescending(x => x.Events)
         .ThenBy(x => x.Name, StringComparer.Ordinal)
         .ToList();
-    return new WebReport<GoalStats>(
-        rows.Skip(request.Offset).Take(request.Limit).ToList(), rows.Count, result.Plan);
+    var page = rows.Skip(request.Offset);
+    if (request.Limit is { } limit)
+      page = page.Take(limit);
+    return new WebReport<GoalStats>(page.ToList(), rows.Count, result.Plan);
   }
+
+  /// <inheritdoc cref="GetGoals"/>
+  public Task<WebReport<GoalStats>> GetGoalsAsync(WebReportRequest request, CancellationToken cancellationToken = default) =>
+      Task.Run(() => GetGoals(request, cancellationToken), cancellationToken);
 
   /// <summary>
   /// Bots ordered by hits, with their category and share of all bot hits. Requires
@@ -411,7 +445,8 @@ public sealed class WebAnalytics
   /// report is empty. Filters can use page, hostname, bot and bot_category; segments are not
   /// supported because bot events carry no visitor.
   /// </summary>
-  public async Task<WebReport<BotStats>> GetBotsAsync(WebReportRequest request, CancellationToken cancellationToken = default)
+  /// <inheritdoc cref="AnalyticsEngine.Query(AnalyticsQuery, CancellationToken)" path="/exception"/>
+  public WebReport<BotStats> GetBots(WebReportRequest request, CancellationToken cancellationToken = default)
   {
     var query = NewQuery(request, paged: true);
     query.Event = StandardEvents.Bot;
@@ -420,7 +455,7 @@ public sealed class WebAnalytics
     query.Metrics.Add(Metric.Events);
     query.Metrics.Add(Metric.PercentOfTotal(Metric.Events));
     query.OrderBy.Add(Order.By(Metric.Events));
-    var result = await engine.QueryAsync(query, cancellationToken).ConfigureAwait(false);
+    var result = engine.Query(query, cancellationToken);
 
     static BotStats ToStats(AnalyticsRow row) => row == null ? null : new BotStats(
         row.Dimensions[0],
@@ -430,13 +465,21 @@ public sealed class WebAnalytics
     {
       Previous = ToStats(row.Previous)
     };
-    return new WebReport<BotStats>(result.Rows.Select(ToStats).ToList(), result.TotalRows, result.Plan);
+    return new WebReport<BotStats>(result.Rows.Select(x => ToStats(x)).ToList(), result.TotalRows, result.Plan);
   }
+
+  /// <inheritdoc cref="GetBots"/>
+  public Task<WebReport<BotStats>> GetBotsAsync(WebReportRequest request, CancellationToken cancellationToken = default) =>
+      Task.Run(() => GetBots(request, cancellationToken), cancellationToken);
 
   /// <summary>
   /// Unique visitors active in the last <paramref name="window"/> (default 5 minutes).
   /// Real-time; requires raw event storage. Returns null when raw events are not stored.
   /// </summary>
-  public long? GetCurrentVisitors(string site = null, TimeSpan? window = null) =>
-      engine.GetCurrentVisitors(window ?? TimeSpan.FromMinutes(5), site);
+  public long? GetCurrentVisitors(string site = null, TimeSpan? window = null, CancellationToken cancellationToken = default) =>
+      engine.GetCurrentVisitors(window ?? TimeSpan.FromMinutes(5), site, cancellationToken);
+
+  /// <inheritdoc cref="GetCurrentVisitors"/>
+  public Task<long?> GetCurrentVisitorsAsync(string site = null, TimeSpan? window = null, CancellationToken cancellationToken = default) =>
+      Task.Run(() => GetCurrentVisitors(site, window, cancellationToken), cancellationToken);
 }

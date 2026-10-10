@@ -236,7 +236,7 @@ public sealed class PartitioningTests
     using var engine = Create(
         p => p.RawEvents = 1,
         o => o.Retention.RawEvents = TimeSpan.FromDays(3));
-    Assert.That(engine.ApplyRetention(), Is.EqualTo(1));
+    Assert.That(engine.ApplyRetentionCountingDrops(), Is.EqualTo(1));
     int RawEvents(DateTime day) => (int)engine.Query(new AnalyticsQuery
     {
       Range = DateRange.Between(Utc(day.Date), Utc(day.Date.AddDays(1))),
@@ -276,7 +276,7 @@ public sealed class PartitioningTests
       o.Retention.HourRollups = TimeSpan.FromDays(3);
     }))
     {
-      Assert.That(engine.ApplyRetention(), Is.EqualTo(2));
+      Assert.That(engine.ApplyRetentionCountingDrops(), Is.EqualTo(2));
       engine.Query(new AnalyticsQuery { Range = DateRange.LastDays(30), Source = QuerySource.RawEvents });
     }
     Assert.That(logger.Problems, Is.Empty);

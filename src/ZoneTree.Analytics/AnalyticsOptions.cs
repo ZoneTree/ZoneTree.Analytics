@@ -4,8 +4,15 @@ namespace ZoneTree.Analytics;
 /// Configuration of an <see cref="AnalyticsEngine"/>.
 /// </summary>
 /// <remarks>
+/// <para>
 /// The engine copies the options when it is created, so they are fixed for its lifetime:
 /// changing them afterwards has no effect. Create a new engine to apply other options.
+/// </para>
+/// <para>
+/// Option groups and collections are never null: set their members in place, for example
+/// <c>new AnalyticsOptions { Retention = { RawEvents = TimeSpan.FromDays(30) } }</c> or
+/// <c>options.Rollups.Definitions.Add(...)</c>.
+/// </para>
 /// </remarks>
 public sealed class AnalyticsOptions
 {
@@ -49,42 +56,42 @@ public sealed class AnalyticsOptions
   /// <summary>
   /// Ingestion pipeline options.
   /// </summary>
-  public IngestionOptions Ingestion { get; set; } = new();
+  public IngestionOptions Ingestion { get; private set; } = new();
 
   /// <summary>
   /// Session tracking options.
   /// </summary>
-  public SessionOptions Sessions { get; set; } = new();
+  public SessionOptions Sessions { get; private set; } = new();
 
   /// <summary>
   /// Pre-aggregation options.
   /// </summary>
-  public RollupOptions Rollups { get; set; } = new();
+  public RollupOptions Rollups { get; private set; } = new();
 
   /// <summary>
   /// Data retention options.
   /// </summary>
-  public RetentionOptions Retention { get; set; } = new();
+  public RetentionOptions Retention { get; private set; } = new();
 
   /// <summary>
   /// Privacy options.
   /// </summary>
-  public PrivacyOptions Privacy { get; set; } = new();
+  public PrivacyOptions Privacy { get; private set; } = new();
 
   /// <summary>
   /// Web enrichment options.
   /// </summary>
-  public WebOptions Web { get; set; } = new();
+  public WebOptions Web { get; private set; } = new();
 
   /// <summary>
   /// Storage options.
   /// </summary>
-  public StorageOptions Storage { get; set; } = new();
+  public StorageOptions Storage { get; private set; } = new();
 
   /// <summary>
   /// Query options.
   /// </summary>
-  public QueryOptions Queries { get; set; } = new();
+  public QueryOptions Queries { get; private set; } = new();
 
   /// <summary>
   /// A deep copy of the configuration: option groups and collections are copied, while
@@ -93,16 +100,16 @@ public sealed class AnalyticsOptions
   internal AnalyticsOptions Clone()
   {
     var clone = (AnalyticsOptions)MemberwiseClone();
-    clone.EventFilters = EventFilters == null ? [] : [.. EventFilters];
-    clone.Enrichers = Enrichers == null ? [] : [.. Enrichers];
-    clone.Ingestion = Ingestion?.Clone();
-    clone.Sessions = Sessions?.Clone();
-    clone.Rollups = Rollups?.Clone();
-    clone.Retention = Retention?.Clone();
-    clone.Privacy = Privacy?.Clone();
-    clone.Web = Web?.Clone();
-    clone.Storage = Storage?.Clone();
-    clone.Queries = Queries?.Clone();
+    clone.EventFilters = [.. EventFilters];
+    clone.Enrichers = [.. Enrichers];
+    clone.Ingestion = Ingestion.Clone();
+    clone.Sessions = Sessions.Clone();
+    clone.Rollups = Rollups.Clone();
+    clone.Retention = Retention.Clone();
+    clone.Privacy = Privacy.Clone();
+    clone.Web = Web.Clone();
+    clone.Storage = Storage.Clone();
+    clone.Queries = Queries.Clone();
     return clone;
   }
 
@@ -114,14 +121,6 @@ public sealed class AnalyticsOptions
       throw new ArgumentException("DefaultSite is required.");
     if (TimeZone == null)
       throw new ArgumentException("TimeZone is required.");
-    Ingestion ??= new();
-    Sessions ??= new();
-    Rollups ??= new();
-    Retention ??= new();
-    Privacy ??= new();
-    Web ??= new();
-    Storage ??= new();
-    Queries ??= new();
     Ingestion.Validate();
     Rollups.Validate();
     Retention.Validate();

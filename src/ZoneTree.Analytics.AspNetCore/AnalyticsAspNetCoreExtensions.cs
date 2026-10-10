@@ -15,7 +15,8 @@ namespace ZoneTree.Analytics.AspNetCore;
 public static class AnalyticsServiceCollectionExtensions
 {
   /// <summary>
-  /// Registers a singleton <see cref="AnalyticsEngine"/> and the web integration options.
+  /// Registers a singleton <see cref="AnalyticsEngine"/>, also as <see cref="IAnalyticsTracker"/>,
+  /// and the web integration options.
   /// The engine is disposed (and flushed) when the host shuts down. A relative
   /// <see cref="AnalyticsOptions.DataDirectory"/> is resolved against the content root, and engine
   /// logs go to Microsoft.Extensions.Logging under the "ZoneTree.Analytics" category unless
@@ -41,6 +42,7 @@ public static class AnalyticsServiceCollectionExtensions
         options.Storage.Logger = new LoggerAdapter(loggerFactory.CreateLogger("ZoneTree.Analytics"));
       return new AnalyticsEngine(options);
     });
+    services.AddSingleton<IAnalyticsTracker>(provider => provider.GetRequiredService<AnalyticsEngine>());
     return services;
   }
 }
@@ -129,7 +131,7 @@ sealed class PageViewTrackingMiddleware
     var path = request.Path;
     if (path.StartsWithSegments(options.PathPrefix, StringComparison.OrdinalIgnoreCase))
       return false;
-    foreach (var excluded in options.ExcludedPaths ?? [])
+    foreach (var excluded in options.ExcludedPaths)
     {
       if (path.StartsWithSegments(excluded, StringComparison.OrdinalIgnoreCase))
         return false;

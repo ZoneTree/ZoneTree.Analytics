@@ -31,10 +31,8 @@ public sealed class AspNetCoreTests
     builder.Services.AddZoneTreeAnalytics(
         options =>
         {
-          var test = TestEngine.Options(directory);
-          options.DataDirectory = test.DataDirectory;
-          options.Retention = test.Retention;
-          options.Ingestion = test.Ingestion;
+          options.DataDirectory = directory;
+          TestEngine.UseTestDefaults(options);
           options.Web.Bots = BotTraffic.TrackSeparately;
           // Options are fixed once the engine exists: the timeout test needs its own value.
           if (TestContext.CurrentContext.Test.MethodName == nameof(ReportingApiReportsTimeouts))
@@ -71,6 +69,10 @@ public sealed class AspNetCoreTests
 
   double Count(string eventName) =>
       Engine.Query(new AnalyticsQuery { Event = eventName, Range = Recent, Metrics = { Metric.Events } }).Totals[Metric.Events];
+
+  [Test]
+  public void TheEngineIsRegisteredAsTracker() =>
+      Assert.That(app.Services.GetRequiredService<IAnalyticsTracker>(), Is.SameAs(Engine));
 
   [Test]
   public async Task MiddlewareTracksHtmlPageViewsOnly()

@@ -157,9 +157,9 @@ public sealed class ParallelScanTests
     }
     var queries = Queries().Select(x => Describe(engine.Query(x))).ToArray();
     var funnels = Funnels()
-        .Select(x => string.Join(" ", engine.QueryFunnelAsync(x).Result.Steps.Select(s => s.Visitors)))
+        .Select(x => string.Join(" ", engine.QueryAsync(x).Result.Steps.Select(s => s.Visitors)))
         .ToArray();
-    return new Results(queries, funnels, engine.GetCurrentVisitors(TimeSpan.FromMinutes(30)).Value);
+    return new Results(queries, funnels, engine.Web.GetCurrentVisitors(window: TimeSpan.FromMinutes(30)).Value);
   }
 
   /// <summary>

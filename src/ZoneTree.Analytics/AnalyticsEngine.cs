@@ -36,7 +36,7 @@ namespace ZoneTree.Analytics;
 /// </code>
 /// </para>
 /// </remarks>
-public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
+public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisposable
 {
   const string FormatVersion = "3";
 
@@ -327,18 +327,7 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
     return workers[(int)((uint)hash % (uint)workers.Length)];
   }
 
-  /// <summary>
-  /// Queues an event for processing and returns immediately.
-  /// </summary>
-  /// <remarks>
-  /// The event is copied, so it can be modified or reused once this method returns.
-  /// <see cref="AnalyticsOptions.EventFilters"/> run here, on the calling thread.
-  /// </remarks>
-  /// <returns>
-  /// True if the event was queued. False if it was filtered out, the engine is disposed, or
-  /// the queue is full and <see cref="QueueFullBehavior.Drop"/> is configured.
-  /// </returns>
-  /// <exception cref="ArgumentException">The event name is missing or reserved.</exception>
+  /// <inheritdoc/>
   public bool Track(AnalyticsEvent analyticsEvent)
   {
     if (!TryCreateWorkItem(analyticsEvent, out var item))
@@ -366,11 +355,7 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
     return false;
   }
 
-  /// <summary>
-  /// Queues an event, waiting asynchronously for queue space when the queue is full.
-  /// </summary>
-  /// <returns>True if the event was queued; false if it was filtered out or the engine is disposed.</returns>
-  /// <exception cref="ArgumentException">The event name is missing or reserved.</exception>
+  /// <inheritdoc/>
   public async ValueTask<bool> TrackAsync(AnalyticsEvent analyticsEvent, CancellationToken cancellationToken = default)
   {
     if (!TryCreateWorkItem(analyticsEvent, out var item))
@@ -404,10 +389,9 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
     await Task.WhenAll(tasks).WaitAsync(cancellationToken).ConfigureAwait(false);
   }
 
-  /// <summary>
-  /// Synchronous version of <see cref="FlushAsync"/>.
-  /// </summary>
-  public void Flush() => FlushAsync().GetAwaiter().GetResult();
+  /// <inheritdoc cref="FlushAsync"/>
+  public void Flush(CancellationToken cancellationToken = default) =>
+      FlushAsync(cancellationToken).GetAwaiter().GetResult();
 
   /// <summary>
   /// Flushes, moves the in-memory data of every open store to disk and waits until the
@@ -436,10 +420,9 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
     }, cancellationToken).ConfigureAwait(false);
   }
 
-  /// <summary>
-  /// Synchronous version of <see cref="CompactAsync"/>.
-  /// </summary>
-  public void Compact() => CompactAsync().GetAwaiter().GetResult();
+  /// <inheritdoc cref="CompactAsync"/>
+  public void Compact(CancellationToken cancellationToken = default) =>
+      CompactAsync(cancellationToken).GetAwaiter().GetResult();
 
   /// <summary>
   /// Executes a query.
@@ -465,19 +448,31 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
   {
     ObjectDisposedException.ThrowIf(IsDisposed, this);
     ArgumentNullException.ThrowIfNull(query);
-    return Task.Run(() => WithTimeout(token => queryEngine.Execute(query, token), cancellationToken), cancellationToken);
+    return Task.Run(() => Query(query, cancellationToken), cancellationToken);
   }
 
   /// <summary>
-  /// Analyzes a funnel: how many visitors completed each step, in order.
+  /// Analyzes a funnel: how many visitors completed each step, in order. Funnels are answered
+  /// from raw events.
   /// </summary>
-  /// <exception cref="AnalyticsQueryException">The funnel is invalid or raw events are not available.</exception>
+  /// <exception cref="AnalyticsQueryException">The funnel is invalid or raw events are not stored.</exception>
   /// <exception cref="AnalyticsQueryTimeoutException">The funnel ran longer than <see cref="QueryOptions.Timeout"/>.</exception>
-  public Task<FunnelResult> QueryFunnelAsync(FunnelQuery funnel, CancellationToken cancellationToken = default)
+  public FunnelResult Query(FunnelQuery funnel, CancellationToken cancellationToken = default)
   {
     ObjectDisposedException.ThrowIf(IsDisposed, this);
     ArgumentNullException.ThrowIfNull(funnel);
-    return Task.Run(() => WithTimeout(token => funnelEngine.Execute(funnel, token), cancellationToken), cancellationToken);
+    return WithTimeout(token => funnelEngine.Execute(funnel, token), cancellationToken);
+  }
+
+  /// <summary>
+  /// Analyzes a funnel on a thread-pool thread.
+  /// </summary>
+  /// <inheritdoc cref="Query(FunnelQuery, CancellationToken)"/>
+  public Task<FunnelResult> QueryAsync(FunnelQuery funnel, CancellationToken cancellationToken = default)
+  {
+    ObjectDisposedException.ThrowIf(IsDisposed, this);
+    ArgumentNullException.ThrowIfNull(funnel);
+    return Task.Run(() => Query(funnel, cancellationToken), cancellationToken);
   }
 
   /// <summary>
@@ -503,10 +498,27 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
   /// <summary>
   /// Lists the event names recorded for a site in a range, including <see cref="StandardEvents.Session"/>.
   /// </summary>
-  public IReadOnlyList<string> GetEventNames(DateRange range, string site = null, TimeZoneInfo timeZone = null)
+  /// <param name="range">The time range.</param>
+  /// <param name="site">The site; null for <see cref="AnalyticsOptions.DefaultSite"/>.</param>
+  /// <param name="timeZone">The time zone of the range; null for the engine's reporting time zone.</param>
+  /// <param name="cancellationToken">Cancels the operation.</param>
+  public IReadOnlyList<string> GetEventNames(
+      DateRange range, string site = null, TimeZoneInfo timeZone = null, CancellationToken cancellationToken = default)
   {
     ObjectDisposedException.ThrowIf(IsDisposed, this);
+    cancellationToken.ThrowIfCancellationRequested();
     return queryEngine.GetEventNames(range, site, timeZone);
+  }
+
+  /// <summary>
+  /// Lists the event names recorded for a site in a range on a thread-pool thread.
+  /// </summary>
+  /// <inheritdoc cref="GetEventNames"/>
+  public Task<IReadOnlyList<string>> GetEventNamesAsync(
+      DateRange range, string site = null, TimeZoneInfo timeZone = null, CancellationToken cancellationToken = default)
+  {
+    ObjectDisposedException.ThrowIf(IsDisposed, this);
+    return Task.Run(() => GetEventNames(range, site, timeZone, cancellationToken), cancellationToken);
   }
 
   /// <summary>
@@ -514,7 +526,7 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
   /// Raw events are written immediately, so the count is real-time. Returns null when raw
   /// events are not stored.
   /// </summary>
-  internal long? GetCurrentVisitors(TimeSpan window, string site = null)
+  internal long? GetCurrentVisitors(TimeSpan window, string site, CancellationToken cancellationToken)
   {
     ObjectDisposedException.ThrowIf(IsDisposed, this);
     if (rawEvents == null)
@@ -530,7 +542,7 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
           if (visitor != 0)
             visitors.Add(visitor);
         },
-        CancellationToken.None);
+        cancellationToken);
     if (slices.Length == 0)
       return 0;
     var all = slices.MaxBy(x => x.Count);
@@ -547,11 +559,28 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
   /// for example to honor a data erasure request. Aggregated rollups contain no
   /// per-visitor data and are not modified. Returns the number of deleted events.
   /// </summary>
+  /// <param name="visitorId">The visitor id the events were tracked with (<see cref="AnalyticsEvent.VisitorId"/>).</param>
+  /// <param name="site">The site; null for <see cref="AnalyticsOptions.DefaultSite"/>.</param>
+  /// <param name="cancellationToken">Cancels the operation.</param>
+  public long EraseVisitor(string visitorId, string site = null, CancellationToken cancellationToken = default)
+  {
+    ObjectDisposedException.ThrowIf(IsDisposed, this);
+    ArgumentException.ThrowIfNullOrEmpty(visitorId);
+    Flush(cancellationToken);
+    return EraseFlushedVisitor(visitorId, site, cancellationToken);
+  }
+
+  /// <inheritdoc cref="EraseVisitor"/>
   public async Task<long> EraseVisitorAsync(string visitorId, string site = null, CancellationToken cancellationToken = default)
   {
     ObjectDisposedException.ThrowIf(IsDisposed, this);
     ArgumentException.ThrowIfNullOrEmpty(visitorId);
     await FlushAsync(cancellationToken).ConfigureAwait(false);
+    return await Task.Run(() => EraseFlushedVisitor(visitorId, site, cancellationToken), cancellationToken).ConfigureAwait(false);
+  }
+
+  long EraseFlushedVisitor(string visitorId, string site, CancellationToken cancellationToken)
+  {
     site = enricher.NormalizeSite(site);
     var hash = visitorHasher.HashVisitorId(site, visitorId);
     if (hash == 0)
@@ -594,14 +623,26 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
   /// <summary>
   /// Applies retention immediately: drops the partitions that expired as a whole, removes the
   /// expired records of the others from disk, and destroys old salts. Queries never see expired
-  /// data, with or without this call; it reclaims disk space. Returns the number of dropped
-  /// partitions.
+  /// data, with or without this call; it reclaims disk space. The engine does this on its own
+  /// every <see cref="RetentionOptions.CheckInterval"/>. <see cref="AnalyticsStatistics.PartitionsDropped"/>
+  /// counts the dropped partitions.
   /// </summary>
-  public int ApplyRetention()
+  public void ApplyRetention(CancellationToken cancellationToken = default)
   {
     ObjectDisposedException.ThrowIf(IsDisposed, this);
+    cancellationToken.ThrowIfCancellationRequested();
     lock (housekeepingLock)
-      return ApplyRetentionCore();
+      ApplyRetentionCore();
+  }
+
+  /// <summary>
+  /// Applies retention on a thread-pool thread.
+  /// </summary>
+  /// <inheritdoc cref="ApplyRetention"/>
+  public Task ApplyRetentionAsync(CancellationToken cancellationToken = default)
+  {
+    ObjectDisposedException.ThrowIf(IsDisposed, this);
+    return Task.Run(() => ApplyRetention(cancellationToken), cancellationToken);
   }
 
   int ApplyRetentionCore()

@@ -139,7 +139,7 @@ public sealed class ReferrerClassifierTests
 {
   readonly ReferrerClassifier classifier = new(new WebOptions
   {
-    ReferrerSources = new Dictionary<string, string> { ["lobste.rs"] = "Lobsters" }
+    ReferrerSources = { ["lobste.rs"] = "Lobsters" }
   });
 
   [TestCase("https://www.google.com/", null, null, "google.com", "Google", "Organic Search")]

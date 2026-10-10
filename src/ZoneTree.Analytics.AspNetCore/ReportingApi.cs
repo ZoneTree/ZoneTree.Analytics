@@ -161,13 +161,13 @@ static class ReportingApi
       buffer.Position = 0;
       await buffer.CopyToAsync(context.Response.Body, cancellationToken);
     }
-    catch (Exception e) when (e is AnalyticsQueryException or FormatException or ArgumentException or TimeZoneNotFoundException or InvalidTimeZoneException)
-    {
-      await WriteError(context, StatusCodes.Status400BadRequest, e.Message);
-    }
     catch (AnalyticsQueryTimeoutException e)
     {
       await WriteError(context, StatusCodes.Status503ServiceUnavailable, e.Message);
+    }
+    catch (Exception e) when (e is AnalyticsQueryException or FormatException or ArgumentException or TimeZoneNotFoundException or InvalidTimeZoneException)
+    {
+      await WriteError(context, StatusCodes.Status400BadRequest, e.Message);
     }
     finally
     {
@@ -374,10 +374,11 @@ static class ReportingApi
     WriteReport(writer, report, WriteBotStats);
   }
 
-  public static Task RealtimeAsync(HttpContext context, ApiParameters parameters, Utf8JsonWriter writer, CancellationToken cancellationToken)
+  public static async Task RealtimeAsync(HttpContext context, ApiParameters parameters, Utf8JsonWriter writer, CancellationToken cancellationToken)
   {
     var minutes = parameters.GetInt("minutes") ?? 5;
-    var visitors = Engine(context).Web.GetCurrentVisitors(parameters.Get("site"), TimeSpan.FromMinutes(Math.Max(1, minutes)));
+    var visitors = await Engine(context).Web.GetCurrentVisitorsAsync(
+        parameters.Get("site"), TimeSpan.FromMinutes(Math.Max(1, minutes)), cancellationToken);
     writer.WriteStartObject();
     if (visitors.HasValue)
       writer.WriteNumber("visitors", visitors.Value);
@@ -385,7 +386,6 @@ static class ReportingApi
       writer.WriteNull("visitors");
     writer.WriteNumber("minutes", Math.Max(1, minutes));
     writer.WriteEndObject();
-    return Task.CompletedTask;
   }
 
   public static async Task QueryAsync(HttpContext context, ApiParameters parameters, Utf8JsonWriter writer, CancellationToken cancellationToken)
@@ -454,7 +454,7 @@ static class ReportingApi
           eventName,
           step.GetAll("filters").Select(Filter.Parse).ToArray()));
     }
-    var result = await Engine(context).QueryFunnelAsync(funnel, cancellationToken);
+    var result = await Engine(context).QueryAsync(funnel, cancellationToken);
     writer.WriteStartObject();
     writer.WriteString("from", result.From);
     writer.WriteString("to", result.To);

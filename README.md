@@ -128,6 +128,14 @@ var buyers = new WebReportRequest { Segments = { Segment.VisitorsWho("purchase")
 
 All web reports count visitors the same way (unique visitors with a page view), so numbers add up across reports. Session metrics are reported for session-level breakdowns (source, campaign, geography, device, entry page) and are null otherwise.
 
+### API conventions
+
+* **Synchronous and asynchronous.** Every operation that reads or writes storage has both forms with the same parameters: `Query`/`QueryAsync` (for `AnalyticsQuery` and `FunnelQuery`), `Flush`, `Compact`, `GetEventNames`, `EraseVisitor`, `ApplyRetention` and every `Web` report. Asynchronous forms run the work on a thread-pool thread; use them in request handlers, and the synchronous ones in background jobs and scripts. `Track` queues the event and returns at once; `TrackAsync` also waits asynchronously when the queue is full.
+* **Cancellation.** Every operation that can take time takes a `CancellationToken` as its last, optional parameter. `Queries.Timeout` applies on top of it.
+* **Errors.** Every exception the engine raises derives from `AnalyticsException`: `AnalyticsConfigurationException` for options that conflict with the data directory, `AnalyticsQueryException` for queries that cannot be answered, and its subclass `AnalyticsQueryTimeoutException`. Invalid arguments raise `ArgumentException`.
+* **Options.** Option groups and collections are never null and are set in place: `new AnalyticsOptions { Retention = { RawEvents = TimeSpan.FromDays(30) } }`, `options.Rollups.Definitions.Add(...)`. Allow-lists such as `Privacy.AllowedDimensions` are null when there is no restriction.
+* **Testing.** `AnalyticsEngine` implements `IAnalyticsTracker` (`Track` and `TrackAsync`). Code that only tracks events can depend on the interface and use a fake in tests. Test queries against a real engine on a temporary directory: it is embedded and opens in milliseconds.
+
 ---
 
 ## Queries
@@ -267,7 +275,7 @@ query.Compare = Comparison.PreviousPeriod;   // or PreviousYear, or Custom(range
 
 Calendar ranges and day, week, month and year buckets follow the query's time zone (the engine's reporting time zone by default). Daily rollups are stored in the reporting time zone; other time zones are answered from hourly rollups. A time series has at most 100,000 buckets; longer ones are rejected rather than truncated.
 
-Queries and funnels that run longer than `Queries.Timeout` (30 seconds by default) are cancelled with an `AnalyticsQueryTimeoutException`, so an expensive ad-hoc query cannot tie up the host application.
+Queries and funnels that run longer than `Queries.Timeout` (30 seconds by default) are cancelled with an `AnalyticsQueryTimeoutException`, a kind of `AnalyticsQueryException`, so an expensive ad-hoc query cannot tie up the host application.
 
 ### Filters
 
@@ -278,7 +286,7 @@ Filter.StartsWith("page", "/blog/");        Filter.EndsWith("page", ".html");
 Filter.Matches("page", @"^/blog/\d+$");     Filter.NotMatches("referrer", "spam");
 Filter.IsSet("plan");                       Filter.IsNotSet("plan");
 Filter.GreaterThanOrEqual("status", 500);   Filter.LessThan("duration", 1.5);
-new Filter("browser", FilterOperator.Equals, ignoreCase: true, "chrome");
+new Filter("browser", FilterOperator.Equal, ignoreCase: true, "chrome");
 Filter.Parse("country==DE|AT");             // also !=, ~=, !~=, ^=, $=, =~, !=~, >, >=, <, <=, dim?, !dim?
 ```
 
@@ -297,7 +305,7 @@ A segment restricts a query to visitors (or sessions) with at least one matching
 ### Funnels
 
 ```csharp
-var funnel = await analytics.QueryFunnelAsync(new FunnelQuery
+var funnel = await analytics.QueryAsync(new FunnelQuery
 {
     Range = DateRange.LastDays(30),
     Steps =
@@ -437,7 +445,7 @@ app.MapZoneTreeAnalyticsApi()            // JSON reporting API under /_analytics
 </script>
 ```
 
-Use one of the two page view options, not both. The tracker follows single-page-app navigation, uses `sendBeacon`, sets no cookies and ignores localhost unless `data-allow-localhost="true"` is set. The engine is a DI singleton that is flushed and disposed on shutdown, and its logs go to `Microsoft.Extensions.Logging`.
+Use one of the two page view options, not both. The tracker follows single-page-app navigation, uses `sendBeacon`, sets no cookies and ignores localhost unless `data-allow-localhost="true"` is set. The engine is a DI singleton, also registered as `IAnalyticsTracker`, that is flushed and disposed on shutdown, and its logs go to `Microsoft.Extensions.Logging`.
 
 ### Reporting API
 
@@ -486,7 +494,7 @@ Invalid requests return 400 with an `error` message; queries that exceed `Querie
 * **Data minimization.** `GeoPrecision`, `CollectUserAgentDetails`, `CollectVersions`, `IncludeQueryString` (off by default), `AllowedDimensions`, `DeniedDimensions`, `MaxCustomDimensions`, `MaxCustomMetrics`, `MaxValueLength`.
 * **Filtering.** `EventFilters` drop events before they are queued, for example internal traffic or visitors who opted out. Bot traffic is excluded by default.
 * **Retention** per data tier, see [Retention](#retention). Expired data is hidden at once and removed from disk; late events older than a tier's retention are not written to that tier, so backfilled history only lands where it is kept.
-* **Erasure.** `await analytics.EraseVisitorAsync(userId)` deletes the raw events and the session of an explicitly identified visitor. Rollups contain only aggregates and sketches, never identifiers.
+* **Erasure.** `analytics.EraseVisitor(userId)` or `await analytics.EraseVisitorAsync(userId)` deletes the raw events and the session of an explicitly identified visitor. Rollups contain only aggregates and sketches, never identifiers.
 
 With daily rotation, a person who visits on several days counts once per day in multi-day totals. Use `PersistentHash` or explicit visitor ids for cross-day unique visitors.
 

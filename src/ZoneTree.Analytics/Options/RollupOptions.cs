@@ -17,9 +17,9 @@ public sealed class RollupOptions
   /// The dimension sets to pre-aggregate. A query is answered from rollups when the
   /// union of its group-by and filter dimensions equals one of these sets;
   /// otherwise it is answered by scanning raw events.
-  /// Default is <see cref="RollupDefinition.WebDefaults"/>.
+  /// Default is <see cref="RollupDefinition.WebDefaults"/>; clear the list to start from scratch.
   /// </summary>
-  public List<RollupDefinition> Definitions { get; set; } = RollupDefinition.WebDefaults();
+  public List<RollupDefinition> Definitions { get; private set; } = RollupDefinition.WebDefaults();
 
   /// <summary>
   /// Precision of unique visitor sketches. Distinct counts up to 2^precision / 4
@@ -44,7 +44,7 @@ public sealed class RollupOptions
   /// options.Rollups.MetricAggregates["temperature"] = MetricAggregates.FirstAndLast;
   /// </code>
   /// </example>
-  public Dictionary<string, MetricAggregates> MetricAggregates { get; set; } = new(StringComparer.Ordinal);
+  public Dictionary<string, MetricAggregates> MetricAggregates { get; private set; } = new(StringComparer.Ordinal);
 
   /// <summary>
   /// Dimensions whose distinct values are counted in every rollup row, for
@@ -52,14 +52,14 @@ public sealed class RollupOptions
   /// count sketch per rollup row. Queries of other dimensions, and of ranges before a dimension
   /// was configured, are answered from raw events.
   /// </summary>
-  public List<string> DistinctDimensions { get; set; } = [];
+  public List<string> DistinctDimensions { get; private set; } = [];
 
   internal RollupOptions Clone()
   {
     var clone = (RollupOptions)MemberwiseClone();
-    clone.Definitions = Definitions?.Select(x => x?.Clone()).ToList();
-    clone.MetricAggregates = MetricAggregates == null ? null : new(MetricAggregates, StringComparer.Ordinal);
-    clone.DistinctDimensions = DistinctDimensions?.ToList();
+    clone.Definitions = Definitions.Select(x => x?.Clone()).ToList();
+    clone.MetricAggregates = new(MetricAggregates, StringComparer.Ordinal);
+    clone.DistinctDimensions = [.. DistinctDimensions];
     return clone;
   }
 
@@ -68,7 +68,6 @@ public sealed class RollupOptions
     if ((Granularities & ~(Granularity.Minute | Granularity.Hour | Granularity.Day)) != 0)
       throw new ArgumentException("Rollups.Granularities is not a valid value.");
     HyperLogLog.ValidatePrecision(HyperLogLogPrecision);
-    Definitions ??= [];
     var dimensionSets = new HashSet<string>(StringComparer.Ordinal);
     foreach (var definition in Definitions)
     {
@@ -77,7 +76,6 @@ public sealed class RollupOptions
       if (!dimensionSets.Add(definition.Id))
         throw new ArgumentException($"Duplicate rollup definition for dimensions '{definition.Id}'.");
     }
-    MetricAggregates ??= new(StringComparer.Ordinal);
     foreach (var (metric, aggregates) in MetricAggregates)
     {
       if (string.IsNullOrWhiteSpace(metric))
@@ -85,7 +83,6 @@ public sealed class RollupOptions
       if ((aggregates & ~Analytics.MetricAggregates.All) != 0)
         throw new ArgumentException($"Rollups.MetricAggregates['{metric}'] is not a valid value.");
     }
-    DistinctDimensions ??= [];
     if (DistinctDimensions.Any(string.IsNullOrWhiteSpace))
       throw new ArgumentException("Rollups.DistinctDimensions cannot contain an empty dimension.");
     if (DistinctDimensions.Distinct(StringComparer.Ordinal).Count() != DistinctDimensions.Count)
