@@ -265,6 +265,12 @@ static class ReportingApi
         : throw new FormatException($"Unknown {name} '{value}'.");
   }
 
+  static TimeInterval ParseInterval(ApiParameters parameters, TimeInterval fallback)
+  {
+    var value = parameters.Get("interval");
+    return string.IsNullOrWhiteSpace(value) ? fallback : TimeInterval.Parse(value);
+  }
+
   static IEnumerable<Filter> ParseFilters(ApiParameters parameters) =>
       parameters.GetAll("filter").Concat(parameters.GetAll("filters")).Select(Filter.Parse);
 
@@ -317,7 +323,7 @@ static class ReportingApi
 
   public static async Task TimeseriesAsync(HttpContext context, ApiParameters parameters, Utf8JsonWriter writer, CancellationToken cancellationToken)
   {
-    var interval = ParseEnum(parameters, "interval", TimeInterval.Day);
+    var interval = ParseInterval(parameters, TimeInterval.Day);
     var points = await Engine(context).Web.GetTimeseriesAsync(ParseRequest(parameters), interval, cancellationToken);
     writer.WriteStartArray();
     foreach (var point in points)
@@ -390,11 +396,13 @@ static class ReportingApi
       Event = parameters.Get("event") ?? StandardEvents.PageView,
       Range = ParseRange(parameters),
       TimeZone = ParseTimeZone(parameters),
-      Interval = ParseEnum(parameters, "interval", TimeInterval.None),
+      Interval = ParseInterval(parameters, TimeInterval.None),
       Compare = ParseComparison(parameters),
       Source = ParseEnum(parameters, "source", QuerySource.Auto),
+      Fill = ParseEnum(parameters, "fill", FillMode.Zero),
       Limit = parameters.GetInt("limit"),
-      Offset = parameters.GetInt("offset") ?? 0
+      Offset = parameters.GetInt("offset") ?? 0,
+      LimitPerBucket = parameters.GetInt("limitPerBucket")
     };
     if (parameters.Get("includeRowsWithoutBaseEvent") == "false")
       query.IncludeRowsWithoutBaseEvent = false;
@@ -402,6 +410,7 @@ static class ReportingApi
     query.Filters.AddRange(ParseFilters(parameters));
     query.Segments.AddRange(ParseSegments(parameters));
     query.Metrics.AddRange(parameters.GetAll("metrics").Select(Metric.Parse));
+    query.Having.AddRange(parameters.GetAll("having").Select(MetricFilter.Parse));
     foreach (var key in parameters.GetAll("orderBy"))
     {
       var descending = key.StartsWith('-');
@@ -589,7 +598,7 @@ static class ReportingApi
     writer.WriteString("from", result.From);
     writer.WriteString("to", result.To);
     writer.WriteString("timeZone", result.TimeZone.Id);
-    writer.WriteString("interval", result.Interval.ToString().ToLowerInvariant());
+    writer.WriteString("interval", result.Interval.ToString());
     writer.WriteStartArray("groupBy");
     foreach (var dimension in result.GroupBy)
       writer.WriteStringValue(dimension);

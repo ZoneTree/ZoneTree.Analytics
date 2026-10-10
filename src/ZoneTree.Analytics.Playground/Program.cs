@@ -33,14 +33,23 @@ if (mode.Contains("totalsonly"))
   options.Rollups.Definitions = [new RollupDefinition()];
 if (mode.Contains("norollups"))
   options.Rollups.Granularities = Granularity.None;
+// Page load times with percentile rollups, to measure what time series features cost.
+var withMetrics = mode.Contains("metrics");
+if (withMetrics)
+  options.Rollups.MetricAggregates["load_time"] = MetricAggregates.Percentiles;
 if (mode.Contains("sequential"))
   options.Queries.MaxDegreeOfParallelism = 1;
 
 Console.WriteLine($"Generating {eventCount:N0} page views over {days} days with {workers} worker(s)...");
 var traffic = new SyntheticTraffic(days, eventCount, seed: 42);
 var events = new AnalyticsEvent[eventCount];
+var loadTimes = new Random(1);
 for (var i = 0; i < events.Length; ++i)
+{
   events[i] = traffic.Next();
+  if (withMetrics)
+    events[i].Metrics["load_time"] = Math.Round(Math.Exp(5.5 + loadTimes.NextDouble() * 2.5), 1);
+}
 var from = traffic.Start;
 var to = traffic.Start.AddDays(days);
 
@@ -131,6 +140,33 @@ using (var engine = new AnalyticsEngine(options))
     Range = Range(to.AddDays(-7), to),
     Steps = { FunnelStep.Page("Home", "/"), FunnelStep.Page("Pricing", "/pricing"), FunnelStep.Page("Signup", "/signup") }
   }).Result);
+  if (withMetrics)
+  {
+    Measure("Load time p50/p95/p99 per day (30 days)", () => engine.Query(new AnalyticsQuery
+    {
+      Range = month.Range,
+      Interval = TimeInterval.Day,
+      Metrics = { Metric.Median("load_time"), Metric.Percentile("load_time", 95), Metric.Percentile("load_time", 99) }
+    }));
+    Measure("Load time p95 by page (30 days)", () => engine.Query(new AnalyticsQuery
+    {
+      Range = month.Range,
+      GroupBy = { StandardDimensions.Page },
+      Metrics = { Metric.Percentile("load_time", 95), Metric.StandardDeviation("load_time") }
+    }));
+    Measure("Hourly rate, p95, 24h moving average (7 days)", () => engine.Query(new AnalyticsQuery
+    {
+      Range = Range(to.AddDays(-7), to),
+      Interval = TimeInterval.Hour,
+      Metrics =
+      {
+        Metric.Rate(Metric.PageViews, TimeSpan.FromMinutes(1)),
+        Metric.Percentile("load_time", 95),
+        Metric.MovingAverage(Metric.Visitors, 24),
+        Metric.Sum("load_time") / Metric.PageViews,
+      }
+    }));
+  }
 
   Console.WriteLine();
   Console.WriteLine($"Visitors {summary.Visitors:N0} | Page views {summary.PageViews:N0} | Sessions {summary.Sessions:N0} | " +

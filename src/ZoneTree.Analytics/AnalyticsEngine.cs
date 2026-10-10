@@ -36,7 +36,7 @@ namespace ZoneTree.Analytics;
 /// </remarks>
 public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
 {
-  const string FormatVersion = "1";
+  const string FormatVersion = "2";
 
   readonly AnalyticsOptions options;
 
@@ -68,7 +68,6 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
 
   readonly Counters counters = new();
 
-  readonly Dictionary<string, long> definitionActiveSince = new(StringComparer.Ordinal);
 
   readonly Timer timer;
 
@@ -113,7 +112,7 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
     {
       meta = new MetaStore(Path.Combine(root, "meta"));
       var isNew = ValidateConfiguration();
-      RegisterRollupDefinitions(isNew);
+      var activations = RollupActivations.Register(meta, options.Rollups, isNew);
       sequence = Math.Max(
           DateTime.UtcNow.Ticks,
           meta.Get("raw-sequence") is { } stored ? long.Parse(stored, CultureInfo.InvariantCulture) : 0);
@@ -157,7 +156,7 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
         workers[i] = new IngestionWorker(services);
 
       queryEngine = new QueryEngine(
-          options, calendar, rollups, rawEvents, definitions, GetDefinitionActiveSince, enricher);
+          options, calendar, rollups, rawEvents, definitions, activations, enricher);
       funnelEngine = new FunnelEngine(options, calendar, rawEvents, enricher);
       Web = new WebAnalytics(this);
       visitorHasher.RotateSalts(DateTime.UtcNow);
@@ -253,47 +252,6 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
   }
 
   /// <summary>
-  /// Records when each rollup definition became active. A definition added to an existing
-  /// data directory, re-added after it was removed, or whose events changed only covers data
-  /// recorded after that time; earlier ranges are answered from raw events.
-  /// </summary>
-  void RegisterRollupDefinitions(bool isNewDirectory)
-  {
-    // A definition that is not configured is not maintained. Forget it, so that adding it
-    // again starts a new activation instead of claiming coverage of the time it was missing.
-    var configured = options.Rollups.Definitions.Select(RollupActivationKey).ToHashSet(StringComparer.Ordinal);
-    var activation = (isNewDirectory ? 0 : DateTime.UtcNow.Ticks).ToString(CultureInfo.InvariantCulture);
-    meta.Update(entries =>
-    {
-      foreach (var key in entries.Keys.Where(x => x.StartsWith(RollupActivationPrefix, StringComparison.Ordinal)).ToList())
-      {
-        if (!configured.Contains(key))
-          entries.Remove(key);
-      }
-      foreach (var key in configured)
-        entries.TryAdd(key, activation);
-    });
-    foreach (var definition in options.Rollups.Definitions)
-      definitionActiveSince[definition.Id] = long.Parse(meta.Get(RollupActivationKey(definition)), CultureInfo.InvariantCulture);
-  }
-
-  const string RollupActivationPrefix = "rollup:";
-
-  /// <summary>
-  /// The meta key of a definition's activation time. It covers everything that decides which
-  /// rows the definition holds: its dimensions and its event restriction. Changing either starts
-  /// a new activation.
-  /// </summary>
-  static string RollupActivationKey(RollupDefinition definition)
-  {
-    var key = RollupActivationPrefix + definition.Id;
-    if (definition.Events == null)
-      return key;
-    var events = definition.Events.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal);
-    return key + KeyCodec.ValueSeparator + "events:" + string.Join(KeyCodec.ValueSeparator, events);
-  }
-
-  /// <summary>
   /// Events up to the returned time may continue a session stored by a previous run.
   /// The session store only holds unexpired sessions (TTL), so the scan is small.
   /// </summary>
@@ -307,9 +265,6 @@ public sealed class AnalyticsEngine : IDisposable, IAsyncDisposable
       latest = Math.Max(latest, iterator.CurrentValue.LastTicks);
     return latest == long.MinValue ? latest : latest + options.Sessions.Timeout.Ticks;
   }
-
-  long GetDefinitionActiveSince(string id) =>
-      definitionActiveSince.TryGetValue(id, out var since) ? since : long.MaxValue;
 
   bool TryCreateWorkItem(AnalyticsEvent analyticsEvent, out WorkItem item)
   {

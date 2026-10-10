@@ -1,4 +1,5 @@
 using ZoneTree.Analytics.Internal;
+using ZoneTree.Analytics.Sketches;
 using ZoneTree.Analytics.Storage;
 
 namespace ZoneTree.Analytics.Ingestion;
@@ -110,6 +111,15 @@ sealed class RollupBuffer
 
   Dictionary<RollupBufferKey, RollupAccumulator> rows = [];
 
+  readonly Dictionary<string, MetricAggregates> metricAggregates;
+
+  readonly string[] distinctDimensions;
+
+  // The opt-in aggregates of the current event, computed once for all of its rows.
+  readonly List<(string Name, double Value, MetricAggregates Aggregates, QuantileBucket Bucket)> eventDetails = [];
+
+  readonly List<(string Dimension, ulong Hash)> eventDistinct = [];
+
   // Per scope, per definition: whether contributions of the scope reach the definition.
   readonly bool[][] accepts;
 
@@ -118,9 +128,15 @@ sealed class RollupBuffer
       Granularity enabled,
       ReportingCalendar calendar,
       int precision,
-      SessionSchema schema)
+      SessionSchema schema,
+      IReadOnlyDictionary<string, MetricAggregates> metricAggregates,
+      IReadOnlyCollection<string> distinctDimensions)
   {
     this.definitions = definitions;
+    this.metricAggregates = metricAggregates
+        .Where(x => x.Value != MetricAggregates.None)
+        .ToDictionary(x => x.Key, x => x.Value, StringComparer.Ordinal);
+    this.distinctDimensions = [.. distinctDimensions];
     granularities = RollupStore.Granularities.Where(x => (enabled & x) != 0).ToArray();
     dayCache = new LocalDayCache(calendar);
     this.precision = precision;
@@ -190,6 +206,7 @@ sealed class RollupBuffer
     }
     if (kept == 0)
       return;
+    PrepareOptInAggregates(dimensions, metrics);
 
     var scopeAccepts = accepts[(int)scope];
     for (var d = 0; d < definitions.Length; ++d)
@@ -214,16 +231,46 @@ sealed class RollupBuffer
         accumulator.Count += count;
         if (visitor != 0)
           accumulator.AddVisitor(visitor, precision);
-        if (metrics == null)
-          continue;
-        foreach (var metric in metrics)
+        if (metrics != null)
         {
-          if (metric.IsDelta)
-            accumulator.AddMetricDelta(metric.Name, metric.Value);
-          else
-            accumulator.AddMetric(metric.Name, metric.Value);
+          foreach (var metric in metrics)
+          {
+            if (metric.IsDelta)
+              accumulator.AddMetricDelta(metric.Name, metric.Value);
+            else
+              accumulator.AddMetric(metric.Name, metric.Value);
+          }
         }
+        foreach (var detail in eventDetails)
+          accumulator.AddMetricDetail(detail.Name, detail.Value, ticks, detail.Aggregates, detail.Bucket);
+        foreach (var (dimension, hash) in eventDistinct)
+          accumulator.AddDistinct(dimension, hash, precision);
       }
+    }
+  }
+
+  /// <summary>
+  /// Collects the opt-in aggregates of an event: configured metric aggregates and distinct
+  /// dimension values. Without configuration, this costs two length checks.
+  /// </summary>
+  void PrepareOptInAggregates(IReadOnlyDictionary<string, string> dimensions, List<MetricChange> metrics)
+  {
+    eventDetails.Clear();
+    if (metricAggregates.Count > 0 && metrics != null)
+    {
+      foreach (var metric in metrics)
+      {
+        if (metric.IsDelta || !metricAggregates.TryGetValue(metric.Name, out var aggregates))
+          continue;
+        var bucket = (aggregates & MetricAggregates.Percentiles) != 0 ? QuantileSketch.BucketOf(metric.Value) : default;
+        eventDetails.Add((metric.Name, metric.Value, aggregates, bucket));
+      }
+    }
+    eventDistinct.Clear();
+    foreach (var dimension in distinctDimensions)
+    {
+      if (dimensions.TryGetValue(dimension, out var value))
+        eventDistinct.Add((dimension, Text.StableHash(value)));
     }
   }
 

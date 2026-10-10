@@ -290,6 +290,26 @@ public sealed class AspNetCoreTests
     var (segmentStatus, segmented) = await PostJson("/_analytics/api/query", """
       { "range": "today", "metrics": ["visitors"], "segments": [{ "event": "signup", "exclude": true }] }
       """);
+    var (seriesStatus, series) = await PostJson("/_analytics/api/query", """
+      {
+        "range": "today",
+        "interval": "30m",
+        "fill": "none",
+        "metrics": ["pageviews", "cumulative(pageviews)", "div(pageviews,visitors)"],
+        "having": ["pageviews>=2"]
+      }
+      """);
+    var (invalidStatus, _) = await PostJson("/_analytics/api/query", """{ "range": "today", "having": ["pageviews>>"] }""");
+    var (topStatus, top) = await PostJson("/_analytics/api/query", """
+      {
+        "range": "today",
+        "groupBy": ["page"],
+        "metrics": ["pageviews", "where(pageviews,\"page==/pricing\")"],
+        "orderBy": ["-pageviews"],
+        "limitPerBucket": 1
+      }
+      """);
+    var seriesRows = series.GetProperty("rows").EnumerateArray().ToList();
     var rows = result.GetProperty("rows");
     Assert.Multiple(() =>
     {
@@ -306,6 +326,16 @@ public sealed class AspNetCoreTests
       Assert.That(funnel.GetProperty("conversionRate").GetDouble(), Is.EqualTo(0.5));
       Assert.That(segmentStatus, Is.EqualTo(HttpStatusCode.OK));
       Assert.That(segmented.GetProperty("totals").GetProperty("values").GetProperty("visitors").GetDouble(), Is.EqualTo(1));
+      Assert.That(seriesStatus, Is.EqualTo(HttpStatusCode.OK));
+      Assert.That(series.GetProperty("interval").GetString(), Is.EqualTo("30m"));
+      Assert.That(seriesRows, Is.Not.Empty);
+      Assert.That(seriesRows.Select(x => x.GetProperty("values").GetProperty("pageviews").GetDouble()), Is.All.GreaterThanOrEqualTo(2));
+      Assert.That(series.GetProperty("totals").GetProperty("values").GetProperty("div(pageviews,visitors)").GetDouble(), Is.EqualTo(1.5));
+      Assert.That(invalidStatus, Is.EqualTo(HttpStatusCode.BadRequest));
+      Assert.That(topStatus, Is.EqualTo(HttpStatusCode.OK));
+      Assert.That(top.GetProperty("rows").GetArrayLength(), Is.EqualTo(1));
+      Assert.That(top.GetProperty("rows")[0].GetProperty("dimensions").GetProperty("page").GetString(), Is.EqualTo("/"));
+      Assert.That(top.GetProperty("totals").GetProperty("values").GetProperty("where(pageviews,\"page==/pricing\")").GetDouble(), Is.EqualTo(1));
     });
   }
 

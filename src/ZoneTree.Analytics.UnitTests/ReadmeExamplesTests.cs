@@ -89,6 +89,21 @@ public sealed class ReadmeExamplesTests
         GroupBy = { "plan" },
         Metrics = { Metric.Sum("revenue"), Metric.Visitors },
       });
+      var averageOrder = Metric.Sum("revenue") / Metric.Events;
+      var monthToDate = Metric.Cumulative(Metric.Sum("revenue"));
+      var daily = await analytics.QueryAsync(new AnalyticsQuery
+      {
+        Event = "purchase",
+        Range = DateRange.ThisMonth,
+        Interval = TimeInterval.Day,
+        Metrics =
+        {
+          averageOrder,
+          monthToDate,
+          Metric.MovingAverage(Metric.Visitors, 7),
+          Metric.Rate(Metric.Events, TimeSpan.FromHours(1)),
+        },
+      });
       var converted = await analytics.QueryAsync(new AnalyticsQuery
       {
         Segments = { Segment.VisitorsWho("purchase") },
@@ -114,7 +129,9 @@ public sealed class ReadmeExamplesTests
         Assert.That(goals.Rows.Select(x => x.Name), Is.EquivalentTo(new[] { "purchase", "job_completed" }));
         Assert.That(germanSummary.PageViews, Is.EqualTo(1));
         Assert.That(result.Rows[0][StandardDimensions.Source], Is.EqualTo("Newsletter"));
-        Assert.That(revenue.Rows.Single(x => x["plan"] == "pro")[Metric.Sum("revenue")], Is.EqualTo(49));
+        Assert.That(revenue.Rows.Where(x => x["plan"] == "pro").Sum(x => x[Metric.Sum("revenue")]), Is.EqualTo(49));
+        Assert.That(daily.Totals[averageOrder], Is.EqualTo(49));
+        Assert.That(daily.Rows[^1][monthToDate], Is.EqualTo(49));
         Assert.That(converted.Totals[Metric.PageViews], Is.EqualTo(0));
         Assert.That(funnel.Steps.Select(x => x.Visitors), Is.EqualTo(new long[] { 1, 0 }));
         Assert.That(analytics.Web.GetCurrentVisitors(), Is.EqualTo(2));

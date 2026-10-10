@@ -28,6 +28,7 @@ var summary = await analytics.Web.GetSummaryAsync(new WebReportRequest { Range =
 * **Web analytics out of the box.** Visitors, page views, sessions, bounce rate, session duration, entry and exit pages, sources, channels, referrers, UTM campaigns, geography, browsers, operating systems and devices.
 * **Generic events and metrics.** Any event name with custom dimensions and numeric values: product analytics, telemetry and business KPIs.
 * **One query model.** Metrics such as visitors, bounce rate, revenue and conversion rate in one query, grouped and filtered, as totals or time series from minute to year, compared with a previous period.
+* **Time series and metrics.** Percentiles such as p95 latency, histograms, standard deviation, first and last values of gauges, distinct counts of any dimension, conditional metrics (CountIf, SumIf), metric formulas, rates, running totals, moving averages, lag and lead, counter increases, 5-minute or 6-hour buckets, gap filling, conditions on results (HAVING) and the top rows of every bucket.
 * **Behavioral segments and funnels.** "Visitors who signed up", "sessions that viewed /pricing", and step-by-step conversion funnels.
 * **Fast.** Pre-aggregated rollups answer typical dashboard queries in single-digit milliseconds; ad-hoc combinations fall back to raw events automatically.
 * **Accurate unique counts.** Exact up to 4,096 visitors per row, about 0.8% error beyond, correctly de-duplicated across any range.
@@ -150,7 +151,7 @@ foreach (var row in result.Rows)
 Console.WriteLine($"{result.Totals[Metric.Visitors]} visitors in total");
 ```
 
-A query has a base `Event` (page views by default), a `Range`, an optional `Interval`, `GroupBy` dimensions, `Filters`, `Segments`, `Metrics`, `OrderBy`, `Limit`, `Offset` and an optional `Compare`.
+A query has a base `Event` (page views by default), a `Range`, an optional `Interval` and `Fill`, `GroupBy` dimensions, `Filters`, `Segments`, `Metrics`, `Having` conditions, `OrderBy`, `Limit`, `Offset` and an optional `Compare`.
 
 ### Metrics
 
@@ -162,15 +163,79 @@ A query has a base `Event` (page views by default), a `Range`, an optional `Inte
 | `Sessions`, `Bounces`, `BounceRate`, `SessionDuration`, `AverageSessionDuration`, `PageViewsPerSession` | sessions | session metrics; rates are 0 to 1, durations are seconds |
 | `Entrances`, `Exits`, `ExitRate` | page views | sessions that started or ended on a page |
 | `Sum(v)`, `Average(v)`, `Min(v)`, `Max(v)`, `Count(v)` | base event, or `Sum(v, e)` | aggregates of a tracked value |
+| `StandardDeviation(v)`, `Variance(v)` | base event, or with `e` | population spread of a tracked value |
+| `Percentile(v, p)`, `Median(v)` | base event, or with `e` | percentiles within 1%; 0 and 100 are the exact minimum and maximum ¹ |
+| `First(v)`, `Last(v)` | base event, or with `e` | the first and last value by time: gauges such as a temperature ¹ |
+| `Distinct(d)` | base event, or with `e` | distinct values of a dimension, such as tenants or countries ¹ |
+| `CountBetween(v, lower, upper)`, `Histogram(v, edges)` | base event, or with `e` | values in `[lower, upper)`, placed within 1%; a histogram is one per bin ¹ |
+| `m.Where(filters)` | as `m` | `m` over the events that match the filters: CountIf, SumIf and so on |
 | `Conversions(goal)`, `ConversionRate(goal)` | goal event | goal visitors, and goal visitors ÷ base visitors |
 | `PercentOfTotal(m)` | as `m` | each row's share of the total |
 | `BotHits` | bot events | bot requests, see [Bot traffic](#bot-traffic) |
 
-The engine runs one sub-query per event the metrics read and joins them on the time bucket and group values. A row is returned for every group that has data for any metric; set `IncludeRowsWithoutBaseEvent = false` to keep only groups with base events. Filters apply to every sub-query.
+¹ Answered from rollups when configured (see [Where answers come from](#where-answers-come-from)), otherwise from raw events.
+
+The engine runs one sub-query per event the metrics read, and per set of `Where` conditions, and joins them on the time bucket and group values. A row is returned for every group that has data for any metric; set `IncludeRowsWithoutBaseEvent = false` to keep only groups with base events. Filters apply to every sub-query.
+
+```csharp
+var errors = Metric.Events.Where(Filter.GreaterThanOrEqual("status", 500));
+query.Metrics.AddRange([Metric.Events, errors, errors / Metric.Events]);   // error rate in one query
+query.Metrics.AddRange(Metric.Histogram("load_time", [0, 100, 250, 500, 1000, double.PositiveInfinity]));
+```
+
+A conditional metric is answered from rollups when a rollup definition covers the group-by and filter dimensions together with the dimensions of its conditions, otherwise from raw events; on a formula, the conditions apply to every aggregate in it. Histograms and `CountBetween` read the percentile sketches, so they need `MetricAggregates.Percentiles` to be answered from rollups.
 
 Session metrics can only be grouped and filtered by session-level dimensions (standard and `Sessions.Dimensions`) and the entry page; entrances and exits also by page and hostname. Use a segment to select sessions by anything else. Bot metrics can only be grouped and filtered by page, hostname, `event`, `bot` and `bot_category`, and cannot be combined with segments.
 
-Every metric has a stable key, for example `visitors`, `bounce_rate`, `sum:revenue`, `avg:duration_ms@job_completed`, `conversion_rate:signup` or `percent:visitors`; `Metric.Parse` turns keys back into metrics.
+Every metric has a stable key, for example `visitors`, `bounce_rate`, `sum:revenue`, `avg:duration_ms@job_completed`, `p95:load_time`, `distinct:tenant`, `conversion_rate:signup`, `percent(visitors)`, `div(sum:revenue,events:purchase)`, `moving_avg(visitors,7)`, `count_between(load_time,100,500)` or `where(events,"status>=500")` (filters in double quotes, with backslash escapes); `Metric.Parse` turns keys back into metrics.
+
+### Formulas and time series
+
+```csharp
+var averageOrder = Metric.Sum("revenue") / Metric.Events;
+
+var result = await analytics.QueryAsync(new AnalyticsQuery
+{
+    Event = "purchase",
+    Range = DateRange.ThisMonth,
+    Interval = TimeInterval.Day,                              // or TimeInterval.Minutes(5), TimeInterval.Hours(6)
+    Metrics =
+    {
+        averageOrder,
+        Metric.Cumulative(Metric.Sum("revenue")),             // month to date
+        Metric.MovingAverage(Metric.Visitors, 7),             // 7-day moving average
+        Metric.Rate(Metric.Events, TimeSpan.FromHours(1)),    // purchases per hour
+    },
+});
+```
+
+Metrics combine with `+`, `-`, `*` and `/`, with each other and with numbers; division by zero, and a result that overflows, gives zero. The totals row applies a formula to the totals, so the average order value of the range is total revenue ÷ total orders.
+
+| Series function | Rows | Totals row |
+| --- | --- | --- |
+| `Rate(m, per)` | `m` per second, or per `per`, over the bucket's part of the range up to now | average rate over the range |
+| `Cumulative(m)` | running total of `m` | total of `m` |
+| `MovingAverage(m, n)` | average of `m` over the current and `n - 1` previous buckets | total of `m` |
+| `Difference(m)` | change of `m` from the previous bucket | sum of the changes |
+| `Increase(m)` | increase of a counter such as `Last("energy_kwh")`; a decrease is a reset | sum of the increases |
+| `Lag(m, n)`, `Lead(m, n)` | `m` of the bucket `n` earlier or later, zero where there is none: `Metric.Visitors / Metric.Lag(Metric.Visitors, 7) - 1` is week-over-week growth | total of `m` |
+
+Series functions run along each group's buckets in time order and need an `Interval`, except `Rate`. The first bucket of a group has no change.
+
+**Intervals.** `Minute`, `Hour`, `Day`, `Week`, `Month` and `Year`, or fixed widths `TimeInterval.Minutes(n)` and `TimeInterval.Hours(n)` that divide a day (5, 15 or 30 minutes; 2, 3, 4, 6, 8 or 12 hours), aligned to UTC midnight. Minute and hour buckets are UTC; day and longer buckets follow the query's time zone. Widths are answered from the finest rollups that fit: minute rollups for minutes, hourly rollups for hours.
+
+**Fill.** `Fill` decides what a time series does with buckets without data, for every group with data in the range: `FillMode.Zero` (the default) adds them with zero values, `None` leaves them out, `Previous` repeats the previous values with data (for gauges), and `Linear` interpolates between the buckets with data around them. Filling applies to aggregates; formulas and series functions are computed from the filled values. A fill that would create more than 1,000,000 rows is rejected.
+
+**Having.** `Having` keeps rows whose metric values satisfy every condition, like SQL `HAVING`; `TotalRows` counts the rows that remain, totals are not affected. `MetricFilter.Parse("pageviews>100")` accepts `==`, `!=`, `>`, `>=`, `<` and `<=`.
+
+**Top rows per bucket.** `LimitPerBucket` keeps the first rows of each bucket after `OrderBy`, for example the slowest page of every hour; it also answers ArgMax questions, because the page of the slowest load is the page with the largest maximum:
+
+```csharp
+GroupBy = { StandardDimensions.Page },
+Metrics = { Metric.Max("load_time") },
+OrderBy = { Order.ByBucket(), Order.By(Metric.Max("load_time")) },
+LimitPerBucket = 1,
+```
 
 ### Results
 
@@ -212,11 +277,12 @@ Filter.Contains("page", "docs");            Filter.NotContains("page", "admin");
 Filter.StartsWith("page", "/blog/");        Filter.EndsWith("page", ".html");
 Filter.Matches("page", @"^/blog/\d+$");     Filter.NotMatches("referrer", "spam");
 Filter.IsSet("plan");                       Filter.IsNotSet("plan");
+Filter.GreaterThanOrEqual("status", 500);   Filter.LessThan("duration", 1.5);
 new Filter("browser", FilterOperator.Equals, ignoreCase: true, "chrome");
-Filter.Parse("country==DE|AT");             // also !=, ~=, !~=, ^=, $=, =~, !=~, dim?, !dim?
+Filter.Parse("country==DE|AT");             // also !=, ~=, !~=, ^=, $=, =~, !=~, >, >=, <, <=, dim?, !dim?
 ```
 
-Positive operators never match a missing dimension; negative operators always do.
+Positive operators never match a missing dimension; negative operators always do. Numeric operators compare values as numbers; values that are not numbers do not match.
 
 ### Segments
 
@@ -263,6 +329,16 @@ options.Rollups.Definitions.Add(new RollupDefinition("plan") { Events = ["purcha
 ```
 
 A rollup added to an existing data directory, re-added after being removed, or given different `Events` covers data from that moment on; earlier ranges are answered from raw events.
+
+Every tracked metric has its sum, count, minimum, maximum, average and variance in rollups. Percentiles, first and last values, and distinct counts of dimensions cost storage in every rollup row they reach, so they are opt-in:
+
+```csharp
+options.Rollups.MetricAggregates["load_time"] = MetricAggregates.Percentiles;
+options.Rollups.MetricAggregates["temperature"] = MetricAggregates.FirstAndLast;
+options.Rollups.DistinctDimensions.Add("tenant");
+```
+
+Without them, and for ranges before they were configured, these metrics are answered from raw events; with raw events disabled such a query fails with a message that names the missing setting. Percentiles use a mergeable quantile sketch (DDSketch) with a relative error of at most 1%, so rollups and raw events give identical percentiles.
 
 ---
 
@@ -377,7 +453,7 @@ Use one of the two page view options, not both. The tracker follows single-page-
 | `POST query` | any query, as JSON |
 | `POST funnel` | a funnel, as JSON |
 
-Summary, time series and page rows include `botHits` (null unless bots are tracked separately). Common parameters: `site`, `range` (`today`, `yesterday`, `7d`, `30d`, `month`, `last-month`, `year`, `30m`, `12h`) or `from` and `to`, `tz`, `filter` (repeatable, `Filter.Parse` syntax), `compare` (`previous` or `year`), `limit`, `offset`.
+Summary, time series and page rows include `botHits` (null unless bots are tracked separately). `interval` accepts `minute`, `hour`, `day`, `week`, `month`, `year` and widths such as `5m` or `6h`; `POST query` also takes `fill` (`none`, `zero`, `previous`, `linear`), `having` conditions and `limitPerBucket`. Common parameters: `site`, `range` (`today`, `yesterday`, `7d`, `30d`, `month`, `last-month`, `year`, `30m`, `12h`) or `from` and `to`, `tz`, `filter` (repeatable, `Filter.Parse` syntax), `compare` (`previous` or `year`), `limit`, `offset`.
 
 ```json
 POST /_analytics/api/query
@@ -386,6 +462,7 @@ POST /_analytics/api/query
   "groupBy": ["source"],
   "metrics": ["visitors", "bounce_rate", "conversion_rate:signup"],
   "filters": ["country==DE|AT"],
+  "having": ["visitors>10"],
   "segments": [{ "scope": "visitors", "event": "signup", "exclude": true }],
   "orderBy": ["-visitors"],
   "limit": 10,
@@ -463,6 +540,34 @@ Each data tier is split over time into partitions, and each partition is a separ
 | Daily rollups | `DayRollups` | `Year` | `Month`, `Year` |
 
 Retention drops whole partitions once they end before the cutoff, so a tier keeps data for up to one partition period longer than its retention. Smaller partitions make retention more precise and keep trees, merges and drops small; larger partitions mean fewer trees and directories, and fewer trees per long-range query. Use `Day` for raw events of high-volume sites or short raw retention. A partition period longer than the tier's retention is rejected, for example monthly minute rollups with two-day retention.
+
+#### How many ZoneTrees an engine creates
+
+The number of ZoneTrees depends only on the time span the data covers, the partition periods and retention. It does not grow with the number of events, sites or rollup definitions: all sites and all rollup definitions of a tier and period share one tree.
+
+```
+trees = 1 (sessions, when enabled)
+      + raw event partitions within raw event retention
+      + for each enabled rollup granularity: its partitions within its retention
+```
+
+A partition is created when the first event of its period arrives, and dropped once it ends before its tier's retention cutoff. With the defaults (raw events monthly for 90 days, hourly rollups monthly for 400 days, daily rollups yearly and kept forever, minute rollups disabled):
+
+| Scenario | Raw | Minute | Hourly | Daily | Sessions | Trees on disk |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 million events over 30 days (the playground) | 2 | 0 | 2 | 1 | 1 | **6** |
+| One year of live traffic | 3–4 | 0 | 13–14 | 1–2 | 1 | **about 20** |
+| Five years of live traffic | 3–4 | 0 | 14 | 5–6 | 1 | **about 25** |
+| Defaults plus minute rollups (daily partitions, 2-day retention) | 3–4 | 3 | 14 | | 1 | **+3** |
+| Raw events partitioned by day, 90-day retention | 91 | 0 | 14 | | 1 | **about 107** |
+
+Only recently used trees are open: a partition that has not been written or read for `Storage.PartitionIdleTimeout` (10 minutes) is merged to disk and closed. Live traffic writes to the current partition of each tier, so an ingesting engine with the defaults holds 4 trees open, plus the partitions that recent queries read.
+
+What creates more trees, and how to keep the count small:
+
+* **Short partition periods with long retention.** Daily raw partitions with a year of retention are 366 trees. Keep monthly partitions unless retention is short or a day of raw events is very large.
+* **Minute rollups with long retention.** Minute rollups are partitioned by day; keep their retention to a few days.
+* **Backfilled timestamps.** Events tracked with an explicit `Timestamp` create the partitions of their periods, but only within each tier's retention: an event older than raw event retention writes no raw partition. Daily rollups are kept forever by default, so events spread over many years create one daily rollup tree per year; set `Retention.DayRollups` to bound them. The ASP.NET Core endpoint always uses the server's clock, so clients cannot create old partitions.
 
 ### Storage tuning
 

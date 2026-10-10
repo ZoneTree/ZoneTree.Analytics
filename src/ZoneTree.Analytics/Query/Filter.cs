@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -37,6 +38,18 @@ public enum FilterOperator
 
   /// <summary>The event does not carry the dimension.</summary>
   IsNotSet,
+
+  /// <summary>Numerically greater than the value. Values that are not numbers do not match.</summary>
+  GreaterThan,
+
+  /// <summary>Numerically greater than or equal to the value. Values that are not numbers do not match.</summary>
+  GreaterThanOrEqual,
+
+  /// <summary>Numerically less than the value. Values that are not numbers do not match.</summary>
+  LessThan,
+
+  /// <summary>Numerically less than or equal to the value. Values that are not numbers do not match.</summary>
+  LessThanOrEqual,
 }
 
 /// <summary>
@@ -65,11 +78,17 @@ public sealed class Filter
     ("^=", FilterOperator.StartsWith),
     ("$=", FilterOperator.EndsWith),
     ("=~", FilterOperator.Matches),
+    (">=", FilterOperator.GreaterThanOrEqual),
+    ("<=", FilterOperator.LessThanOrEqual),
+    (">", FilterOperator.GreaterThan),
+    ("<", FilterOperator.LessThan),
   ];
 
   readonly string[] values;
 
   readonly Regex[] patterns;
+
+  readonly double number;
 
   /// <summary>
   /// Creates a filter.
@@ -96,6 +115,13 @@ public sealed class Filter
     Operator = op;
     IgnoreCase = ignoreCase;
     this.values = needsValues ? [.. values] : [];
+    if (IsNumeric(op))
+    {
+      if (values.Length != 1 ||
+          !double.TryParse(values[0], NumberStyles.Float, CultureInfo.InvariantCulture, out number) ||
+          !double.IsFinite(number))
+        throw new ArgumentException("A numeric filter needs exactly one number.", nameof(values));
+    }
     if (op is FilterOperator.Matches or FilterOperator.NotMatches)
     {
       var options = RegexOptions.CultureInvariant;
@@ -143,6 +169,27 @@ public sealed class Filter
   /// <summary>Matches none of the regular expressions.</summary>
   public static Filter NotMatches(string dimension, params string[] patterns) => new(dimension, FilterOperator.NotMatches, patterns);
 
+  /// <summary>Numerically greater than the value.</summary>
+  public static Filter GreaterThan(string dimension, double value) => Numeric(dimension, FilterOperator.GreaterThan, value);
+
+  /// <summary>Numerically greater than or equal to the value.</summary>
+  public static Filter GreaterThanOrEqual(string dimension, double value) =>
+      Numeric(dimension, FilterOperator.GreaterThanOrEqual, value);
+
+  /// <summary>Numerically less than the value.</summary>
+  public static Filter LessThan(string dimension, double value) => Numeric(dimension, FilterOperator.LessThan, value);
+
+  /// <summary>Numerically less than or equal to the value.</summary>
+  public static Filter LessThanOrEqual(string dimension, double value) =>
+      Numeric(dimension, FilterOperator.LessThanOrEqual, value);
+
+  static Filter Numeric(string dimension, FilterOperator op, double value) =>
+      new(dimension, op, value.ToString("R", CultureInfo.InvariantCulture));
+
+  static bool IsNumeric(FilterOperator op) =>
+      op is FilterOperator.GreaterThan or FilterOperator.GreaterThanOrEqual or
+          FilterOperator.LessThan or FilterOperator.LessThanOrEqual;
+
   /// <summary>The event carries the dimension.</summary>
   public static Filter IsSet(string dimension) => new(dimension, FilterOperator.IsSet);
 
@@ -162,6 +209,8 @@ public sealed class Filter
       case FilterOperator.IsNotSet:
         return value == null;
     }
+    if (IsNumeric(Operator))
+      return value != null && MatchesNumber(value);
     var negated = Operator is FilterOperator.NotEquals or FilterOperator.NotContains or FilterOperator.NotMatches;
     if (value == null)
       return negated;
@@ -189,6 +238,19 @@ public sealed class Filter
     return false;
   }
 
+  bool MatchesNumber(string value)
+  {
+    if (!double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed))
+      return false;
+    return Operator switch
+    {
+      FilterOperator.GreaterThan => parsed > number,
+      FilterOperator.GreaterThanOrEqual => parsed >= number,
+      FilterOperator.LessThan => parsed < number,
+      _ => parsed <= number
+    };
+  }
+
   bool MatchesAnyPattern(string value)
   {
     foreach (var pattern in patterns)
@@ -202,7 +264,8 @@ public sealed class Filter
   /// <summary>
   /// Parses a filter expression:
   /// <c>dim==a|b</c>, <c>dim!=a</c>, <c>dim~=part</c> (contains), <c>dim!~=part</c>,
-  /// <c>dim^=prefix</c>, <c>dim$=suffix</c>, <c>dim=~regex</c>, <c>dim!=~regex</c>,
+  /// <c>dim^=prefix</c>, <c>dim$=suffix</c>, <c>dim=~regex</c>, <c>dim!=~regex</c>, numeric
+  /// comparisons <c>dim&gt;n</c>, <c>dim&gt;=n</c>, <c>dim&lt;n</c> and <c>dim&lt;=n</c>,
   /// <c>dim?</c> (is set) and <c>!dim?</c> (is not set). Alternative values are separated by
   /// <c>|</c>; write a literal <c>|</c> as <c>\|</c> and a literal <c>\</c> before it as <c>\\</c>
   /// (other backslashes, for example in regular expressions, are kept as is). A leading <c>/i</c>

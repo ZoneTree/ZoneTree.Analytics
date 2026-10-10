@@ -24,6 +24,21 @@ static class Text
   }
 
   /// <summary>
+  /// A stable 64-bit hash of a dimension value (FNV-1a over UTF-16 code units), for distinct
+  /// value sketches. Rollups persist sketches of it: it must never change.
+  /// </summary>
+  public static ulong StableHash(string value)
+  {
+    var hash = 14695981039346656037UL;
+    foreach (var c in value)
+    {
+      hash ^= c;
+      hash *= 1099511628211UL;
+    }
+    return hash;
+  }
+
+  /// <summary>
   /// Sanitizes a dimension value: replaces control characters with spaces,
   /// trims and truncates. Returns empty for null.
   /// </summary>

@@ -74,8 +74,29 @@ public sealed class QueryModelTests
   [TestCase("count:revenue")]
   [TestCase("conversions:signup")]
   [TestCase("conversion_rate:signup")]
-  [TestCase("percent:visitors")]
-  [TestCase("percent:sum:revenue")]
+  [TestCase("stddev:load_time")]
+  [TestCase("variance:load_time@job")]
+  [TestCase("p95:load_time")]
+  [TestCase("p99.9:load_time@job")]
+  [TestCase("p50:load_time")]
+  [TestCase("first:temperature")]
+  [TestCase("last:temperature")]
+  [TestCase("distinct:country")]
+  [TestCase("distinct:tenant@signup")]
+  [TestCase("percent(visitors)")]
+  [TestCase("percent(sum:revenue)")]
+  [TestCase("add(events,visitors)")]
+  [TestCase("sub(events,1)")]
+  [TestCase("mul(sum:bytes,8)")]
+  [TestCase("div(sum:revenue,events:purchase)")]
+  [TestCase("div(add(sum:a,sum:b),0.5)")]
+  [TestCase("rate(events)")]
+  [TestCase("rate(events,60)")]
+  [TestCase("cumulative(sum:revenue)")]
+  [TestCase("moving_avg(visitors,7)")]
+  [TestCase("diff(last:temperature)")]
+  [TestCase("increase(last:energy)")]
+  [TestCase("percent(cumulative(div(sum:revenue,events)))")]
   public void MetricKeysRoundTrip(string key)
   {
     var metric = Metric.Parse(key);
@@ -92,7 +113,16 @@ public sealed class QueryModelTests
     Assert.Throws<FormatException>(() => Metric.Parse("nope"));
     Assert.Throws<FormatException>(() => Metric.Parse("median:x"));
     Assert.Throws<ArgumentException>(() => Metric.Sum("a:b"));
-    Assert.Throws<ArgumentException>(() => Metric.PercentOfTotal(Metric.PercentOfTotal(Metric.Visitors)));
+    Assert.Throws<ArgumentException>(() => Metric.Sum("a(b)"));
+    Assert.Throws<ArgumentOutOfRangeException>(() => Metric.Percentile("x", 101));
+    Assert.Throws<ArgumentOutOfRangeException>(() => Metric.MovingAverage(Metric.Visitors, 1));
+    Assert.Throws<ArgumentOutOfRangeException>(() => Metric.Rate(Metric.Visitors, TimeSpan.Zero));
+    Assert.Throws<ArgumentOutOfRangeException>(() => Metric.Constant(double.NaN));
+    Assert.Throws<FormatException>(() => Metric.Parse("unknown(visitors)"));
+    Assert.Throws<FormatException>(() => Metric.Parse("div(visitors)"));
+    Assert.Throws<FormatException>(() => Metric.Parse("add(visitors,events"));
+    Assert.Throws<FormatException>(() => Metric.Parse("moving_avg(visitors,1)"));
+    Assert.Throws<FormatException>(() => Metric.Parse("p101:x"));
   }
 
   [Test]

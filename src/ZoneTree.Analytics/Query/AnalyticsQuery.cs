@@ -19,6 +19,30 @@ public enum QuerySource
 }
 
 /// <summary>
+/// How a time series fills buckets without data. See <see cref="AnalyticsQuery.Fill"/>.
+/// </summary>
+public enum FillMode
+{
+  /// <summary>Buckets without data are left out.</summary>
+  None,
+
+  /// <summary>Buckets without data have zero values.</summary>
+  Zero,
+
+  /// <summary>
+  /// Buckets without data repeat the values of the previous bucket with data; leading empty
+  /// buckets take the first values with data. Suits gauges, such as a last temperature.
+  /// </summary>
+  Previous,
+
+  /// <summary>
+  /// Buckets without data are interpolated linearly between the buckets with data around them;
+  /// leading and trailing empty buckets take the nearest values with data.
+  /// </summary>
+  Linear,
+}
+
+/// <summary>
 /// An analytics query.
 /// </summary>
 /// <remarks>
@@ -73,7 +97,8 @@ public sealed class AnalyticsQuery
   public TimeZoneInfo TimeZone { get; set; }
 
   /// <summary>
-  /// Time series interval. <see cref="TimeInterval.None"/> returns one bucket for the range.
+  /// Time series interval, for example <see cref="TimeInterval.Day"/> or
+  /// <c>TimeInterval.Minutes(5)</c>. <see cref="TimeInterval.None"/> returns one bucket for the range.
   /// </summary>
   public TimeInterval Interval { get; set; }
 
@@ -115,9 +140,29 @@ public sealed class AnalyticsQuery
   public int Offset { get; set; }
 
   /// <summary>
-  /// Adds rows for empty buckets of a time series without group-by dimensions. Default is true.
+  /// Maximum number of rows per time bucket, after <see cref="OrderBy"/>: the top groups of each
+  /// bucket, for example the slowest page of every hour with <c>GroupBy = { "page" }</c>,
+  /// <c>OrderBy = { Order.ByBucket(), Order.By(Metric.Max("load_time")) }</c> and
+  /// <c>LimitPerBucket = 1</c>, which also gives the page of each hour's slowest load (ArgMax).
+  /// Applies before <see cref="Offset"/> and <see cref="Limit"/>; without an interval there is one
+  /// bucket. Null keeps every row.
   /// </summary>
-  public bool FillEmptyBuckets { get; set; } = true;
+  public int? LimitPerBucket { get; set; }
+
+  /// <summary>
+  /// How a time series fills buckets without data, for every group that has data in the range.
+  /// Fill applies to aggregates; formulas and series functions are computed from the filled
+  /// values. Default is <see cref="FillMode.Zero"/>.
+  /// </summary>
+  public FillMode Fill { get; set; } = FillMode.Zero;
+
+  /// <summary>
+  /// Conditions on the metric values of result rows, like SQL HAVING: only rows that satisfy all
+  /// of them are returned and counted in <see cref="AnalyticsResult.TotalRows"/>. The metrics
+  /// need not be among <see cref="Metrics"/>. Totals and the rows of a <see cref="Compare"/>
+  /// period, which <see cref="AnalyticsRow.Previous"/> reads, are not affected.
+  /// </summary>
+  public List<MetricFilter> Having { get; } = [];
 
   /// <summary>
   /// When true (the default), a row is returned for every bucket and group that has data for
@@ -149,7 +194,7 @@ public sealed class AnalyticsQuery
       Interval = Interval,
       Limit = null,
       Offset = 0,
-      FillEmptyBuckets = FillEmptyBuckets,
+      Fill = Fill,
       IncludeRowsWithoutBaseEvent = IncludeRowsWithoutBaseEvent,
       Compare = null,
       Source = Source
@@ -158,6 +203,8 @@ public sealed class AnalyticsQuery
     clone.Filters.AddRange(Filters);
     clone.Segments.AddRange(Segments);
     clone.Metrics.AddRange(Metrics);
+    // The comparison period is where rows find their previous values: it is not limited or
+    // filtered by Having, so every row finds its counterpart.
     return clone;
   }
 }

@@ -63,13 +63,9 @@ sealed class ReportingCalendar
   /// </summary>
   public long Bucket(long utcTicks, TimeInterval interval)
   {
-    return interval switch
-    {
-      TimeInterval.Minute => FloorTicks(utcTicks, TimeSpan.TicksPerMinute),
-      TimeInterval.Hour => FloorTicks(utcTicks, TimeSpan.TicksPerHour),
-      TimeInterval.None => 0,
-      _ => LocalBucket(LocalDay(utcTicks), interval)
-    };
+    if (interval.IsFixedWidth)
+      return FloorTicks(utcTicks, interval.WidthTicks);
+    return interval.Unit == TimeIntervalUnit.None ? 0 : LocalBucket(LocalDay(utcTicks), interval);
   }
 
   /// <summary>
@@ -78,11 +74,11 @@ sealed class ReportingCalendar
   public long LocalBucket(long localDayTicks, TimeInterval interval)
   {
     var date = new DateTime(localDayTicks);
-    return interval switch
+    return interval.Unit switch
     {
-      TimeInterval.Week => date.AddDays(-(((int)date.DayOfWeek - (int)firstDayOfWeek + 7) % 7)).Ticks,
-      TimeInterval.Month => new DateTime(date.Year, date.Month, 1).Ticks,
-      TimeInterval.Year => new DateTime(date.Year, 1, 1).Ticks,
+      TimeIntervalUnit.Week => date.AddDays(-(((int)date.DayOfWeek - (int)firstDayOfWeek + 7) % 7)).Ticks,
+      TimeIntervalUnit.Month => new DateTime(date.Year, date.Month, 1).Ticks,
+      TimeIntervalUnit.Year => new DateTime(date.Year, 1, 1).Ticks,
       _ => localDayTicks
     };
   }
@@ -92,7 +88,7 @@ sealed class ReportingCalendar
   /// </summary>
   public DateTimeOffset BucketLabel(long bucket, TimeInterval interval)
   {
-    if (interval is TimeInterval.Minute or TimeInterval.Hour)
+    if (interval.IsFixedWidth)
       return new DateTimeOffset(bucket, TimeSpan.Zero);
     var utc = UtcStartOfLocalDay(bucket);
     var offset = TimeSpan.FromTicks(bucket - utc);
@@ -108,18 +104,24 @@ sealed class ReportingCalendar
   /// </summary>
   public static long NextBucket(long bucket, TimeInterval interval)
   {
+    if (interval.IsFixedWidth)
+      return bucket + interval.WidthTicks;
     var date = new DateTime(bucket);
-    return interval switch
+    return interval.Unit switch
     {
-      TimeInterval.Minute => bucket + TimeSpan.TicksPerMinute,
-      TimeInterval.Hour => bucket + TimeSpan.TicksPerHour,
-      TimeInterval.Day => bucket + TimeSpan.TicksPerDay,
-      TimeInterval.Week => bucket + TimeSpan.TicksPerDay * 7,
-      TimeInterval.Month => date.AddMonths(1).Ticks,
-      TimeInterval.Year => date.AddYears(1).Ticks,
+      TimeIntervalUnit.Day => bucket + TimeSpan.TicksPerDay,
+      TimeIntervalUnit.Week => bucket + TimeSpan.TicksPerDay * 7,
+      TimeIntervalUnit.Month => date.AddMonths(1).Ticks,
+      TimeIntervalUnit.Year => date.AddYears(1).Ticks,
       _ => long.MaxValue
     };
   }
+
+  /// <summary>
+  /// Returns the UTC instant at which a bucket starts.
+  /// </summary>
+  public long UtcStartOfBucket(long bucket, TimeInterval interval) =>
+      interval.IsFixedWidth ? bucket : UtcStartOfLocalDay(bucket);
 
   /// <summary>
   /// The first local-day boundary (as UTC ticks) at or after the UTC instant.

@@ -29,10 +29,37 @@ public sealed class RollupOptions
   /// </summary>
   public int HyperLogLogPrecision { get; set; } = HyperLogLog.DefaultPrecision;
 
+  /// <summary>
+  /// Additional aggregates kept in rollups for tracked metrics, by metric name. Every metric
+  /// has sum, count, min, max, average and variance; these are opt-in because they cost storage
+  /// in every rollup row the metric reaches:
+  /// <see cref="Analytics.MetricAggregates.Percentiles"/> for <see cref="Metric.Percentile"/>
+  /// and <see cref="Metric.Median"/>, <see cref="Analytics.MetricAggregates.FirstAndLast"/> for
+  /// <see cref="Metric.First"/> and <see cref="Metric.Last"/>. Queries of a metric without them,
+  /// and of ranges before they were configured, are answered from raw events.
+  /// </summary>
+  /// <example>
+  /// <code>
+  /// options.Rollups.MetricAggregates["load_time"] = MetricAggregates.Percentiles;
+  /// options.Rollups.MetricAggregates["temperature"] = MetricAggregates.FirstAndLast;
+  /// </code>
+  /// </example>
+  public Dictionary<string, MetricAggregates> MetricAggregates { get; set; } = new(StringComparer.Ordinal);
+
+  /// <summary>
+  /// Dimensions whose distinct values are counted in every rollup row, for
+  /// <see cref="Metric.Distinct"/>, for example a tenant or product id. Each costs a distinct
+  /// count sketch per rollup row. Queries of other dimensions, and of ranges before a dimension
+  /// was configured, are answered from raw events.
+  /// </summary>
+  public List<string> DistinctDimensions { get; set; } = [];
+
   internal RollupOptions Clone()
   {
     var clone = (RollupOptions)MemberwiseClone();
     clone.Definitions = Definitions?.Select(x => x?.Clone()).ToList();
+    clone.MetricAggregates = MetricAggregates == null ? null : new(MetricAggregates, StringComparer.Ordinal);
+    clone.DistinctDimensions = DistinctDimensions?.ToList();
     return clone;
   }
 
@@ -50,7 +77,42 @@ public sealed class RollupOptions
       if (!dimensionSets.Add(definition.Id))
         throw new ArgumentException($"Duplicate rollup definition for dimensions '{definition.Id}'.");
     }
+    MetricAggregates ??= new(StringComparer.Ordinal);
+    foreach (var (metric, aggregates) in MetricAggregates)
+    {
+      if (string.IsNullOrWhiteSpace(metric))
+        throw new ArgumentException("Rollups.MetricAggregates cannot contain an empty metric name.");
+      if ((aggregates & ~Analytics.MetricAggregates.All) != 0)
+        throw new ArgumentException($"Rollups.MetricAggregates['{metric}'] is not a valid value.");
+    }
+    DistinctDimensions ??= [];
+    if (DistinctDimensions.Any(string.IsNullOrWhiteSpace))
+      throw new ArgumentException("Rollups.DistinctDimensions cannot contain an empty dimension.");
+    if (DistinctDimensions.Distinct(StringComparer.Ordinal).Count() != DistinctDimensions.Count)
+      throw new ArgumentException("Rollups.DistinctDimensions cannot contain duplicates.");
   }
+}
+
+/// <summary>
+/// Opt-in aggregates of a tracked metric. See <see cref="RollupOptions.MetricAggregates"/>.
+/// </summary>
+[Flags]
+public enum MetricAggregates
+{
+  /// <summary>Only the aggregates every metric has: sum, count, min, max, average and variance.</summary>
+  None = 0,
+
+  /// <summary>
+  /// A quantile sketch per rollup row, for <see cref="Metric.Percentile"/> and
+  /// <see cref="Metric.Median"/>, with a relative error of at most 1%.
+  /// </summary>
+  Percentiles = 1,
+
+  /// <summary>The first and last value per rollup row, for <see cref="Metric.First"/> and <see cref="Metric.Last"/>: gauges.</summary>
+  FirstAndLast = 2,
+
+  /// <summary>Every aggregate.</summary>
+  All = Percentiles | FirstAndLast,
 }
 
 /// <summary>

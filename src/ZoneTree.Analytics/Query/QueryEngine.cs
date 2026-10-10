@@ -1,6 +1,7 @@
 using System.Globalization;
 using ZoneTree.Analytics.Ingestion;
 using ZoneTree.Analytics.Internal;
+using ZoneTree.Analytics.Sketches;
 using ZoneTree.Analytics.Storage;
 
 namespace ZoneTree.Analytics.Query;
@@ -44,6 +45,9 @@ sealed class QueryEngine
   // Time series longer than this are rejected rather than truncated.
   const int MaxBuckets = 100_000;
 
+  // Filling time series that would create more rows than this is rejected.
+  const int MaxFilledRows = 1_000_000;
+
   readonly AnalyticsOptions options;
 
   readonly ReportingCalendar storageCalendar;
@@ -54,7 +58,7 @@ sealed class QueryEngine
 
   readonly RollupDefinition[] definitions;
 
-  readonly Func<string, long> definitionActiveSince;
+  readonly RollupActivations activations;
 
   readonly EnrichmentPipeline enricher;
 
@@ -64,7 +68,7 @@ sealed class QueryEngine
       RollupStore rollups,
       RawEventStore rawEvents,
       RollupDefinition[] definitions,
-      Func<string, long> definitionActiveSince,
+      RollupActivations activations,
       EnrichmentPipeline enricher)
   {
     this.options = options;
@@ -72,7 +76,7 @@ sealed class QueryEngine
     this.rollups = rollups;
     this.rawEvents = rawEvents;
     this.definitions = definitions;
-    this.definitionActiveSince = definitionActiveSince;
+    this.activations = activations;
     this.enricher = enricher;
   }
 
@@ -102,6 +106,10 @@ sealed class QueryEngine
 
     public Metric[] Metrics;
 
+    public MetricFilter[] Having;
+
+    public FillMode Fill;
+
     public Dictionary<string, SourceContext> Sources = new(StringComparer.Ordinal);
 
     public List<QueryPlanStep> Steps = [];
@@ -119,9 +127,23 @@ sealed class QueryEngine
     public RetentionCutoffs Cutoffs;
   }
 
+  /// <summary>
+  /// A sub-query: the rows of one event, restricted by the conditions of conditional metrics.
+  /// </summary>
   sealed class SourceContext
   {
     public string Event;
+
+    /// <summary>Identifies the sub-query: the event name, plus the conditions if any.</summary>
+    public string Key;
+
+    /// <summary>The filters of conditional metrics (see <see cref="Metric.Where"/>), in addition to the query filters.</summary>
+    public Filter[] Conditions = [];
+
+    public int[] ConditionIndexes;
+
+    /// <summary>True when entrance or exit metrics read this page view sub-query.</summary>
+    public bool ReadsPageFlow;
 
     public byte[] EventUtf8;
 
@@ -134,6 +156,18 @@ sealed class QueryEngine
     public Dictionary<GroupKey, RollupAccumulator> Groups = [];
 
     public List<PlanSegment> Plan = [];
+
+    /// <summary>The opt-in aggregates the query reads, by metric name; null when none.</summary>
+    public Dictionary<string, MetricAggregates> MetricDetails;
+
+    /// <summary>The dimensions whose distinct values the query counts.</summary>
+    public string[] DistinctDimensions = [];
+
+    /// <summary>Since when rollups hold the opt-in aggregates the query reads.</summary>
+    public long AggregatesSince;
+
+    /// <summary>The opt-in aggregates rollups do not hold, for messages; null when they hold all.</summary>
+    public string MissingAggregates;
   }
 
   ReportingCalendar CalendarFor(TimeZoneInfo timeZone)
@@ -198,7 +232,7 @@ sealed class QueryEngine
         EnumerateBuckets(calendar, from, to, query.Interval).Skip(MaxBuckets).Any())
     {
       throw new AnalyticsQueryException(
-          $"The range has more than {MaxBuckets.ToString("N0", CultureInfo.InvariantCulture)} {query.Interval.ToString().ToLowerInvariant()} buckets. Use a larger interval or a shorter range.");
+          $"The range has more than {MaxBuckets.ToString("N0", CultureInfo.InvariantCulture)} {query.Interval} buckets. Use a larger interval or a shorter range.");
     }
 
     var groupBy = query.GroupBy
@@ -214,11 +248,22 @@ sealed class QueryEngine
     var metrics = query.Metrics.Where(x => x != null).Distinct().ToArray();
     if (metrics.Length == 0)
       metrics = [Metric.Events, Metric.Visitors];
+    var having = query.Having.Where(x => x != null).ToArray();
+    if (!Enum.IsDefined(query.Fill))
+      throw new AnalyticsQueryException("The fill mode is not a valid value.");
+    // Every aggregate the query reads, including those of formulas and Having conditions.
+    var aggregates = metrics.Concat(having.Select(x => x.Metric))
+        .SelectMany(x => x.Aggregates())
+        .Distinct()
+        .ToArray();
+    if (query.Interval == TimeInterval.None &&
+        metrics.Concat(having.Select(x => x.Metric)).FirstOrDefault(x => x.NeedsSeries) is { } seriesMetric)
+      throw new AnalyticsQueryException($"The metric '{seriesMetric.Key}' needs a time series: set an Interval.");
 
     var dimensions = groupBy.Concat(filters.Select(x => x.Dimension)).Distinct(StringComparer.Ordinal).ToArray();
-    foreach (var metric in metrics)
+    foreach (var metric in aggregates)
     {
-      ValidateScope(metric, baseEvent, dimensions);
+      ValidateScope(metric, baseEvent, [.. dimensions.Union(metric.Conditions.Select(x => x.Dimension), StringComparer.Ordinal)]);
       if (segments.Length > 0 && metric.ScopeFor(baseEvent) == DimensionScope.Bot)
         throw new AnalyticsQueryException(
             $"The metric '{metric.Key}' cannot be combined with segments: bot events carry no visitor.");
@@ -236,6 +281,8 @@ sealed class QueryEngine
       throw new AnalyticsQueryException("Limit cannot be negative.");
     if (query.Offset < 0)
       throw new AnalyticsQueryException("Offset cannot be negative.");
+    if (query.LimitPerBucket is < 1)
+      throw new AnalyticsQueryException("LimitPerBucket must be at least 1.");
 
     var context = new QueryContext
     {
@@ -250,31 +297,102 @@ sealed class QueryEngine
       Filters = filters,
       Segments = segments,
       Metrics = metrics,
+      Having = having,
+      Fill = query.Fill,
       Precision = options.Rollups.HyperLogLogPrecision,
       CancellationToken = cancellationToken,
       NowTicks = now,
       Cutoffs = RetentionCutoffs.Compute(options.Retention, storageCalendar, now)
     };
 
-    var dimensionSetId = string.Join(",", dimensions.OrderBy(x => x, StringComparer.Ordinal));
-    foreach (var eventName in metrics.SelectMany(x => x.Sources(baseEvent)).Distinct(StringComparer.Ordinal))
+    foreach (var metric in aggregates)
     {
-      var definition = definitions.FirstOrDefault(x =>
-          x.Id == dimensionSetId && (x.Events == null || x.Events.Contains(eventName)));
-      var source = new SourceContext
+      foreach (var eventName in metric.Sources(baseEvent))
       {
-        Event = eventName,
-        EventUtf8 = RawEventCodec.Utf8(eventName),
-        Definition = definition
-      };
-      if (definition != null)
-      {
-        source.GroupByIndexes = groupBy.Select(x => IndexOf(definition.Dimensions, x)).ToArray();
-        source.FilterIndexes = filters.Select(x => IndexOf(definition.Dimensions, x.Dimension)).ToArray();
+        var key = metric.SourceKey(eventName);
+        if (!context.Sources.TryGetValue(key, out var source))
+        {
+          source = CreateSource(eventName, key, metric.Conditions, dimensions, groupBy, filters);
+          context.Sources.Add(key, source);
+        }
+        source.ReadsPageFlow |= metric.ReadsPageFlow;
       }
-      context.Sources.Add(eventName, source);
     }
+    AddOptInRequirements(context, aggregates);
     return context;
+  }
+
+  /// <summary>
+  /// Creates a sub-query. Its rollup definition must cover the query's group-by and filter
+  /// dimensions and the dimensions of its conditions.
+  /// </summary>
+  SourceContext CreateSource(
+      string eventName, string key, Filter[] conditions, string[] dimensions, string[] groupBy, Filter[] filters)
+  {
+    var dimensionSetId = string.Join(",", dimensions
+        .Union(conditions.Select(x => x.Dimension), StringComparer.Ordinal)
+        .Order(StringComparer.Ordinal));
+    var definition = definitions.FirstOrDefault(x =>
+        x.Id == dimensionSetId && (x.Events == null || x.Events.Contains(eventName)));
+    var source = new SourceContext
+    {
+      Event = eventName,
+      Key = key,
+      Conditions = conditions,
+      EventUtf8 = RawEventCodec.Utf8(eventName),
+      Definition = definition
+    };
+    if (definition != null)
+    {
+      source.GroupByIndexes = groupBy.Select(x => IndexOf(definition.Dimensions, x)).ToArray();
+      source.FilterIndexes = filters.Select(x => IndexOf(definition.Dimensions, x.Dimension)).ToArray();
+      source.ConditionIndexes = conditions.Select(x => IndexOf(definition.Dimensions, x.Dimension)).ToArray();
+    }
+    return source;
+  }
+
+  /// <summary>
+  /// Records the opt-in aggregates each source must provide (percentiles, first and last values,
+  /// distinct counts) and since when rollups hold them.
+  /// </summary>
+  void AddOptInRequirements(QueryContext context, Metric[] aggregates)
+  {
+    foreach (var metric in aggregates)
+    {
+      var required = metric.RequiredAggregates;
+      if (required == MetricAggregates.None && metric.MetricKind != Metric.Kind.Distinct)
+        continue;
+      var source = context.Sources[metric.SourceKey(metric.EventName ?? context.BaseEvent)];
+      if (metric.MetricKind == Metric.Kind.Distinct)
+      {
+        if (!source.DistinctDimensions.Contains(metric.Argument))
+          source.DistinctDimensions = [.. source.DistinctDimensions, metric.Argument];
+        continue;
+      }
+      source.MetricDetails ??= new(StringComparer.Ordinal);
+      source.MetricDetails[metric.Argument] = source.MetricDetails.GetValueOrDefault(metric.Argument) | required;
+    }
+    foreach (var source in context.Sources.Values)
+    {
+      long since = 0;
+      var missing = new List<string>();
+      foreach (var (metric, required) in source.MetricDetails ?? [])
+      {
+        var at = activations.AggregatesSince(metric, required);
+        if (at == long.MaxValue)
+          missing.Add($"{(required == MetricAggregates.FirstAndLast ? "first and last values" : "percentiles")} of '{metric}'");
+        since = Math.Max(since, at);
+      }
+      foreach (var dimension in source.DistinctDimensions)
+      {
+        var at = activations.DistinctSince(dimension);
+        if (at == long.MaxValue)
+          missing.Add($"distinct values of '{dimension}'");
+        since = Math.Max(since, at);
+      }
+      source.AggregatesSince = since;
+      source.MissingAggregates = missing.Count == 0 ? null : string.Join(", ", missing);
+    }
   }
 
   void ValidateScope(Metric metric, string baseEvent, string[] dimensions)
@@ -329,14 +447,14 @@ sealed class QueryEngine
     }
     else
     {
-      if (source.Definition != null && selection != QuerySource.RawEvents)
+      if (source.Definition != null && selection != QuerySource.RawEvents && source.MissingAggregates == null)
       {
         var interval = context.Interval;
         if (context.DayRollupsCompatible &&
-            interval is not (TimeInterval.Minute or TimeInterval.Hour) &&
+            !interval.IsFixedWidth &&
             rollups.IsEnabled(Granularity.Day))
           levels.Add(Level.Day);
-        if (interval != TimeInterval.Minute && rollups.IsEnabled(Granularity.Hour))
+        if (interval.Unit != TimeIntervalUnit.Minute && rollups.IsEnabled(Granularity.Hour))
           levels.Add(Level.Hour);
         if (rollups.IsEnabled(Granularity.Minute))
           levels.Add(Level.Minute);
@@ -348,11 +466,19 @@ sealed class QueryEngine
     {
       if (selection == QuerySource.RawEvents)
         throw new AnalyticsQueryException("Raw events are not stored (StorageOptions.StoreRawEvents is false).");
+      if (source.MissingAggregates != null)
+        throw new AnalyticsQueryException(
+            $"Rollups do not keep the {source.MissingAggregates} for the event '{source.Event}', and raw events are " +
+            "not available. Add them to Rollups.MetricAggregates or Rollups.DistinctDimensions.");
       if (source.Definition == null)
       {
-        var dimensions = context.GroupBy.Concat(context.Filters.Select(x => x.Dimension)).Distinct();
+        var dimensions = context.GroupBy
+            .Concat(context.Filters.Select(x => x.Dimension))
+            .Concat(source.Conditions.Select(x => x.Dimension))
+            .Distinct();
+        var conditions = source.Conditions.Length == 0 ? "" : $" where {string.Join(" and ", source.Conditions.Select(x => x.ToString()))}";
         throw new AnalyticsQueryException(
-            $"No rollup covers the dimensions [{string.Join(", ", dimensions)}] for the event '{source.Event}', " +
+            $"No rollup covers the dimensions [{string.Join(", ", dimensions)}] for the event '{source.Event}'{conditions}, " +
             "and raw events are not available. Add a RollupDefinition with exactly these dimensions.");
       }
       throw new AnalyticsQueryException(
@@ -457,7 +583,7 @@ sealed class QueryEngine
 
   bool IsAvailable(QueryContext context, SourceContext source, Level level, long from)
   {
-    if (from < definitionActiveSince(source.Definition.Id))
+    if (from < Math.Max(activations.DefinitionSince(source.Definition.Id), source.AggregatesSince))
       return false;
     var granularity = level switch
     {
@@ -547,6 +673,11 @@ sealed class QueryEngine
           for (var i = 0; i < context.Filters.Length; ++i)
           {
             if (!context.Filters[i].IsMatch(KeyCodec.Public(parts[source.FilterIndexes[i]])))
+              return;
+          }
+          for (var i = 0; i < source.Conditions.Length; ++i)
+          {
+            if (!source.Conditions[i].IsMatch(KeyCodec.Public(parts[source.ConditionIndexes[i]])))
               return;
           }
           long outputBucket;
@@ -663,18 +794,16 @@ sealed class QueryEngine
   void ExecuteRaw(QueryContext context, PlanSegment segment, List<SourceContext> sources)
   {
     var eventSources = sources.Where(x => x.Event != StandardEvents.Session).ToArray();
-    var sessionSource = sources.FirstOrDefault(x => x.Event == StandardEvents.Session);
-    // Entrances and exits are only replayed when a metric reads them; like their rollups, they
-    // carry page-view-level dimensions only.
-    var pageViewSource = context.Metrics.Any(x => x.ReadsPageFlow) &&
-        context.GroupBy.Concat(context.Filters.Select(x => x.Dimension))
-            .All(x => enricher.Schema.Contains(DimensionScope.PageView, x))
-        ? sources.FirstOrDefault(x => x.Event == StandardEvents.PageView)
-        : null;
-    var trackSessions = options.Sessions.Enabled && (sessionSource != null || pageViewSource != null);
+    // Sessions, and entrances and exits when a metric reads them, are replayed from the events
+    // of each session. Like their rollups, they carry session-level and page-view-level
+    // dimensions only.
+    var flowSources = sources.Where(x => x.Event == StandardEvents.Session || x.ReadsPageFlow).ToArray();
+    var trackSessions = options.Sessions.Enabled && flowSources.Length > 0;
     var onlyEvent = eventSources.Length == 1 && !trackSessions ? eventSources[0] : null;
 
-    var needed = context.GroupBy.Concat(context.Filters.Select(x => x.Dimension));
+    var needed = context.GroupBy.Concat(context.Filters.Select(x => x.Dimension))
+        .Concat(sources.SelectMany(x => x.Conditions.Select(c => c.Dimension)))
+        .Concat(eventSources.SelectMany(x => x.DistinctDimensions));
     if (trackSessions)
       needed = needed.Append(StandardDimensions.Page).Append(StandardDimensions.Hostname);
     var selector = new DimensionSelector(needed);
@@ -708,7 +837,7 @@ sealed class QueryEngine
             for (var i = 0; i < eventSources.Length; ++i)
             {
               if (eventSources[i].Event == rawEvent.Name)
-                AddRawEvent(context, slice.Groups[i], rawEvent, slice.GroupValues);
+                AddRawEvent(context, eventSources[i], slice.Groups[i], rawEvent, slice.GroupValues);
             }
           }
           if (trackSessions && rawEvent.SessionId != 0)
@@ -725,32 +854,36 @@ sealed class QueryEngine
       return;
 
     // A session can span slices. Its parts are joined in time order, shard by shard, and each
-    // shard adds its complete sessions to groups of its own.
-    var sessionGroups = new Dictionary<GroupKey, RollupAccumulator>[shardCount];
-    var pageViewGroups = new Dictionary<GroupKey, RollupAccumulator>[shardCount];
+    // shard adds its complete sessions to groups of its own, per sub-query.
+    var flowGroups = new Dictionary<GroupKey, RollupAccumulator>[shardCount][];
     ParallelWork.For(shardCount, maxDegree, shard =>
     {
       var groupValues = new string[context.GroupBy.Length];
-      var sessionGroupsOfShard = new Dictionary<GroupKey, RollupAccumulator>();
-      var pageViewGroupsOfShard = new Dictionary<GroupKey, RollupAccumulator>();
+      var groups = Shards.Create<Dictionary<GroupKey, RollupAccumulator>>(flowSources.Length);
       foreach (var session in JoinSessions(slices, shard).Values)
       {
         if (session.Dimensions == null || !session.Allowed)
           continue;
-        if (sessionSource != null && session.Start >= segment.From && session.Start < segment.To)
-          AddRawSession(context, sessionGroupsOfShard, session, groupValues);
-        if (pageViewSource != null)
-          AddRawEntranceAndExit(context, pageViewGroupsOfShard, session, groupValues, segment);
+        for (var i = 0; i < flowSources.Length; ++i)
+        {
+          var source = flowSources[i];
+          if (source.Event == StandardEvents.Session)
+          {
+            if (session.Start >= segment.From && session.Start < segment.To)
+              AddRawSession(context, source, groups[i], session, groupValues);
+          }
+          else
+          {
+            AddRawEntranceAndExit(context, source, groups[i], session, groupValues, segment);
+          }
+        }
       }
-      sessionGroups[shard] = sessionGroupsOfShard;
-      pageViewGroups[shard] = pageViewGroupsOfShard;
+      flowGroups[shard] = groups;
     });
-    for (var shard = 0; shard < shardCount; ++shard)
+    for (var i = 0; i < flowSources.Length; ++i)
     {
-      if (sessionSource != null)
-        MergeGroups(sessionSource.Groups, sessionGroups[shard]);
-      if (pageViewSource != null)
-        MergeGroups(pageViewSource.Groups, pageViewGroups[shard]);
+      for (var shard = 0; shard < shardCount; ++shard)
+        MergeGroups(flowSources[i].Groups, flowGroups[shard][i]);
     }
   }
 
@@ -776,12 +909,22 @@ sealed class QueryEngine
   }
 
   static void AddRawEvent(
-      QueryContext context, Dictionary<GroupKey, RollupAccumulator> groups, RawEvent rawEvent, string[] groupValues)
+      QueryContext context,
+      SourceContext source,
+      Dictionary<GroupKey, RollupAccumulator> groups,
+      RawEvent rawEvent,
+      string[] groupValues)
   {
     foreach (var filter in context.Filters)
     {
       rawEvent.TryGetDimension(filter.Dimension, out var value);
       if (!filter.IsMatch(value))
+        return;
+    }
+    foreach (var condition in source.Conditions)
+    {
+      rawEvent.TryGetDimension(condition.Dimension, out var value);
+      if (!condition.IsMatch(value))
         return;
     }
     for (var i = 0; i < groupValues.Length; ++i)
@@ -793,7 +936,19 @@ sealed class QueryEngine
     ++accumulator.Count;
     accumulator.AddVisitor(rawEvent.Visitor, context.Precision);
     foreach (var (name, value) in rawEvent.Metrics)
+    {
       accumulator.AddMetric(name, value);
+      if (source.MetricDetails != null && source.MetricDetails.TryGetValue(name, out var aggregates))
+      {
+        var bucket = (aggregates & MetricAggregates.Percentiles) != 0 ? QuantileSketch.BucketOf(value) : default;
+        accumulator.AddMetricDetail(name, value, rawEvent.Ticks, aggregates, bucket);
+      }
+    }
+    foreach (var dimension in source.DistinctDimensions)
+    {
+      if (rawEvent.TryGetDimension(dimension, out var value) && value != null)
+        accumulator.AddDistinct(dimension, Text.StableHash(value), context.Precision);
+    }
   }
 
   void TrackSession(Dictionary<ulong, RawSession> sessions, RawEvent rawEvent, bool allowed)
@@ -845,9 +1000,13 @@ sealed class QueryEngine
   }
 
   static void AddRawSession(
-      QueryContext context, Dictionary<GroupKey, RollupAccumulator> groups, RawSession session, string[] groupValues)
+      QueryContext context,
+      SourceContext source,
+      Dictionary<GroupKey, RollupAccumulator> groups,
+      RawSession session,
+      string[] groupValues)
   {
-    if (!MatchAndGroup(context, session.Dimensions, groupValues))
+    if (!MatchAndGroup(context, source, session.Dimensions, groupValues))
       return;
     var accumulator = GetGroup(groups, context.Calendar.Bucket(session.Start, context.Interval), groupValues);
     ++accumulator.Count;
@@ -865,12 +1024,17 @@ sealed class QueryEngine
   /// the last page view of a session. This matches how ingestion maintains them in rollups.
   /// </summary>
   static void AddRawEntranceAndExit(
-      QueryContext context, Dictionary<GroupKey, RollupAccumulator> groups, RawSession session, string[] groupValues, PlanSegment segment)
+      QueryContext context,
+      SourceContext source,
+      Dictionary<GroupKey, RollupAccumulator> groups,
+      RawSession session,
+      string[] groupValues,
+      PlanSegment segment)
   {
     if (session.FirstIsPageView && session.Start >= segment.From && session.Start < segment.To)
     {
       var dimensions = WithPage(session.Dimensions, session.FirstPage, session.FirstHostname);
-      if (MatchAndGroup(context, dimensions, groupValues))
+      if (MatchAndGroup(context, source, dimensions, groupValues))
       {
         GetGroup(groups, context.Calendar.Bucket(session.Start, context.Interval), groupValues)
             .AddMetricDelta(StandardMetrics.Entrances, 1);
@@ -879,7 +1043,7 @@ sealed class QueryEngine
     if (session.LastPage != null && session.LastPageTicks >= segment.From && session.LastPageTicks < segment.To)
     {
       var dimensions = WithPage(session.Dimensions, session.LastPage, session.LastHostname);
-      if (MatchAndGroup(context, dimensions, groupValues))
+      if (MatchAndGroup(context, source, dimensions, groupValues))
       {
         GetGroup(groups, context.Calendar.Bucket(session.LastPageTicks, context.Interval), groupValues)
             .AddMetricDelta(StandardMetrics.Exits, 1);
@@ -896,11 +1060,17 @@ sealed class QueryEngine
     };
   }
 
-  static bool MatchAndGroup(QueryContext context, Dictionary<string, string> dimensions, string[] groupValues)
+  static bool MatchAndGroup(
+      QueryContext context, SourceContext source, Dictionary<string, string> dimensions, string[] groupValues)
   {
     foreach (var filter in context.Filters)
     {
       if (!filter.IsMatch(dimensions.GetValueOrDefault(filter.Dimension)))
+        return false;
+    }
+    foreach (var condition in source.Conditions)
+    {
+      if (!condition.IsMatch(dimensions.GetValueOrDefault(condition.Dimension)))
         return false;
     }
     for (var i = 0; i < groupValues.Length; ++i)
@@ -912,20 +1082,20 @@ sealed class QueryEngine
 
   #region Results
 
-  (AnalyticsResult, Dictionary<AnalyticsRow, int>) BuildResult(QueryContext context, AnalyticsQuery query)
+  static (AnalyticsResult, Dictionary<AnalyticsRow, int>) BuildResult(QueryContext context, AnalyticsQuery query)
   {
     var shape = new AnalyticsResultShape(context.Metrics, context.GroupBy);
     var metrics = context.Metrics;
-    var baseEvent = context.BaseEvent;
 
     // Totals per source: every group merged, unique visitors de-duplicated.
     var totals = new Dictionary<string, RollupAccumulator>(StringComparer.Ordinal);
     var keys = new HashSet<GroupKey>();
-    var rowsFromBaseOnly = !query.IncludeRowsWithoutBaseEvent && context.Sources.ContainsKey(baseEvent);
+    // Rows of the base event come from its unconditioned sub-query, whose key is the event name.
+    var rowsFromBaseOnly = !query.IncludeRowsWithoutBaseEvent && context.Sources.ContainsKey(context.BaseEvent);
     foreach (var source in context.Sources.Values)
     {
       var total = new RollupAccumulator();
-      var addsRows = !rowsFromBaseOnly || source.Event == baseEvent;
+      var addsRows = !rowsFromBaseOnly || source.Key == context.BaseEvent;
       foreach (var (key, accumulator) in source.Groups)
       {
         if (!accumulator.HasData)
@@ -934,49 +1104,48 @@ sealed class QueryEngine
         if (addsRows)
           keys.Add(key);
       }
-      totals[source.Event] = total;
-    }
-    var totalValues = new double[metrics.Length];
-    for (var i = 0; i < metrics.Length; ++i)
-    {
-      if (metrics[i].MetricKind != Metric.Kind.PercentOfTotal)
-        totalValues[i] = metrics[i].Evaluate(totals.GetValueOrDefault, baseEvent);
-    }
-    for (var i = 0; i < metrics.Length; ++i)
-    {
-      if (metrics[i].MetricKind == Metric.Kind.PercentOfTotal)
-        totalValues[i] = metrics[i].Inner.Evaluate(totals.GetValueOrDefault, baseEvent) > 0 ? 1 : 0;
+      totals[source.Key] = total;
     }
 
     var interval = context.Interval;
-    if (interval != TimeInterval.None && context.GroupBy.Length == 0 && query.FillEmptyBuckets)
-    {
-      foreach (var bucket in EnumerateBuckets(context.Calendar, context.From, context.To, interval))
-        keys.Add(new GroupKey(bucket, ""));
-    }
+    var rowKeys = keys.ToList();
+    var dataRows = rowKeys.Count;
+    if (interval != TimeInterval.None && context.Fill != FillMode.None)
+      AddFilledRows(context, keys, rowKeys);
 
-    var rows = new List<(AnalyticsRow Row, long Bucket)>(keys.Count);
-    var innerTotals = metrics
-        .Select(x => x.MetricKind == Metric.Kind.PercentOfTotal ? x.Inner.Evaluate(totals.GetValueOrDefault, baseEvent) : 0)
+    // The rows of each group in bucket order, for series functions and filling.
+    var series = Enumerable.Range(0, rowKeys.Count)
+        .GroupBy(i => rowKeys[i].Values, StringComparer.Ordinal)
+        .Select(group => group.OrderBy(i => rowKeys[i].Bucket).ToArray())
         .ToArray();
-    foreach (var key in keys)
+    var lookups = new Func<string, RollupAccumulator>[rowKeys.Count];
+    for (var i = 0; i < dataRows; ++i)
     {
-      RollupAccumulator Source(string eventName) =>
-          context.Sources.TryGetValue(eventName, out var source) ? source.Groups.GetValueOrDefault(key) : null;
+      var key = rowKeys[i];
+      lookups[i] = sourceKey =>
+          context.Sources.TryGetValue(sourceKey, out var source) ? source.Groups.GetValueOrDefault(key) : null;
+    }
+    var effectiveTo = Math.Min(context.To, Math.Max(context.From, context.NowTicks));
+    var evaluator = new MetricEvaluator(
+        lookups,
+        totals.GetValueOrDefault,
+        context.BaseEvent,
+        series,
+        context.Fill,
+        () => RowSeconds(context, rowKeys, effectiveTo),
+        (effectiveTo - context.From) / (double)TimeSpan.TicksPerSecond);
+    var columns = metrics.Select(evaluator.Evaluate).ToArray();
+    var having = context.Having.Select(x => (Filter: x, Values: evaluator.Evaluate(x.Metric).Rows)).ToArray();
+
+    var rows = new List<(AnalyticsRow Row, long Bucket)>(rowKeys.Count);
+    for (var r = 0; r < rowKeys.Count; ++r)
+    {
+      if (!Array.TrueForAll(having, x => x.Filter.IsMatch(x.Values[r])))
+        continue;
+      var key = rowKeys[r];
       var values = new double[metrics.Length];
-      for (var i = 0; i < metrics.Length; ++i)
-      {
-        var metric = metrics[i];
-        if (metric.MetricKind == Metric.Kind.PercentOfTotal)
-        {
-          var inner = metric.Inner.Evaluate(Source, baseEvent);
-          values[i] = innerTotals[i] > 0 ? inner / innerTotals[i] : 0;
-        }
-        else
-        {
-          values[i] = metric.Evaluate(Source, baseEvent);
-        }
-      }
+      for (var m = 0; m < metrics.Length; ++m)
+        values[m] = columns[m].Rows[r];
       var dimensions = KeyCodec.SplitValues(key.Values, context.GroupBy.Length);
       for (var i = 0; i < dimensions.Length; ++i)
         dimensions[i] = KeyCodec.Public(dimensions[i]);
@@ -988,6 +1157,16 @@ sealed class QueryEngine
     if (orders.Count == 0)
       orders.Add(interval != TimeInterval.None ? Order.ByBucket() : Order.By(metrics[0]));
     rows.Sort((a, b) => CompareRows(a, b, orders, shape));
+    if (query.LimitPerBucket is { } perBucket)
+    {
+      var kept = new Dictionary<long, int>();
+      rows.RemoveAll(row =>
+      {
+        var count = kept.GetValueOrDefault(row.Bucket);
+        kept[row.Bucket] = count + 1;
+        return count >= perBucket;
+      });
+    }
 
     var bucketIndexes = new Dictionary<AnalyticsRow, int>(ReferenceEqualityComparer.Instance);
     if (interval != TimeInterval.None)
@@ -1004,7 +1183,8 @@ sealed class QueryEngine
     if (query.Limit.HasValue)
       page = page.Take(query.Limit.Value);
 
-    var totalsRow = new AnalyticsRow(shape, null, new string[context.GroupBy.Length], totalValues);
+    var totalsRow = new AnalyticsRow(
+        shape, null, new string[context.GroupBy.Length], columns.Select(x => x.Total).ToArray());
     var timeZone = context.Calendar.TimeZone;
     var result = new AnalyticsResult(
         shape,
@@ -1017,6 +1197,52 @@ sealed class QueryEngine
         totalsRow,
         new QueryPlan(context.Steps, [.. context.Warnings]));
     return (result, bucketIndexes);
+  }
+
+  /// <summary>
+  /// Adds a row for every bucket of the range that a group has no data for. Without group-by
+  /// dimensions there is one group, so an empty range still has a row per bucket.
+  /// </summary>
+  static void AddFilledRows(QueryContext context, HashSet<GroupKey> keys, List<GroupKey> rowKeys)
+  {
+    var groups = context.GroupBy.Length == 0
+        ? [""]
+        : rowKeys.Select(x => x.Values).Distinct(StringComparer.Ordinal).ToList();
+    var buckets = EnumerateBuckets(context.Calendar, context.From, context.To, context.Interval).ToList();
+    if ((long)groups.Count * buckets.Count > MaxFilledRows)
+      throw new AnalyticsQueryException(
+          $"Filling the time series would create more than {MaxFilledRows.ToString("N0", CultureInfo.InvariantCulture)} rows. " +
+          "Use a coarser interval, fewer groups or FillMode.None.");
+    foreach (var group in groups)
+    {
+      foreach (var bucket in buckets)
+      {
+        var key = new GroupKey(bucket, group);
+        if (keys.Add(key))
+          rowKeys.Add(key);
+      }
+    }
+  }
+
+  /// <summary>
+  /// The length of each row's bucket within the range, up to now, in seconds.
+  /// </summary>
+  static double[] RowSeconds(QueryContext context, List<GroupKey> rowKeys, long effectiveTo)
+  {
+    var seconds = new double[rowKeys.Count];
+    var interval = context.Interval;
+    for (var i = 0; i < seconds.Length; ++i)
+    {
+      long start = context.From, end = effectiveTo;
+      if (interval != TimeInterval.None)
+      {
+        var bucket = rowKeys[i].Bucket;
+        start = Math.Max(start, context.Calendar.UtcStartOfBucket(bucket, interval));
+        end = Math.Min(end, context.Calendar.UtcStartOfBucket(ReportingCalendar.NextBucket(bucket, interval), interval));
+      }
+      seconds[i] = Math.Max(0, end - start) / (double)TimeSpan.TicksPerSecond;
+    }
+    return seconds;
   }
 
   static int CompareRows(
@@ -1058,11 +1284,9 @@ sealed class QueryEngine
   static IEnumerable<long> EnumerateBuckets(ReportingCalendar calendar, long from, long to, TimeInterval interval)
   {
     var bucket = calendar.Bucket(from, interval);
-    var isUtcInterval = interval is TimeInterval.Minute or TimeInterval.Hour;
     for (var i = 0; i <= MaxBuckets; ++i)
     {
-      var start = isUtcInterval ? bucket : calendar.UtcStartOfLocalDay(bucket);
-      if (start >= to)
+      if (calendar.UtcStartOfBucket(bucket, interval) >= to)
         yield break;
       yield return bucket;
       bucket = ReportingCalendar.NextBucket(bucket, interval);

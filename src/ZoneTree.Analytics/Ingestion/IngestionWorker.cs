@@ -137,7 +137,9 @@ sealed class IngestionWorker
         options.Rollups.Granularities,
         services.Calendar,
         options.Rollups.HyperLogLogPrecision,
-        schema);
+        schema,
+        options.Rollups.MetricAggregates,
+        options.Rollups.DistinctDimensions);
     sessionTimeoutTicks = options.Sessions.Timeout.Ticks;
     flushIntervalTimestamp = (long)(options.Ingestion.FlushInterval.TotalSeconds * Stopwatch.Frequency);
     sessionsEnabled = options.Sessions.Enabled && services.Sessions != null;

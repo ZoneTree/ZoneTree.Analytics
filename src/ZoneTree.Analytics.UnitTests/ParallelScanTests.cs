@@ -96,6 +96,15 @@ public sealed class ParallelScanTests
       }),
       Raw(q =>
       {
+        q.Event = "signup";
+        q.Interval = TimeInterval.Hours(6);
+        q.Metrics.AddRange([
+          Metric.Percentile("amount", 90), Metric.Median("amount"), Metric.First("amount"), Metric.Last("amount"),
+          Metric.StandardDeviation("amount"), Metric.Distinct(StandardDimensions.Country),
+          Metric.Cumulative(Metric.Sum("amount")), Metric.Increase(Metric.Last("amount"))]);
+      }),
+      Raw(q =>
+      {
         q.GroupBy.Add(StandardDimensions.Page);
         q.Metrics.AddRange([Metric.PageViews, Metric.Visitors, Metric.Entrances, Metric.Exits, Metric.ExitRate]);
       }),
