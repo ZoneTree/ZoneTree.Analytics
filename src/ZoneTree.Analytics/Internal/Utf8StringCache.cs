@@ -8,7 +8,7 @@ namespace ZoneTree.Analytics.Internal;
 /// A small direct-mapped cache of decoded ASCII strings.
 /// </summary>
 /// <remarks>
-/// Raw scans decode the same event names, metric names and dimension values on most rows.
+/// Raw scans decode the same event names, value names and dimension values on most rows.
 /// A hit returns the cached string instead of allocating a new one; a miss decodes and
 /// replaces the slot, so memory stays bounded however many distinct values a scan reads.
 /// Not thread-safe: each scan owns its cache.

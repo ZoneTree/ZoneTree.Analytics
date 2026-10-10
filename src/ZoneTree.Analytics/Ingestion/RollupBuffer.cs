@@ -111,12 +111,12 @@ sealed class RollupBuffer
 
   Dictionary<RollupBufferKey, RollupAccumulator> rows = [];
 
-  readonly Dictionary<string, MetricAggregates> metricAggregates;
+  readonly Dictionary<string, ValueAggregates> metricAggregates;
 
   readonly string[] distinctDimensions;
 
   // The opt-in aggregates of the current event, computed once for all of its rows.
-  readonly List<(string Name, double Value, MetricAggregates Aggregates, QuantileBucket Bucket)> eventDetails = [];
+  readonly List<(string Name, double Value, ValueAggregates Aggregates, QuantileBucket Bucket)> eventDetails = [];
 
   readonly List<(string Dimension, ulong Hash)> eventDistinct = [];
 
@@ -129,12 +129,12 @@ sealed class RollupBuffer
       ReportingCalendar calendar,
       int precision,
       SessionSchema schema,
-      IReadOnlyDictionary<string, MetricAggregates> metricAggregates,
+      IReadOnlyDictionary<string, ValueAggregates> metricAggregates,
       IReadOnlyCollection<string> distinctDimensions)
   {
     this.definitions = definitions;
     this.metricAggregates = metricAggregates
-        .Where(x => x.Value != MetricAggregates.None)
+        .Where(x => x.Value != ValueAggregates.None)
         .ToDictionary(x => x.Key, x => x.Value, StringComparer.Ordinal);
     this.distinctDimensions = [.. distinctDimensions];
     granularities = RollupStore.Granularities.Where(x => (enabled & x) != 0).ToArray();
@@ -262,7 +262,7 @@ sealed class RollupBuffer
       {
         if (metric.IsDelta || !metricAggregates.TryGetValue(metric.Name, out var aggregates))
           continue;
-        var bucket = (aggregates & MetricAggregates.Percentiles) != 0 ? QuantileSketch.BucketOf(metric.Value) : default;
+        var bucket = (aggregates & ValueAggregates.Percentiles) != 0 ? QuantileSketch.BucketOf(metric.Value) : default;
         eventDetails.Add((metric.Name, metric.Value, aggregates, bucket));
       }
     }

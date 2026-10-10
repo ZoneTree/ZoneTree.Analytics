@@ -138,7 +138,7 @@ sealed class IngestionWorker
         services.Calendar,
         options.Rollups.HyperLogLogPrecision,
         schema,
-        options.Rollups.MetricAggregates,
+        options.Rollups.ValueAggregates,
         options.Rollups.DistinctDimensions);
     sessionTimeoutTicks = options.Sessions.Timeout.Ticks;
     flushIntervalTimestamp = (long)(options.Ingestion.FlushInterval.TotalSeconds * Stopwatch.Frequency);
@@ -248,9 +248,9 @@ sealed class IngestionWorker
       WriteRawEvent(ev, session);
 
     metricChanges.Clear();
-    if (ev.Metrics != null)
+    if (ev.Values != null)
     {
-      foreach (var (name, value) in ev.Metrics)
+      foreach (var (name, value) in ev.Values)
         metricChanges.Add(new MetricChange(name, value, IsDelta: false));
     }
     if (session != null)
@@ -448,7 +448,7 @@ sealed class IngestionWorker
         session?.StartTicks ?? 0,
         ev.Interactive,
         ev.Dimensions,
-        ev.Metrics);
+        ev.Values);
     rawLease.Tree.Upsert(key, value);
   }
 

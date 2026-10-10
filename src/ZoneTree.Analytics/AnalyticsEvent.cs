@@ -26,7 +26,7 @@ namespace ZoneTree.Analytics;
 /// {
 ///     VisitorId = user.Id,
 ///     Dimensions = { ["plan"] = "pro" },
-///     Metrics = { ["revenue"] = 49.0 },
+///     Values = { ["revenue"] = 49.0 },
 /// });
 /// </code>
 /// </example>
@@ -34,7 +34,7 @@ public sealed class AnalyticsEvent
 {
   Dictionary<string, string> dimensions;
 
-  Dictionary<string, double> metrics;
+  Dictionary<string, double> values;
 
   /// <summary>
   /// Creates an event.
@@ -104,14 +104,16 @@ public sealed class AnalyticsEvent
       dimensions ??= new Dictionary<string, string>(StringComparer.Ordinal);
 
   /// <summary>
-  /// Custom numeric measurements, for example "revenue" or "duration_ms".
+  /// Numeric values measured on the event, for example "revenue" or "load_time". Queries
+  /// aggregate them with <see cref="Metric.Sum"/>, <see cref="Metric.Average"/>,
+  /// <see cref="Metric.Percentile"/> and the other value metrics.
   /// </summary>
-  public IDictionary<string, double> Metrics =>
-      metrics ??= new Dictionary<string, double>(StringComparer.Ordinal);
+  public IDictionary<string, double> Values =>
+      values ??= new Dictionary<string, double>(StringComparer.Ordinal);
 
   internal bool HasDimensions => dimensions != null && dimensions.Count > 0;
 
-  internal bool HasMetrics => metrics != null && metrics.Count > 0;
+  internal bool HasValues => values != null && values.Count > 0;
 
   /// <summary>
   /// Creates a page view.
@@ -143,11 +145,11 @@ public sealed class AnalyticsEvent
   }
 
   /// <summary>
-  /// Sets a metric and returns this event.
+  /// Sets a value and returns this event.
   /// </summary>
-  public AnalyticsEvent WithMetric(string name, double value)
+  public AnalyticsEvent WithValue(string name, double value)
   {
-    Metrics[name] = value;
+    Values[name] = value;
     return this;
   }
 
@@ -179,7 +181,7 @@ public sealed class AnalyticsEvent
       Referrer = Referrer,
       NonInteractive = NonInteractive,
       Dimensions = HasDimensions ? [.. dimensions] : null,
-      Metrics = HasMetrics ? [.. metrics] : null
+      Values = HasValues ? [.. values] : null
     };
   }
 }
@@ -211,5 +213,5 @@ sealed class EventSnapshot
 
   public KeyValuePair<string, string>[] Dimensions;
 
-  public KeyValuePair<string, double>[] Metrics;
+  public KeyValuePair<string, double>[] Values;
 }

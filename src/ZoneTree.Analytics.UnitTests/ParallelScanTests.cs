@@ -64,7 +64,7 @@ public sealed class ParallelScanTests
               IpAddress = ip,
               UserAgent = userAgent,
               Timestamp = Utc(time.AddSeconds(30)),
-              Metrics = { ["amount"] = random.Next(1, 100) / 4.0 }
+              Values = { ["amount"] = random.Next(1, 100) / 4.0 }
             });
           }
           time = time.AddMinutes(random.Next(1, 13));

@@ -43,7 +43,7 @@ sealed class EnrichedEvent
   /// </summary>
   public string[] SessionDimensions;
 
-  public List<KeyValuePair<string, double>> Metrics;
+  public List<KeyValuePair<string, double>> Values;
 
   /// <summary>
   /// True when the event carries custom dimensions besides page and hostname.
@@ -234,20 +234,20 @@ sealed class EnrichmentPipeline
       result.Dimensions.TryAdd(StandardDimensions.Hostname, Text.Value(url.Hostname, privacy.MaxValueLength));
     }
 
-    // Metrics.
-    if (e.Metrics != null && e.Metrics.Length > 0)
+    // Values.
+    if (e.Values != null && e.Values.Length > 0)
     {
-      result.Metrics = new(Math.Min(e.Metrics.Length, privacy.MaxCustomMetrics));
-      foreach (var (rawKey, value) in e.Metrics)
+      result.Values = new(Math.Min(e.Values.Length, privacy.MaxCustomValues));
+      foreach (var (rawKey, value) in e.Values)
       {
-        if (result.Metrics.Count >= privacy.MaxCustomMetrics)
+        if (result.Values.Count >= privacy.MaxCustomValues)
           break;
         if (!double.IsFinite(value))
           continue;
         var key = Text.Name(rawKey);
         if (key.Length == 0 || key[0] == '$')
           continue;
-        result.Metrics.Add(new(key, value));
+        result.Values.Add(new(key, value));
       }
     }
 

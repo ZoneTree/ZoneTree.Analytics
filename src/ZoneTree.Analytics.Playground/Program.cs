@@ -39,7 +39,7 @@ if (mode.Contains("norollups"))
 // Page load times with percentile rollups, to measure what time series features cost.
 var withMetrics = mode.Contains("metrics");
 if (withMetrics)
-  options.Rollups.MetricAggregates["load_time"] = MetricAggregates.Percentiles;
+  options.Rollups.ValueAggregates["load_time"] = ValueAggregates.Percentiles;
 if (mode.Contains("sequential"))
   options.Queries.MaxDegreeOfParallelism = 1;
 
@@ -51,7 +51,7 @@ for (var i = 0; i < events.Length; ++i)
 {
   events[i] = traffic.Next();
   if (withMetrics)
-    events[i].Metrics["load_time"] = Math.Round(Math.Exp(5.5 + loadTimes.NextDouble() * 2.5), 1);
+    events[i].Values["load_time"] = Math.Round(Math.Exp(5.5 + loadTimes.NextDouble() * 2.5), 1);
 }
 var from = traffic.Start;
 var to = traffic.Start.AddDays(days);
@@ -117,7 +117,7 @@ using (var engine = new AnalyticsEngine(options))
   WebReportRequest Request(DateTime start, DateTime end) => new() { Range = Range(start, end) };
   var month = Request(from, to);
   var summary = Measure("Summary (30 days)", () => engine.Web.GetSummaryAsync(month).Result);
-  Measure("Summary vs previous period", () => engine.Web.GetSummaryAsync(new WebReportRequest { Range = month.Range, Compare = Comparison.PreviousPeriod }).Result);
+  Measure("Summary vs previous period", () => engine.Web.GetSummaryAsync(new WebReportRequest { Range = month.Range, Compare = ComparisonPeriod.PreviousPeriod }).Result);
   var timeseries = Measure("Daily time series (30 days)", () => engine.Web.GetTimeseriesAsync(month, TimeInterval.Day).Result);
   Measure("Hourly time series (7 days)", () => engine.Web.GetTimeseriesAsync(Request(to.AddDays(-7), to), TimeInterval.Hour).Result);
   var pages = Measure("Top pages (30 days)", () => engine.Web.GetPagesAsync(month).Result);

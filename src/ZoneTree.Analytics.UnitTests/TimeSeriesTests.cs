@@ -34,8 +34,8 @@ public sealed class TimeSeriesTests
   static void ConfigureAggregates(AnalyticsOptions options)
   {
     options.Rollups.Granularities = Granularity.Minute | Granularity.Hour | Granularity.Day;
-    options.Rollups.MetricAggregates["load_time"] = MetricAggregates.All;
-    options.Rollups.MetricAggregates["temperature"] = MetricAggregates.FirstAndLast;
+    options.Rollups.ValueAggregates["load_time"] = ValueAggregates.All;
+    options.Rollups.ValueAggregates["temperature"] = ValueAggregates.FirstAndLast;
     options.Rollups.DistinctDimensions.Add("tenant");
     options.Rollups.Definitions.Add(new RollupDefinition("status"));
   }
@@ -60,7 +60,7 @@ public sealed class TimeSeriesTests
         VisitorId = "u" + (i % 31).ToString(CultureInfo.InvariantCulture),
         Timestamp = Utc(time),
         Dimensions = { ["status"] = status, ["tenant"] = tenant },
-        Metrics = { ["load_time"] = loadTime }
+        Values = { ["load_time"] = loadTime }
       });
     }
     engine.Flush();
@@ -178,14 +178,14 @@ public sealed class TimeSeriesTests
     var source = new RollupAccumulator { Count = 1 };
     source.AddMetric("a", 1);
     source.AddMetricDelta("b", 2);
-    source.AddMetricDetail("a", 1, 10, MetricAggregates.All, QuantileSketch.BucketOf(1));
+    source.AddMetricDetail("a", 1, 10, ValueAggregates.All, QuantileSketch.BucketOf(1));
     var stored = source.ToValue();
     var group = new RollupAccumulator();
     group.Merge(stored);
     group.AddMetric("a", 5);
     group.AddMetricDelta("c", 3);
     group.Merge(stored);
-    group.AddMetricDetail("a", 9, 20, MetricAggregates.All, QuantileSketch.BucketOf(9));
+    group.AddMetricDetail("a", 9, 20, ValueAggregates.All, QuantileSketch.BucketOf(9));
     Assert.Multiple(() =>
     {
       Assert.That(stored.Metrics, Is.EqualTo(new[] { MetricValue.Of(1), MetricValue.Delta(2) }));
@@ -205,8 +205,8 @@ public sealed class TimeSeriesTests
     var accumulator = new RollupAccumulator { Count = 3 };
     accumulator.AddMetric("load_time", 10);
     accumulator.AddMetric("load_time", 30);
-    accumulator.AddMetricDetail("load_time", 10, 100, MetricAggregates.All, QuantileSketch.BucketOf(10));
-    accumulator.AddMetricDetail("load_time", 30, 50, MetricAggregates.All, QuantileSketch.BucketOf(30));
+    accumulator.AddMetricDetail("load_time", 10, 100, ValueAggregates.All, QuantileSketch.BucketOf(10));
+    accumulator.AddMetricDetail("load_time", 30, 50, ValueAggregates.All, QuantileSketch.BucketOf(30));
     accumulator.AddMetricDelta("$exits", 1);
     accumulator.AddDistinct("tenant", Text.StableHash("a"), 14);
     accumulator.AddDistinct("tenant", Text.StableHash("b"), 14);
@@ -310,7 +310,7 @@ public sealed class TimeSeriesTests
     engine = TestEngine.Create(directory, o => o.Storage.StoreRawEvents = false);
     TrackRequests(10);
     var exception = Assert.Throws<AnalyticsQueryException>(() => Query(q => q.Metrics.Add(Metric.Percentile("load_time", 90))));
-    Assert.That(exception.Message, Does.Contain("percentiles of 'load_time'").And.Contain("Rollups.MetricAggregates"));
+    Assert.That(exception.Message, Does.Contain("percentiles of 'load_time'").And.Contain("Rollups.ValueAggregates"));
     exception = Assert.Throws<AnalyticsQueryException>(() => Query(q => q.Metrics.Add(Metric.Distinct("tenant"))));
     Assert.That(exception.Message, Does.Contain("distinct values of 'tenant'"));
   }
@@ -381,7 +381,7 @@ public sealed class TimeSeriesTests
       VisitorId = room,
       Timestamp = Utc(Day0.AddHours(hour)),
       Dimensions = { ["room"] = room },
-      Metrics = { ["temperature"] = value }
+      Values = { ["temperature"] = value }
     });
     Reading("a", 0, 10);
     Reading("a", 3, 40);
@@ -439,9 +439,9 @@ public sealed class TimeSeriesTests
     double[] meter = [100, 150, 20, 70];
     for (var day = 0; day < 4; ++day)
     {
-      engine.Track(new AnalyticsEvent("purchase") { VisitorId = "a", Timestamp = Utc(Day0.AddDays(day).AddHours(1)), Metrics = { ["revenue"] = revenue[day] } });
-      engine.Track(new AnalyticsEvent("purchase") { VisitorId = "b", Timestamp = Utc(Day0.AddDays(day).AddHours(2)), Metrics = { ["revenue"] = revenue[day] } });
-      engine.Track(new AnalyticsEvent("meter") { VisitorId = "m", Timestamp = Utc(Day0.AddDays(day).AddHours(3)), Metrics = { ["temperature"] = meter[day] } });
+      engine.Track(new AnalyticsEvent("purchase") { VisitorId = "a", Timestamp = Utc(Day0.AddDays(day).AddHours(1)), Values = { ["revenue"] = revenue[day] } });
+      engine.Track(new AnalyticsEvent("purchase") { VisitorId = "b", Timestamp = Utc(Day0.AddDays(day).AddHours(2)), Values = { ["revenue"] = revenue[day] } });
+      engine.Track(new AnalyticsEvent("meter") { VisitorId = "m", Timestamp = Utc(Day0.AddDays(day).AddHours(3)), Values = { ["temperature"] = meter[day] } });
     }
     engine.Flush();
     var orders = Metric.EventsOf("purchase");
@@ -661,7 +661,7 @@ public sealed class TimeSeriesTests
     engine = TestEngine.Create(directory);
     double[] revenue = [10, 30, 20, 40];
     for (var day = 0; day < 4; ++day)
-      engine.Track(new AnalyticsEvent("purchase") { VisitorId = "a", Timestamp = Utc(Day0.AddDays(day)), Metrics = { ["revenue"] = revenue[day] } });
+      engine.Track(new AnalyticsEvent("purchase") { VisitorId = "a", Timestamp = Utc(Day0.AddDays(day)), Values = { ["revenue"] = revenue[day] } });
     engine.Flush();
     var sum = Metric.Sum("revenue");
     var previous = Metric.Lag(sum);

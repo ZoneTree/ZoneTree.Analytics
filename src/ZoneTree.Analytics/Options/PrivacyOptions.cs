@@ -57,13 +57,13 @@ public sealed class PrivacyOptions
   public int MaxCustomDimensions { get; set; } = 32;
 
   /// <summary>
-  /// Maximum number of custom metrics (numeric values) kept per event. Default is 32.
+  /// Maximum number of values (<see cref="AnalyticsEvent.Values"/>) kept per event. Default is 32.
   /// </summary>
-  public int MaxCustomMetrics { get; set; } = 32;
+  public int MaxCustomValues { get; set; } = 32;
 
   /// <summary>
   /// Maximum length of dimension values. Longer values are truncated. Default is 512.
-  /// Names (events, sites, dimensions and metrics) are limited to 128 characters.
+  /// Names (events, sites, dimensions and values) are limited to 128 characters.
   /// </summary>
   public int MaxValueLength { get; set; } = 512;
 
@@ -93,8 +93,8 @@ public sealed class PrivacyOptions
       throw new ArgumentException("Privacy.VisitorIdSecret must be at least 16 bytes.");
     if (MaxCustomDimensions < 0)
       throw new ArgumentException("Privacy.MaxCustomDimensions cannot be negative.");
-    if (MaxCustomMetrics < 0)
-      throw new ArgumentException("Privacy.MaxCustomMetrics cannot be negative.");
+    if (MaxCustomValues < 0)
+      throw new ArgumentException("Privacy.MaxCustomValues cannot be negative.");
     if (MaxValueLength < 16)
       throw new ArgumentException("Privacy.MaxValueLength must be at least 16.");
   }

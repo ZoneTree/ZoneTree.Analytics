@@ -80,13 +80,13 @@ analytics.Track(new AnalyticsEvent("purchase")
     VisitorId = user.Id,                     // optional; only a keyed hash is stored
     Url = "https://example.com/checkout",    // optional page context
     Dimensions = { ["plan"] = "pro" },
-    Metrics = { ["revenue"] = 49.0 },
+    Values = { ["revenue"] = 49.0 },
 });
 
 // Telemetry without a visitor or page.
 analytics.Track(new AnalyticsEvent("job_completed")
     .WithDimension("queue", "emails")
-    .WithMetric("duration_ms", 812));
+    .WithValue("duration_ms", 812));
 ```
 
 `Track` validates the event, copies it, queues it and returns immediately, so the instance can be reused. Enrichment, session tracking, storage and aggregation happen on background workers. Event names starting with `$` are reserved.
@@ -97,7 +97,7 @@ analytics.Track(new AnalyticsEvent("job_completed")
 var request = new WebReportRequest
 {
     Range = DateRange.LastDays(30),
-    Compare = Comparison.PreviousPeriod,
+    Compare = ComparisonPeriod.PreviousPeriod,
 };
 
 WebSummary summary = await analytics.Web.GetSummaryAsync(request);
@@ -177,7 +177,7 @@ A query has a base `Event` (page views by default), a `Range`, an optional `Inte
 | `Distinct(d)` | base event, or with `e` | distinct values of a dimension, such as tenants or countries ¹ |
 | `CountBetween(v, lower, upper)`, `Histogram(v, edges)` | base event, or with `e` | values in `[lower, upper)`, placed within 1%; a histogram is one per bin ¹ |
 | `m.Where(filters)` | as `m` | `m` over the events that match the filters: CountIf, SumIf and so on |
-| `Conversions(goal)`, `ConversionRate(goal)` | goal event | goal visitors, and goal visitors ÷ base visitors |
+| `VisitorsOf(goal)`, `ConversionRate(goal)` | goal event | goal visitors, and goal visitors ÷ base visitors |
 | `PercentOfTotal(m)` | as `m` | each row's share of the total |
 | `BotHits` | bot events | bot requests, see [Bot traffic](#bot-traffic) |
 
@@ -191,7 +191,7 @@ query.Metrics.AddRange([Metric.Events, errors, errors / Metric.Events]);   // er
 query.Metrics.AddRange(Metric.Histogram("load_time", [0, 100, 250, 500, 1000, double.PositiveInfinity]));
 ```
 
-A conditional metric is answered from rollups when a rollup definition covers the group-by and filter dimensions together with the dimensions of its conditions, otherwise from raw events; on a formula, the conditions apply to every aggregate in it. Histograms and `CountBetween` read the percentile sketches, so they need `MetricAggregates.Percentiles` to be answered from rollups.
+A conditional metric is answered from rollups when a rollup definition covers the group-by and filter dimensions together with the dimensions of its conditions, otherwise from raw events; on a formula, the conditions apply to every aggregate in it. Histograms and `CountBetween` read the percentile sketches, so they need `ValueAggregates.Percentiles` to be answered from rollups.
 
 Session metrics can only be grouped and filtered by session-level dimensions (standard and `Sessions.Dimensions`) and the entry page; entrances and exits also by page and hostname. Use a segment to select sessions by anything else. Bot metrics can only be grouped and filtered by page, hostname, `event`, `bot` and `bot_category`, and cannot be combined with segments.
 
@@ -270,7 +270,7 @@ DateRange.Last(TimeSpan.FromMinutes(30));
 DateRange.Between(from, to);
 
 query.TimeZone = TimeZoneInfo.FindSystemTimeZoneById("America/New_York");
-query.Compare = Comparison.PreviousPeriod;   // or PreviousYear, or Custom(range)
+query.Compare = ComparisonPeriod.PreviousPeriod;   // or PreviousYear, or Custom(range)
 ```
 
 Calendar ranges and day, week, month and year buckets follow the query's time zone (the engine's reporting time zone by default). Daily rollups are stored in the reporting time zone; other time zones are answered from hourly rollups. A time series has at most 100,000 buckets; longer ones are rejected rather than truncated.
@@ -338,11 +338,11 @@ options.Rollups.Definitions.Add(new RollupDefinition("plan") { Events = ["purcha
 
 A rollup added to an existing data directory, re-added after being removed, or given different `Events` covers data from that moment on; earlier ranges are answered from raw events.
 
-Every tracked metric has its sum, count, minimum, maximum, average and variance in rollups. Percentiles, first and last values, and distinct counts of dimensions cost storage in every rollup row they reach, so they are opt-in:
+Every tracked value has its sum, count, minimum, maximum, average and variance in rollups. Percentiles, first and last values, and distinct counts of dimensions cost storage in every rollup row they reach, so they are opt-in:
 
 ```csharp
-options.Rollups.MetricAggregates["load_time"] = MetricAggregates.Percentiles;
-options.Rollups.MetricAggregates["temperature"] = MetricAggregates.FirstAndLast;
+options.Rollups.ValueAggregates["load_time"] = ValueAggregates.Percentiles;
+options.Rollups.ValueAggregates["temperature"] = ValueAggregates.FirstAndLast;
 options.Rollups.DistinctDimensions.Add("tenant");
 ```
 
@@ -491,7 +491,7 @@ Invalid requests return 400 with an `error` message; queries that exceed `Querie
   * `ExplicitOnly`: only explicit `VisitorId` values identify visitors.
   * `None`: no visitor tracking, no sessions or unique counts.
 * **Secret management.** Supply `Privacy.VisitorIdSecret` from your secret store to keep the hashing key away from the data files.
-* **Data minimization.** `GeoPrecision`, `CollectUserAgentDetails`, `CollectVersions`, `IncludeQueryString` (off by default), `AllowedDimensions`, `DeniedDimensions`, `MaxCustomDimensions`, `MaxCustomMetrics`, `MaxValueLength`.
+* **Data minimization.** `GeoPrecision`, `CollectUserAgentDetails`, `CollectVersions`, `IncludeQueryString` (off by default), `AllowedDimensions`, `DeniedDimensions`, `MaxCustomDimensions`, `MaxCustomValues`, `MaxValueLength`.
 * **Filtering.** `EventFilters` drop events before they are queued, for example internal traffic or visitors who opted out. Bot traffic is excluded by default.
 * **Retention** per data tier, see [Retention](#retention). Expired data is hidden at once and removed from disk; late events older than a tier's retention are not written to that tier, so backfilled history only lands where it is kept.
 * **Erasure.** `analytics.EraseVisitor(userId)` or `await analytics.EraseVisitorAsync(userId)` deletes the raw events and the session of an explicitly identified visitor. Rollups contain only aggregates and sketches, never identifiers.

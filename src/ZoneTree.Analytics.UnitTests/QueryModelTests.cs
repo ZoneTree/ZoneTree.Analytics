@@ -72,7 +72,6 @@ public sealed class QueryModelTests
   [TestCase("min:revenue")]
   [TestCase("max:revenue")]
   [TestCase("count:revenue")]
-  [TestCase("conversions:signup")]
   [TestCase("conversion_rate:signup")]
   [TestCase("stddev:load_time")]
   [TestCase("variance:load_time@job")]

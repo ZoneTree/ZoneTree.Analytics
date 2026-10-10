@@ -256,9 +256,9 @@ public sealed class LimitsTests
   [Test]
   public void CustomMetricsPerEventAreLimited()
   {
-    using var engine = TestEngine.Create(directory, o => o.Privacy.MaxCustomMetrics = 2);
+    using var engine = TestEngine.Create(directory, o => o.Privacy.MaxCustomValues = 2);
     engine.Track(new AnalyticsEvent("e") { Timestamp = Utc(T0) }
-        .WithMetric("a", 1).WithMetric("b", 2).WithMetric("c", 3));
+        .WithValue("a", 1).WithValue("b", 2).WithValue("c", 3));
     engine.Flush();
     var totals = engine.Query(new AnalyticsQuery
     {
@@ -296,6 +296,6 @@ public sealed class LimitsTests
   public void InvalidLimitsAreRejected()
   {
     Assert.Throws<ArgumentException>(() => TestEngine.Create(directory, o => o.Queries.Timeout = TimeSpan.Zero).Dispose());
-    Assert.Throws<ArgumentException>(() => TestEngine.Create(directory, o => o.Privacy.MaxCustomMetrics = -1).Dispose());
+    Assert.Throws<ArgumentException>(() => TestEngine.Create(directory, o => o.Privacy.MaxCustomValues = -1).Dispose());
   }
 }

@@ -180,7 +180,7 @@ static class TrackerEndpoints
   }
 
   /// <summary>
-  /// Receives a beacon: {"n": name, "u": url, "r": referrer, "p": {props}, "m": {metrics}}.
+  /// Receives a beacon: {"n": name, "u": url, "r": referrer, "p": {props}, "m": {values}}.
   /// </summary>
   public static async Task ReceiveEvent(HttpContext context)
   {
@@ -262,12 +262,12 @@ static class TrackerEndpoints
           analyticsEvent.WithDimension(property.Name, value);
       }
     }
-    if (root.TryGetProperty("m", out var metrics) && metrics.ValueKind == JsonValueKind.Object)
+    if (root.TryGetProperty("m", out var values) && values.ValueKind == JsonValueKind.Object)
     {
-      foreach (var property in metrics.EnumerateObject())
+      foreach (var property in values.EnumerateObject())
       {
         if (property.Value.ValueKind == JsonValueKind.Number && property.Value.TryGetDouble(out var number))
-          analyticsEvent.WithMetric(property.Name, number);
+          analyticsEvent.WithValue(property.Name, number);
       }
     }
     return analyticsEvent;

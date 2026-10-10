@@ -14,13 +14,13 @@ analytics.Track(new AnalyticsEvent("purchase")
 {
     VisitorId = userId,
     Dimensions = { ["plan"] = "pro" },
-    Metrics = { ["revenue"] = 49.0 },
+    Values = { ["revenue"] = 49.0 },
 });
 
 var summary = await analytics.Web.GetSummaryAsync(new WebReportRequest
 {
     Range = DateRange.LastDays(30),
-    Compare = Comparison.PreviousPeriod,
+    Compare = ComparisonPeriod.PreviousPeriod,
 });
 
 var bySource = await analytics.QueryAsync(new AnalyticsQuery

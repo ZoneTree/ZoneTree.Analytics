@@ -200,8 +200,8 @@ public static class BotCategories
 }
 
 /// <summary>
-/// Standard metric names produced by the engine.
-/// Engine-generated metrics start with '$'.
+/// The values the engine tracks on its own events, such as session duration.
+/// Their names start with '$'.
 /// </summary>
 static class StandardMetrics
 {

@@ -133,7 +133,7 @@ public sealed class StorageCodecTests
       Assert.That(target.Interactive, Is.True);
       Assert.That(target.TryGetDimension("country", out var country) && country == "DE", Is.True);
       Assert.That(target.TryGetDimension("empty", out var empty) && empty == "", Is.True);
-      Assert.That(target.Metrics.Single().Value, Is.EqualTo(1.5));
+      Assert.That(target.Values.Single().Value, Is.EqualTo(1.5));
       Assert.That(RawEventCodec.ReadVisitor(encoded.Span), Is.EqualTo(77));
     });
   }

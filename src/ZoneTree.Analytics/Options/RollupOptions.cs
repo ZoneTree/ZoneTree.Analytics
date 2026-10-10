@@ -30,21 +30,22 @@ public sealed class RollupOptions
   public int HyperLogLogPrecision { get; set; } = HyperLogLog.DefaultPrecision;
 
   /// <summary>
-  /// Additional aggregates kept in rollups for tracked metrics, by metric name. Every metric
-  /// has sum, count, min, max, average and variance; these are opt-in because they cost storage
-  /// in every rollup row the metric reaches:
-  /// <see cref="Analytics.MetricAggregates.Percentiles"/> for <see cref="Metric.Percentile"/>
-  /// and <see cref="Metric.Median"/>, <see cref="Analytics.MetricAggregates.FirstAndLast"/> for
-  /// <see cref="Metric.First"/> and <see cref="Metric.Last"/>. Queries of a metric without them,
+  /// Additional aggregates kept in rollups for values tracked on events
+  /// (<see cref="AnalyticsEvent.Values"/>), by value name. Every value has sum, count, min, max,
+  /// average and variance; these are opt-in because they cost storage in every rollup row the
+  /// value reaches:
+  /// <see cref="Analytics.ValueAggregates.Percentiles"/> for <see cref="Metric.Percentile"/>
+  /// and <see cref="Metric.Median"/>, <see cref="Analytics.ValueAggregates.FirstAndLast"/> for
+  /// <see cref="Metric.First"/> and <see cref="Metric.Last"/>. Queries of a value without them,
   /// and of ranges before they were configured, are answered from raw events.
   /// </summary>
   /// <example>
   /// <code>
-  /// options.Rollups.MetricAggregates["load_time"] = MetricAggregates.Percentiles;
-  /// options.Rollups.MetricAggregates["temperature"] = MetricAggregates.FirstAndLast;
+  /// options.Rollups.ValueAggregates["load_time"] = ValueAggregates.Percentiles;
+  /// options.Rollups.ValueAggregates["temperature"] = ValueAggregates.FirstAndLast;
   /// </code>
   /// </example>
-  public Dictionary<string, MetricAggregates> MetricAggregates { get; private set; } = new(StringComparer.Ordinal);
+  public Dictionary<string, ValueAggregates> ValueAggregates { get; private set; } = new(StringComparer.Ordinal);
 
   /// <summary>
   /// Dimensions whose distinct values are counted in every rollup row, for
@@ -58,7 +59,7 @@ public sealed class RollupOptions
   {
     var clone = (RollupOptions)MemberwiseClone();
     clone.Definitions = Definitions.Select(x => x?.Clone()).ToList();
-    clone.MetricAggregates = new(MetricAggregates, StringComparer.Ordinal);
+    clone.ValueAggregates = new(ValueAggregates, StringComparer.Ordinal);
     clone.DistinctDimensions = [.. DistinctDimensions];
     return clone;
   }
@@ -76,12 +77,12 @@ public sealed class RollupOptions
       if (!dimensionSets.Add(definition.Id))
         throw new ArgumentException($"Duplicate rollup definition for dimensions '{definition.Id}'.");
     }
-    foreach (var (metric, aggregates) in MetricAggregates)
+    foreach (var (value, aggregates) in ValueAggregates)
     {
-      if (string.IsNullOrWhiteSpace(metric))
-        throw new ArgumentException("Rollups.MetricAggregates cannot contain an empty metric name.");
-      if ((aggregates & ~Analytics.MetricAggregates.All) != 0)
-        throw new ArgumentException($"Rollups.MetricAggregates['{metric}'] is not a valid value.");
+      if (string.IsNullOrWhiteSpace(value))
+        throw new ArgumentException("Rollups.ValueAggregates cannot contain an empty value name.");
+      if ((aggregates & ~Analytics.ValueAggregates.All) != 0)
+        throw new ArgumentException($"Rollups.ValueAggregates['{value}'] is not a valid combination.");
     }
     if (DistinctDimensions.Any(string.IsNullOrWhiteSpace))
       throw new ArgumentException("Rollups.DistinctDimensions cannot contain an empty dimension.");
@@ -91,12 +92,12 @@ public sealed class RollupOptions
 }
 
 /// <summary>
-/// Opt-in aggregates of a tracked metric. See <see cref="RollupOptions.MetricAggregates"/>.
+/// Opt-in aggregates of a tracked value. See <see cref="RollupOptions.ValueAggregates"/>.
 /// </summary>
 [Flags]
-public enum MetricAggregates
+public enum ValueAggregates
 {
-  /// <summary>Only the aggregates every metric has: sum, count, min, max, average and variance.</summary>
+  /// <summary>Only the aggregates every value has: sum, count, min, max, average and variance.</summary>
   None = 0,
 
   /// <summary>

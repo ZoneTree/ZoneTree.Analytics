@@ -165,18 +165,18 @@ public sealed class AnalyticsQuery
   public List<MetricFilter> Having { get; } = [];
 
   /// <summary>
-  /// When true (the default), a row is returned for every bucket and group that has data for
-  /// any metric, like a full outer join. When false, only buckets and groups that have base
-  /// events are returned and the other metrics are joined onto them, like a left join: for
-  /// example a page-view report that should not list sources with conversions but no page views.
+  /// Returns only the buckets and groups that have base events (<see cref="Event"/>), with the
+  /// other metrics joined onto them, like a left join: for example a page-view report that
+  /// should not list sources with conversions but no page views. When false (the default), a row
+  /// is returned for every bucket and group that has data for any metric, like a full outer join.
   /// </summary>
-  public bool IncludeRowsWithoutBaseEvent { get; set; } = true;
+  public bool OnlyRowsWithBaseEvent { get; set; }
 
   /// <summary>
   /// Compares every row with a previous period. The result's rows carry
   /// <see cref="AnalyticsRow.Previous"/>.
   /// </summary>
-  public Comparison Compare { get; set; }
+  public ComparisonPeriod Compare { get; set; }
 
   /// <summary>
   /// Data source selection. Default is <see cref="QuerySource.Auto"/>.
@@ -195,7 +195,7 @@ public sealed class AnalyticsQuery
       Limit = null,
       Offset = 0,
       Fill = Fill,
-      IncludeRowsWithoutBaseEvent = IncludeRowsWithoutBaseEvent,
+      OnlyRowsWithBaseEvent = OnlyRowsWithBaseEvent,
       Compare = null,
       Source = Source
     };

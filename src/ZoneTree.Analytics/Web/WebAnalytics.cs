@@ -23,7 +23,7 @@ public sealed class WebReportRequest
   public List<Segment> Segments { get; } = [];
 
   /// <summary>An optional comparison period. Results then carry <c>Previous</c> values.</summary>
-  public Comparison Compare { get; set; }
+  public ComparisonPeriod Compare { get; set; }
 
   /// <summary>Maximum number of rows of list reports. Default is 10; null returns every row.</summary>
   public int? Limit { get; set; } = 10;
@@ -207,7 +207,7 @@ public sealed class WebAnalytics
       Range = request.Range,
       TimeZone = request.TimeZone,
       Compare = request.Compare,
-      IncludeRowsWithoutBaseEvent = false
+      OnlyRowsWithBaseEvent = true
     };
     query.Filters.AddRange(request.Filters);
     query.Segments.AddRange(request.Segments);
@@ -412,7 +412,7 @@ public sealed class WebAnalytics
     query.Metrics.Add(Metric.Visitors);
     foreach (var goal in goals)
     {
-      query.Metrics.Add(Metric.Conversions(goal));
+      query.Metrics.Add(Metric.VisitorsOf(goal));
       query.Metrics.Add(Metric.EventsOf(goal));
       query.Metrics.Add(Metric.ConversionRate(goal));
     }
@@ -421,7 +421,7 @@ public sealed class WebAnalytics
     var rows = goals
         .Select(x => new GoalStats(
             x,
-            (long)totals[Metric.Conversions(x)],
+            (long)totals[Metric.VisitorsOf(x)],
             (long)totals[Metric.EventsOf(x)],
             totals[Metric.ConversionRate(x)]))
         .Where(x => x.Events > 0)

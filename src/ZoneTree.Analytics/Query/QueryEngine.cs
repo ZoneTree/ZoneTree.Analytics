@@ -157,8 +157,8 @@ sealed class QueryEngine
 
     public List<PlanSegment> Plan = [];
 
-    /// <summary>The opt-in aggregates the query reads, by metric name; null when none.</summary>
-    public Dictionary<string, MetricAggregates> MetricDetails;
+    /// <summary>The opt-in aggregates the query reads, by value name; null when none.</summary>
+    public Dictionary<string, ValueAggregates> MetricDetails;
 
     /// <summary>The dimensions whose distinct values the query counts.</summary>
     public string[] DistinctDimensions = [];
@@ -360,7 +360,7 @@ sealed class QueryEngine
     foreach (var metric in aggregates)
     {
       var required = metric.RequiredAggregates;
-      if (required == MetricAggregates.None && metric.MetricKind != Metric.Kind.Distinct)
+      if (required == ValueAggregates.None && metric.MetricKind != Metric.Kind.Distinct)
         continue;
       var source = context.Sources[metric.SourceKey(metric.EventName ?? context.BaseEvent)];
       if (metric.MetricKind == Metric.Kind.Distinct)
@@ -380,7 +380,7 @@ sealed class QueryEngine
       {
         var at = activations.AggregatesSince(metric, required);
         if (at == long.MaxValue)
-          missing.Add($"{(required == MetricAggregates.FirstAndLast ? "first and last values" : "percentiles")} of '{metric}'");
+          missing.Add($"{(required == ValueAggregates.FirstAndLast ? "first and last values" : "percentiles")} of '{metric}'");
         since = Math.Max(since, at);
       }
       foreach (var dimension in source.DistinctDimensions)
@@ -469,7 +469,7 @@ sealed class QueryEngine
       if (source.MissingAggregates != null)
         throw new AnalyticsQueryException(
             $"Rollups do not keep the {source.MissingAggregates} for the event '{source.Event}', and raw events are " +
-            "not available. Add them to Rollups.MetricAggregates or Rollups.DistinctDimensions.");
+            "not available. Add them to Rollups.ValueAggregates or Rollups.DistinctDimensions.");
       if (source.Definition == null)
       {
         var dimensions = context.GroupBy
@@ -935,12 +935,12 @@ sealed class QueryEngine
     var accumulator = GetGroup(groups, context.Calendar.Bucket(rawEvent.Ticks, context.Interval), groupValues);
     ++accumulator.Count;
     accumulator.AddVisitor(rawEvent.Visitor, context.Precision);
-    foreach (var (name, value) in rawEvent.Metrics)
+    foreach (var (name, value) in rawEvent.Values)
     {
       accumulator.AddMetric(name, value);
       if (source.MetricDetails != null && source.MetricDetails.TryGetValue(name, out var aggregates))
       {
-        var bucket = (aggregates & MetricAggregates.Percentiles) != 0 ? QuantileSketch.BucketOf(value) : default;
+        var bucket = (aggregates & ValueAggregates.Percentiles) != 0 ? QuantileSketch.BucketOf(value) : default;
         accumulator.AddMetricDetail(name, value, rawEvent.Ticks, aggregates, bucket);
       }
     }
@@ -1091,7 +1091,7 @@ sealed class QueryEngine
     var totals = new Dictionary<string, RollupAccumulator>(StringComparer.Ordinal);
     var keys = new HashSet<GroupKey>();
     // Rows of the base event come from its unconditioned sub-query, whose key is the event name.
-    var rowsFromBaseOnly = !query.IncludeRowsWithoutBaseEvent && context.Sources.ContainsKey(context.BaseEvent);
+    var rowsFromBaseOnly = query.OnlyRowsWithBaseEvent && context.Sources.ContainsKey(context.BaseEvent);
     foreach (var source in context.Sources.Values)
     {
       var total = new RollupAccumulator();

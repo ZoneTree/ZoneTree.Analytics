@@ -247,11 +247,11 @@ static class ReportingApi
     throw new FormatException($"Unknown range '{range}'. Use today, yesterday, 7d, 30d, month, last-month, year, 30m, 12h, or from and to.");
   }
 
-  static Comparison ParseComparison(ApiParameters parameters) => parameters.Get("compare")?.Trim().ToLowerInvariant() switch
+  static ComparisonPeriod ParseComparison(ApiParameters parameters) => parameters.Get("compare")?.Trim().ToLowerInvariant() switch
   {
     null or "" or "none" => null,
-    "previous" or "previous-period" => Comparison.PreviousPeriod,
-    "year" or "previous-year" => Comparison.PreviousYear,
+    "previous" or "previous-period" => ComparisonPeriod.PreviousPeriod,
+    "year" or "previous-year" => ComparisonPeriod.PreviousYear,
     var other => throw new FormatException($"Unknown comparison '{other}'. Use previous or year.")
   };
 
@@ -404,8 +404,8 @@ static class ReportingApi
       Offset = parameters.GetInt("offset") ?? 0,
       LimitPerBucket = parameters.GetInt("limitPerBucket")
     };
-    if (parameters.Get("includeRowsWithoutBaseEvent") == "false")
-      query.IncludeRowsWithoutBaseEvent = false;
+    if (parameters.Get("onlyRowsWithBaseEvent") == "true")
+      query.OnlyRowsWithBaseEvent = true;
     query.GroupBy.AddRange(parameters.GetAll("groupBy"));
     query.Filters.AddRange(ParseFilters(parameters));
     query.Segments.AddRange(ParseSegments(parameters));

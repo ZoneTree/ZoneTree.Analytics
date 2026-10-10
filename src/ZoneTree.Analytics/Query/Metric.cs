@@ -66,7 +66,6 @@ public sealed class Metric : IEquatable<Metric>
     Last,
     Distinct,
     CountBetween,
-    Conversions,
     ConversionRate,
 
     // Formulas: computed from other metrics of the same row.
@@ -121,7 +120,7 @@ public sealed class Metric : IEquatable<Metric>
   internal Kind MetricKind { get; }
 
   /// <summary>
-  /// The metric name for value aggregates, the dimension for <see cref="Distinct"/>, or the goal
+  /// The value name for value aggregates, the dimension for <see cref="Distinct"/>, or the goal
   /// event for goal metrics.
   /// </summary>
   internal string Argument { get; }
@@ -207,69 +206,69 @@ public sealed class Metric : IEquatable<Metric>
   public static Metric VisitorsOf(string eventName) =>
       new(Kind.Visitors, "visitors:" + RequireName(eventName), eventName: eventName);
 
-  /// <summary>Sum of a measured value.</summary>
-  /// <param name="metric">The metric name, as tracked in <see cref="AnalyticsEvent.Metrics"/>.</param>
+  /// <summary>Sum of a tracked value.</summary>
+  /// <param name="value">The value name, as tracked in <see cref="AnalyticsEvent.Values"/>.</param>
   /// <param name="eventName">The event; null means the query's base event.</param>
-  public static Metric Sum(string metric, string eventName = null) => Value(Kind.Sum, "sum", metric, eventName);
+  public static Metric Sum(string value, string eventName = null) => Value(Kind.Sum, "sum", value, eventName);
 
-  /// <summary>Average of a measured value.</summary>
-  public static Metric Average(string metric, string eventName = null) => Value(Kind.Average, "avg", metric, eventName);
+  /// <summary>Average of a tracked value.</summary>
+  public static Metric Average(string value, string eventName = null) => Value(Kind.Average, "avg", value, eventName);
 
   /// <summary>Smallest measured value.</summary>
-  public static Metric Min(string metric, string eventName = null) => Value(Kind.Min, "min", metric, eventName);
+  public static Metric Min(string value, string eventName = null) => Value(Kind.Min, "min", value, eventName);
 
   /// <summary>Largest measured value.</summary>
-  public static Metric Max(string metric, string eventName = null) => Value(Kind.Max, "max", metric, eventName);
+  public static Metric Max(string value, string eventName = null) => Value(Kind.Max, "max", value, eventName);
 
-  /// <summary>Number of measured values.</summary>
-  public static Metric Count(string metric, string eventName = null) => Value(Kind.Count, "count", metric, eventName);
+  /// <summary>Number of tracked values.</summary>
+  public static Metric Count(string value, string eventName = null) => Value(Kind.Count, "count", value, eventName);
 
-  /// <summary>Population standard deviation of a measured value.</summary>
-  public static Metric StandardDeviation(string metric, string eventName = null) =>
-      Value(Kind.StandardDeviation, "stddev", metric, eventName);
+  /// <summary>Population standard deviation of a tracked value.</summary>
+  public static Metric StandardDeviation(string value, string eventName = null) =>
+      Value(Kind.StandardDeviation, "stddev", value, eventName);
 
-  /// <summary>Population variance of a measured value.</summary>
-  public static Metric Variance(string metric, string eventName = null) => Value(Kind.Variance, "variance", metric, eventName);
+  /// <summary>Population variance of a tracked value.</summary>
+  public static Metric Variance(string value, string eventName = null) => Value(Kind.Variance, "variance", value, eventName);
 
   /// <summary>
-  /// A percentile of a measured value, for example the 95th percentile of a load time, within a
+  /// A percentile of a tracked value, for example the 95th percentile of a load time, within a
   /// relative error of 1%. Percentile 0 is the minimum and 100 the maximum, exactly.
   /// </summary>
   /// <remarks>
-  /// Rollups answer it when <see cref="RollupOptions.MetricAggregates"/> includes
-  /// <see cref="MetricAggregates.Percentiles"/> for the metric; otherwise raw events do.
+  /// Rollups answer it when <see cref="RollupOptions.ValueAggregates"/> includes
+  /// <see cref="ValueAggregates.Percentiles"/> for the value; otherwise raw events do.
   /// </remarks>
-  /// <param name="metric">The metric name.</param>
+  /// <param name="value">The value name, as tracked in <see cref="AnalyticsEvent.Values"/>.</param>
   /// <param name="percentile">The percentile, 0 to 100.</param>
   /// <param name="eventName">The event; null means the query's base event.</param>
-  public static Metric Percentile(string metric, double percentile, string eventName = null)
+  public static Metric Percentile(string value, double percentile, string eventName = null)
   {
     if (!(percentile >= 0 && percentile <= 100))
       throw new ArgumentOutOfRangeException(nameof(percentile), "The percentile must be between 0 and 100.");
-    RequireName(metric);
+    RequireName(value);
     var prefix = "p" + percentile.ToString("R", CultureInfo.InvariantCulture);
-    return new(Kind.Percentile, prefix + ":" + metric + EventSuffix(eventName), metric, eventName, percentile);
+    return new(Kind.Percentile, prefix + ":" + value + EventSuffix(eventName), value, eventName, percentile);
   }
 
-  /// <summary>The median (50th percentile) of a measured value. See <see cref="Percentile"/>.</summary>
-  public static Metric Median(string metric, string eventName = null) => Percentile(metric, 50, eventName);
+  /// <summary>The median (50th percentile) of a tracked value. See <see cref="Percentile"/>.</summary>
+  public static Metric Median(string value, string eventName = null) => Percentile(value, 50, eventName);
 
   /// <summary>
-  /// The first measured value of each row, by time: the opening value of a gauge.
+  /// The first tracked value of each row, by time: the opening value of a gauge.
   /// </summary>
   /// <remarks>
-  /// Rollups answer it when <see cref="RollupOptions.MetricAggregates"/> includes
-  /// <see cref="MetricAggregates.FirstAndLast"/> for the metric; otherwise raw events do. Values
+  /// Rollups answer it when <see cref="RollupOptions.ValueAggregates"/> includes
+  /// <see cref="ValueAggregates.FirstAndLast"/> for the value; otherwise raw events do. Values
   /// at the same instant are ordered by value.
   /// </remarks>
-  public static Metric First(string metric, string eventName = null) => Value(Kind.First, "first", metric, eventName);
+  public static Metric First(string value, string eventName = null) => Value(Kind.First, "first", value, eventName);
 
   /// <summary>
-  /// The last measured value of each row, by time: the current value of a gauge, such as a
+  /// The last tracked value of each row, by time: the current value of a gauge, such as a
   /// temperature or a queue length.
   /// </summary>
   /// <remarks>See <see cref="First"/>.</remarks>
-  public static Metric Last(string metric, string eventName = null) => Value(Kind.Last, "last", metric, eventName);
+  public static Metric Last(string value, string eventName = null) => Value(Kind.Last, "last", value, eventName);
 
   /// <summary>
   /// The number of distinct values of a dimension, for example distinct countries or tenants.
@@ -285,49 +284,45 @@ public sealed class Metric : IEquatable<Metric>
       Value(Kind.Distinct, "distinct", dimension, eventName);
 
   /// <summary>
-  /// The number of measured values from <paramref name="lower"/> (inclusive) to
+  /// The number of tracked values from <paramref name="lower"/> (inclusive) to
   /// <paramref name="upper"/> (exclusive), for example page loads under 100 ms. Bounds may be
   /// infinite. Values are placed within 1% of their magnitude, like <see cref="Percentile"/>, so a
   /// value within 1% of a bound may count on either side of it.
   /// </summary>
   /// <remarks>
-  /// Rollups answer it when <see cref="RollupOptions.MetricAggregates"/> includes
-  /// <see cref="MetricAggregates.Percentiles"/> for the metric; otherwise raw events do.
+  /// Rollups answer it when <see cref="RollupOptions.ValueAggregates"/> includes
+  /// <see cref="ValueAggregates.Percentiles"/> for the value; otherwise raw events do.
   /// </remarks>
-  public static Metric CountBetween(string metric, double lower, double upper, string eventName = null)
+  public static Metric CountBetween(string value, double lower, double upper, string eventName = null)
   {
-    RequireName(metric);
+    RequireName(value);
     if (double.IsNaN(lower) || double.IsNaN(upper) || !(lower < upper))
       throw new ArgumentOutOfRangeException(nameof(upper), "The upper bound must be greater than the lower bound.");
-    var key = "count_between(" + metric + EventSuffix(eventName) + "," + Format(lower) + "," + Format(upper) + ")";
-    return new(Kind.CountBetween, key, metric, eventName, lower, upperBound: upper);
+    var key = "count_between(" + value + EventSuffix(eventName) + "," + Format(lower) + "," + Format(upper) + ")";
+    return new(Kind.CountBetween, key, value, eventName, lower, upperBound: upper);
   }
 
   /// <summary>
-  /// A histogram of a measured value: one <see cref="CountBetween"/> metric per bin between
+  /// A histogram of a tracked value: one <see cref="CountBetween"/> metric per bin between
   /// consecutive edges, for example <c>[0, 100, 250, 500, 1000, double.PositiveInfinity]</c>.
   /// </summary>
-  /// <param name="metric">The metric name.</param>
+  /// <param name="value">The value name, as tracked in <see cref="AnalyticsEvent.Values"/>.</param>
   /// <param name="edges">The bin edges, in increasing order; at least two.</param>
   /// <param name="eventName">The event; null means the query's base event.</param>
-  public static Metric[] Histogram(string metric, IReadOnlyList<double> edges, string eventName = null)
+  public static Metric[] Histogram(string value, IReadOnlyList<double> edges, string eventName = null)
   {
     ArgumentNullException.ThrowIfNull(edges);
     if (edges.Count < 2)
       throw new ArgumentException("A histogram needs at least two edges.", nameof(edges));
     var bins = new Metric[edges.Count - 1];
     for (var i = 0; i < bins.Length; ++i)
-      bins[i] = CountBetween(metric, edges[i], edges[i + 1], eventName);
+      bins[i] = CountBetween(value, edges[i], edges[i + 1], eventName);
     return bins;
   }
 
-  /// <summary>Unique visitors who completed a goal event.</summary>
-  public static Metric Conversions(string goalEvent) =>
-      new(Kind.Conversions, "conversions:" + RequireName(goalEvent), argument: goalEvent);
-
   /// <summary>
   /// Unique visitors who completed a goal event divided by unique visitors of the base event,
-  /// 0 to 1.
+  /// 0 to 1. The number of converted visitors is <see cref="VisitorsOf(string)"/> of the goal event.
   /// </summary>
   public static Metric ConversionRate(string goalEvent) =>
       new(Kind.ConversionRate, "conversion_rate:" + RequireName(goalEvent), argument: goalEvent);
@@ -404,8 +399,8 @@ public sealed class Metric : IEquatable<Metric>
     return result.ToString();
   }
 
-  static Metric Value(Kind kind, string prefix, string metric, string eventName) =>
-      new(kind, prefix + ":" + RequireName(metric) + EventSuffix(eventName), metric, eventName);
+  static Metric Value(Kind kind, string prefix, string value, string eventName) =>
+      new(kind, prefix + ":" + RequireName(value) + EventSuffix(eventName), value, eventName);
 
   static string EventSuffix(string eventName) => eventName == null ? "" : "@" + RequireName(eventName);
 
@@ -740,7 +735,6 @@ public sealed class Metric : IEquatable<Metric>
       "first" => First(name, eventName),
       "last" => Last(name, eventName),
       "distinct" => Distinct(name, eventName),
-      "conversions" => Conversions(name),
       "conversion_rate" => ConversionRate(name),
       _ => throw new FormatException($"Unknown metric '{key}'.")
     };
@@ -832,7 +826,6 @@ public sealed class Metric : IEquatable<Metric>
       return [StandardEvents.PageView];
     return MetricKind switch
     {
-      Kind.Conversions => [Argument],
       Kind.ConversionRate => [Argument, baseEvent],
       _ => [EventName ?? baseEvent]
     };
@@ -842,11 +835,11 @@ public sealed class Metric : IEquatable<Metric>
   /// The aggregates rollups must hold beyond the standard ones, for value aggregates of opt-in
   /// kinds: the event read and the metric aggregates required.
   /// </summary>
-  internal MetricAggregates RequiredAggregates => MetricKind switch
+  internal ValueAggregates RequiredAggregates => MetricKind switch
   {
-    Kind.Percentile or Kind.CountBetween => MetricAggregates.Percentiles,
-    Kind.First or Kind.Last => MetricAggregates.FirstAndLast,
-    _ => MetricAggregates.None
+    Kind.Percentile or Kind.CountBetween => ValueAggregates.Percentiles,
+    Kind.First or Kind.Last => ValueAggregates.FirstAndLast,
+    _ => ValueAggregates.None
   };
 
   /// <summary>
@@ -877,8 +870,6 @@ public sealed class Metric : IEquatable<Metric>
         return source(SourceKey(EventName ?? baseEvent))?.Count ?? 0;
       case Kind.Visitors:
         return VisitorsOf(source(SourceKey(EventName ?? baseEvent)));
-      case Kind.Conversions:
-        return VisitorsOf(source(SourceKey(Argument)));
       case Kind.ConversionRate:
         return Ratio(VisitorsOf(source(SourceKey(Argument))), VisitorsOf(source(SourceKey(baseEvent))), clamp: true);
       case Kind.Distinct:

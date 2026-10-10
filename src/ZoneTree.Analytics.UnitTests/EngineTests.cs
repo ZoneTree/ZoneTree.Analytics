@@ -353,12 +353,12 @@ public sealed class EngineTests
     var grouped = Query(q =>
     {
       q.GroupBy.Add(StandardDimensions.Page);
-      q.Compare = Comparison.PreviousPeriod;
+      q.Compare = ComparisonPeriod.PreviousPeriod;
     });
     var hourly = Query(q =>
     {
       q.Interval = TimeInterval.Hour;
-      q.Compare = Comparison.PreviousPeriod;
+      q.Compare = ComparisonPeriod.PreviousPeriod;
     });
     var a = grouped.Rows.Single(x => x[StandardDimensions.Page] == "/a");
     Assert.Multiple(() =>
@@ -548,11 +548,11 @@ public sealed class EngineTests
     void Purchase(string user, string plan, double revenue, int minute) =>
         engine.Track(new AnalyticsEvent("purchase") { VisitorId = user, Timestamp = Utc(T0.AddMinutes(minute)) }
             .WithDimension("plan", plan)
-            .WithMetric("revenue", revenue));
+            .WithValue("revenue", revenue));
     Purchase("u1", "pro", 30, 0);
     Purchase("u2", "basic", 10, 1);
     Purchase("u1", "pro", 20, 2);
-    engine.Track(new AnalyticsEvent("heartbeat") { Timestamp = Utc(T0) }.WithMetric("cpu", 0.5));
+    engine.Track(new AnalyticsEvent("heartbeat") { Timestamp = Utc(T0) }.WithValue("cpu", 0.5));
     engine.Flush();
     Metric[] revenue = [Metric.Sum("revenue"), Metric.Average("revenue"), Metric.Min("revenue"), Metric.Max("revenue"), Metric.Count("revenue")];
     foreach (var source in Sources)
@@ -588,10 +588,10 @@ public sealed class EngineTests
     Assert.Throws<ArgumentException>(() => engine.Track(new AnalyticsEvent("$session")));
     Assert.Throws<ArgumentNullException>(() => engine.Track(null));
 
-    var reused = new AnalyticsEvent("purchase") { VisitorId = "1", Timestamp = Utc(T0) }.WithMetric("revenue", 10);
+    var reused = new AnalyticsEvent("purchase") { VisitorId = "1", Timestamp = Utc(T0) }.WithValue("revenue", 10);
     engine.Track(reused);
     reused.Name = "refund";
-    reused.Metrics["revenue"] = 99;
+    reused.Values["revenue"] = 99;
     engine.Track(PageView("/", "10.0.0.9", UserAgents.Googlebot, T0));
     engine.Track(new AnalyticsEvent("future") { Timestamp = DateTimeOffset.UtcNow.AddDays(2) });
     engine.Flush();

@@ -23,7 +23,7 @@ sealed class RawEvent
 
   public readonly List<KeyValuePair<string, string>> Dimensions = [];
 
-  public readonly List<KeyValuePair<string, double>> Metrics = [];
+  public readonly List<KeyValuePair<string, double>> Values = [];
 
   /// <summary>
   /// Decoded strings, reused across the rows of a scan.
@@ -68,7 +68,7 @@ sealed class RawEvent
     SessionStartTicks = 0;
     Interactive = false;
     Dimensions.Clear();
-    Metrics.Clear();
+    Values.Clear();
   }
 }
 
@@ -125,7 +125,7 @@ static class RawEventCodec
       long sessionStartTicks,
       bool interactive,
       IReadOnlyDictionary<string, string> dimensions,
-      IReadOnlyList<KeyValuePair<string, double>> metrics)
+      IReadOnlyList<KeyValuePair<string, double>> values)
   {
     var writer = threadWriter ??= new ByteWriter(512);
     writer.Reset();
@@ -146,10 +146,10 @@ static class RawEventCodec
         writer.WriteString(value);
       }
     }
-    writer.WriteVarUInt64((ulong)(metrics?.Count ?? 0));
-    if (metrics != null)
+    writer.WriteVarUInt64((ulong)(values?.Count ?? 0));
+    if (values != null)
     {
-      foreach (var (key, value) in metrics)
+      foreach (var (key, value) in values)
       {
         writer.WriteString(key);
         writer.WriteDouble(value);
@@ -211,7 +211,7 @@ static class RawEventCodec
     {
       var key = reader.ReadString(target.Strings);
       var value = reader.ReadDouble();
-      target.Metrics.Add(new(key, value));
+      target.Values.Add(new(key, value));
     }
     return true;
   }

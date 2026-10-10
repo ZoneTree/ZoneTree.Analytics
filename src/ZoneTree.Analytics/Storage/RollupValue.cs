@@ -50,7 +50,7 @@ readonly record struct MetricValue(double Sum, long Count, double Min, double Ma
 }
 
 /// <summary>
-/// Opt-in aggregates of a measured value (see <see cref="RollupOptions.MetricAggregates"/>):
+/// Opt-in aggregates of a measured value (see <see cref="RollupOptions.ValueAggregates"/>):
 /// its first and last value, and a quantile sketch.
 /// </summary>
 /// <remarks>
@@ -541,14 +541,14 @@ sealed class RollupAccumulator
 
   /// <summary>
   /// Records the opt-in aggregates of a measured value. <paramref name="bucket"/> is the value's
-  /// quantile bucket, used with <see cref="MetricAggregates.Percentiles"/>.
+  /// quantile bucket, used with <see cref="ValueAggregates.Percentiles"/>.
   /// </summary>
-  public void AddMetricDetail(string name, double value, long ticks, MetricAggregates aggregates, QuantileBucket bucket)
+  public void AddMetricDetail(string name, double value, long ticks, ValueAggregates aggregates, QuantileBucket bucket)
   {
     var detail = Own((optIn ??= new()).Details, name, static _ => new MetricDetail(), 0, static x => x.Clone());
-    if ((aggregates & MetricAggregates.FirstAndLast) != 0)
+    if ((aggregates & ValueAggregates.FirstAndLast) != 0)
       detail.AddFirstLast(value, ticks);
-    if ((aggregates & MetricAggregates.Percentiles) != 0)
+    if ((aggregates & ValueAggregates.Percentiles) != 0)
       (detail.Quantiles ??= new QuantileSketch()).Add(bucket);
   }
 

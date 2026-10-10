@@ -30,7 +30,7 @@ sealed class RollupActivations
   {
     var definitionKeys = rollups.Definitions.ToDictionary(x => x.Id, DefinitionKey, StringComparer.Ordinal);
     var aggregateKeys = new List<string>();
-    foreach (var (metric, configured) in rollups.MetricAggregates)
+    foreach (var (metric, configured) in rollups.ValueAggregates)
     {
       foreach (var aggregate in Flags(configured))
         aggregateKeys.Add(AggregateKey(metric, aggregate));
@@ -77,17 +77,17 @@ sealed class RollupActivations
     return key + KeyCodec.ValueSeparator + "events:" + string.Join(KeyCodec.ValueSeparator, events);
   }
 
-  static string AggregateKey(string metric, MetricAggregates aggregate) =>
-      AggregatePrefix + (aggregate == MetricAggregates.Percentiles ? "percentiles:" : "first-last:") + metric;
+  static string AggregateKey(string metric, ValueAggregates aggregate) =>
+      AggregatePrefix + (aggregate == ValueAggregates.Percentiles ? "percentiles:" : "first-last:") + metric;
 
   static string DistinctKey(string dimension) => DistinctPrefix + dimension;
 
-  static IEnumerable<MetricAggregates> Flags(MetricAggregates aggregates)
+  static IEnumerable<ValueAggregates> Flags(ValueAggregates aggregates)
   {
-    if ((aggregates & MetricAggregates.Percentiles) != 0)
-      yield return MetricAggregates.Percentiles;
-    if ((aggregates & MetricAggregates.FirstAndLast) != 0)
-      yield return MetricAggregates.FirstAndLast;
+    if ((aggregates & ValueAggregates.Percentiles) != 0)
+      yield return ValueAggregates.Percentiles;
+    if ((aggregates & ValueAggregates.FirstAndLast) != 0)
+      yield return ValueAggregates.FirstAndLast;
   }
 
   /// <summary>
@@ -100,7 +100,7 @@ sealed class RollupActivations
   /// Since when rollups hold the given aggregates of a metric; <see cref="long.MaxValue"/> when
   /// one of them is not configured.
   /// </summary>
-  public long AggregatesSince(string metric, MetricAggregates required)
+  public long AggregatesSince(string metric, ValueAggregates required)
   {
     long since = 0;
     foreach (var aggregate in Flags(required))

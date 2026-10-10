@@ -6,12 +6,12 @@ namespace ZoneTree.Analytics.Internal;
 static class Text
 {
   /// <summary>
-  /// The maximum length of event, site, dimension and metric names.
+  /// The maximum length of event, site, dimension and value names.
   /// </summary>
   public const int MaxNameLength = 128;
 
   /// <summary>
-  /// Sanitizes a name (event, site, dimension or metric name): removes control characters,
+  /// Sanitizes a name (event, site, dimension or value name): removes control characters,
   /// trims and truncates. Returns empty for null.
   /// </summary>
   public static string Name(string value)

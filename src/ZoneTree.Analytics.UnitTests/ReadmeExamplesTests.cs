@@ -56,15 +56,15 @@ public sealed class ReadmeExamplesTests
         VisitorId = "user-1",
         Url = "https://example.com/checkout",
         Dimensions = { ["plan"] = "pro" },
-        Metrics = { ["revenue"] = 49.0 },
+        Values = { ["revenue"] = 49.0 },
       });
       analytics.Track(new AnalyticsEvent("job_completed")
           .WithDimension("queue", "emails")
-          .WithMetric("duration_ms", 812));
+          .WithValue("duration_ms", 812));
       await analytics.FlushAsync();
 
       // Web reports
-      var request = new WebReportRequest { Range = DateRange.LastDays(30), Compare = Comparison.PreviousPeriod };
+      var request = new WebReportRequest { Range = DateRange.LastDays(30), Compare = ComparisonPeriod.PreviousPeriod };
       var summary = await analytics.Web.GetSummaryAsync(request);
       var sources = await analytics.Web.GetBreakdownAsync(request, StandardDimensions.Source);
       var pages = await analytics.Web.GetPagesAsync(request);

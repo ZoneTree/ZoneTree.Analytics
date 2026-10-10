@@ -37,7 +37,7 @@ public sealed class AnalyticsRow
   public IReadOnlyList<double> Values => values;
 
   /// <summary>
-  /// The same row of the comparison period, when the query has a <see cref="Comparison"/>.
+  /// The same row of the comparison period, when the query has a <see cref="AnalyticsQuery.Compare"/> period.
   /// Null when the comparison period has no such row.
   /// </summary>
   public AnalyticsRow Previous { get; internal set; }
@@ -185,7 +185,7 @@ public sealed class AnalyticsResult
   /// <summary>How the query was answered.</summary>
   public QueryPlan Plan { get; }
 
-  /// <summary>The comparison result, when the query has a <see cref="Comparison"/>.</summary>
+  /// <summary>The result of the comparison period, when the query has a <see cref="AnalyticsQuery.Compare"/> period.</summary>
   public AnalyticsResult Comparison { get; internal set; }
 }
 
