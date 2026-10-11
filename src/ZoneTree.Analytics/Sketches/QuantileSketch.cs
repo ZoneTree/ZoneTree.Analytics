@@ -58,6 +58,8 @@ sealed class QuantileSketch
 
   static readonly double LogGamma = Math.Log(Gamma);
 
+  static readonly double LogRepresentativeScale = Math.Log(1 - RelativeAccuracy);
+
   readonly Store positive;
 
   readonly Store negative;
@@ -97,7 +99,8 @@ sealed class QuantileSketch
   /// The value that represents bucket <paramref name="index"/>: every value of the bucket is
   /// within the relative accuracy of it.
   /// </summary>
-  static double ValueOf(int index) => 2 * Math.Pow(Gamma, index) / (Gamma + 1);
+  static double ValueOf(int index) =>
+      Math.Min(double.MaxValue, Math.Exp(index * LogGamma + LogRepresentativeScale));
 
   public void Add(double value) => Add(BucketOf(value));
 

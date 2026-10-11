@@ -38,7 +38,7 @@ namespace ZoneTree.Analytics;
 /// </remarks>
 public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisposable
 {
-  const string FormatVersion = "3";
+  const string FormatVersion = "4";
 
   readonly AnalyticsOptions options;
 

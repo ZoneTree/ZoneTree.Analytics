@@ -147,7 +147,8 @@ sealed class QueryEngine
           $"No rollup granularity can answer the {context.Interval} interval. Enable a finer granularity.");
     }
 
-    var plan = QueryRangePlanner.Build(context.Calendar, context.From, context.To, tiers, readRaw, context.CancellationToken);
+    var plan = QueryRangePlanner.Build(context.Calendar, context.From, context.To, tiers, readRaw,
+        context.CancellationToken, context.Interval);
     source.Plan = plan.Segments;
     foreach (var segment in plan.Segments.Where(x => x.Source == PlanSource.RawEvents))
       AddWarning(context, context.Cutoffs.RawEventsWarning(segment.From));

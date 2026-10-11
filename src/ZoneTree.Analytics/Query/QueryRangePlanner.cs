@@ -66,7 +66,7 @@ static class QueryRangePlanner
   /// <summary>Plans a range using eligible tiers ordered from coarsest to finest.</summary>
   public static ReadPlan Build(
       ReportingCalendar calendar, long from, long to, IReadOnlyList<RollupCoverage> tiers,
-      bool readRaw, CancellationToken cancellationToken)
+      bool readRaw, CancellationToken cancellationToken, TimeInterval interval = default)
   {
     var plan = new ReadPlan();
     var remaining = new Stack<RemainingRange>();
@@ -87,10 +87,21 @@ static class QueryRangePlanner
 
       var tier = tiers[range.Tier];
       var start = tier.Ceil(calendar, range.From);
+      if (start < tier.AvailableFrom)
+        start = tier.Ceil(calendar, tier.AvailableFrom);
       var end = tier.Floor(calendar, range.To);
-      if (start >= end || start < tier.AvailableFrom)
+      if (start >= end)
       {
         remaining.Push(range with { Tier = range.Tier + 1 });
+        continue;
+      }
+      // Split only the tier actually chosen, so aligned daily rollups remain a single
+      // contiguous read even when the finer hourly tier has incompatible boundaries.
+      var boundary = CrossingBoundary(calendar, tier, start, end, interval, cancellationToken);
+      if (boundary != 0)
+      {
+        remaining.Push(new(boundary, range.To, range.Tier, false, range.WidenEnd));
+        remaining.Push(new(range.From, boundary, range.Tier, range.WidenStart, false));
         continue;
       }
       plan.Segments.Add(new(tier.Source, start, end));
@@ -100,6 +111,22 @@ static class QueryRangePlanner
       remaining.Push(new(range.From, start, range.Tier + 1, range.WidenStart, false));
     }
     return plan;
+  }
+
+  static long CrossingBoundary(
+      ReportingCalendar calendar, RollupCoverage tier, long from, long to,
+      TimeInterval interval, CancellationToken cancellationToken)
+  {
+    if (interval == TimeInterval.None || interval.IsFixedWidth || tier.Granularity == Granularity.Day)
+      return 0;
+    foreach (var bucket in calendar.EnumerateBuckets(from, to, interval))
+    {
+      cancellationToken.ThrowIfCancellationRequested();
+      var boundary = calendar.UtcStartOfBucket(bucket, interval);
+      if (boundary > from && tier.Floor(calendar, boundary) != boundary)
+        return boundary;
+    }
+    return 0;
   }
 
   static void AddWholeBuckets(

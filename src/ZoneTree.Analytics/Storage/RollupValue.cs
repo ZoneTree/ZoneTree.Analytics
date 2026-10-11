@@ -11,41 +11,69 @@ namespace ZoneTree.Analytics.Storage;
 /// <param name="Count">The number of values. Zero for sum-only values, which add deltas.</param>
 /// <param name="Min">The smallest value.</param>
 /// <param name="Max">The largest value.</param>
-/// <param name="M2">The sum of squared deviations from the mean, for the variance.</param>
-readonly record struct ValueStats(double Sum, long Count, double Min, double Max, double M2)
+/// <param name="Mean">The mean, independent of a possibly overflowing sum.</param>
+/// <param name="StandardDeviation">The population spread, stored without squaring it.</param>
+readonly record struct ValueStats(double Sum, long Count, double Min, double Max, double Mean, double StandardDeviation)
 {
   /// <summary>
   /// The average of the values, or zero when there are none.
   /// </summary>
-  public double Average => Count == 0 ? 0 : Sum / Count;
+  public double Average => Count == 0 ? 0 : Mean;
 
   /// <summary>
   /// The population variance of the values, or zero when there are none.
   /// </summary>
-  public double Variance => Count == 0 ? 0 : M2 / Count;
+  public double Variance => StandardDeviation * StandardDeviation;
 
-  public static ValueStats Of(double value) => new(value, 1, value, value, 0);
+  public static ValueStats Of(double value) => new(value, 1, value, value, value, 0);
 
-  public static ValueStats Delta(double delta) => new(delta, 0, 0, 0, 0);
+  public static ValueStats Delta(double delta) => new(delta, 0, 0, 0, 0, 0);
 
   /// <summary>
-  /// Combines two aggregates. The variance term merges with Chan's formula, which stays
-  /// accurate when the mean is large compared to the spread.
+  /// Combines population moments with Chan's formula. The mean is updated independently of
+  /// the sum; the spread uses a scaled norm so neither an M2 nor a squared mean difference
+  /// overflows before division by the count. A genuinely unrepresentable sum or variance may
+  /// still be infinite, while the mean and standard deviation remain representable.
   /// </summary>
   public static ValueStats Combine(ValueStats a, ValueStats b)
   {
     if (a.Count == 0)
-      return b with { Sum = a.Sum + b.Sum };
+      return b with { Sum = a.Sum + b.Sum, Mean = b.Count == 0 ? 0 : b.Mean + a.Sum / b.Count };
     if (b.Count == 0)
-      return a with { Sum = a.Sum + b.Sum };
+      return a with { Sum = a.Sum + b.Sum, Mean = a.Mean + b.Sum / a.Count };
     var count = a.Count + b.Count;
-    var delta = b.Sum / b.Count - a.Sum / a.Count;
+    var weightA = (double)a.Count / count;
+    var weightB = (double)b.Count / count;
+    var delta = b.Mean - a.Mean;
+    var mean = double.IsFinite(delta)
+        ? a.Count >= b.Count ? a.Mean + delta * weightB : b.Mean - delta * weightA
+        : a.Mean * weightA + b.Mean * weightB;
+    var scale = Math.Sqrt(weightA * weightB);
+    var between = double.IsFinite(delta) ? delta * scale : b.Mean * scale - a.Mean * scale;
+    // The standard deviation of finite doubles is at most double.MaxValue. A norm at
+    // that limit may round upward to infinity, so saturate this final rounding step.
+    var deviation = Math.Min(double.MaxValue, Norm(Norm(a.StandardDeviation * Math.Sqrt(weightA),
+        b.StandardDeviation * Math.Sqrt(weightB)), Math.Abs(between)));
+    var sum = a.Sum + b.Sum;
+    if (!double.IsFinite(sum))
+      sum = mean * count;
     return new ValueStats(
-        a.Sum + b.Sum,
+        sum,
         count,
         Math.Min(a.Min, b.Min),
         Math.Max(a.Max, b.Max),
-        a.M2 + b.M2 + delta * delta * ((double)a.Count * b.Count / count));
+        mean,
+        deviation);
+  }
+
+  static double Norm(double a, double b)
+  {
+    if (a < b)
+      (a, b) = (b, a);
+    if (a == 0)
+      return 0;
+    var ratio = b / a;
+    return a * Math.Sqrt(1 + ratio * ratio);
   }
 }
 
@@ -784,11 +812,11 @@ sealed class RollupAccumulator
 /// <code>
 /// header(1: 0 = deleted, otherwise Present | HasVisitors | HasDetails | HasDistinct)
 /// count(varint) [visitor sketch]
-/// nameCount(varint) [name(string) sum(double) count(varint) [min(double) max(double) [m2(double)]]]*
+/// nameCount(varint) [name(string) sum(double) count(varint) [min(double) max(double) [mean(double) stddev(double)]]]*
 /// [detail per value]            when HasDetails, see ValueDetail.Write; flags 0 for none
 /// [distinctCount(varint) [dimension(string) sketch]*]   when HasDistinct
 /// </code>
-/// Min and max are written when count is not zero, the variance term when count exceeds one.
+/// Min and max are written when count is not zero, moments when count exceeds one.
 /// </remarks>
 sealed class RollupValueSerializer : ISerializer<RollupValue>
 {
@@ -821,15 +849,19 @@ sealed class RollupValueSerializer : ISerializer<RollupValue>
       names[i] = reader.ReadString();
       var sum = reader.ReadDouble();
       var valueCount = reader.ReadVarInt64();
-      double min = 0, max = 0, m2 = 0;
+      double min = 0, max = 0, mean = 0, deviation = 0;
       if (valueCount != 0)
       {
         min = reader.ReadDouble();
         max = reader.ReadDouble();
+        mean = min;
         if (valueCount > 1)
-          m2 = reader.ReadDouble();
+        {
+          mean = reader.ReadDouble();
+          deviation = reader.ReadDouble();
+        }
       }
-      values[i] = new ValueStats(sum, valueCount, min, max, m2);
+      values[i] = new ValueStats(sum, valueCount, min, max, mean, deviation);
     }
     ValueDetail[] details = null;
     if ((header & HasDetails) != 0)
@@ -888,7 +920,10 @@ sealed class RollupValueSerializer : ISerializer<RollupValue>
         writer.WriteDouble(stats.Min);
         writer.WriteDouble(stats.Max);
         if (stats.Count > 1)
-          writer.WriteDouble(stats.M2);
+        {
+          writer.WriteDouble(stats.Mean);
+          writer.WriteDouble(stats.StandardDeviation);
+        }
       }
     }
     if (hasDetails)

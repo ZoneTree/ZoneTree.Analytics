@@ -119,6 +119,11 @@ sealed class QueryPreparation(
         source.ReadsVisitors |= metric.MetricKind is Metric.Kind.Visitors or Metric.Kind.ConversionRate;
       }
     }
+    if (query.OnlyRowsWithBaseEvent && !context.Sources.ContainsKey(baseEvent))
+    {
+      ValidateScope(Metric.Events, baseEvent, dimensions);
+      context.Sources.Add(baseEvent, CreateSource(baseEvent, baseEvent, [], dimensions, groupBy, filters));
+    }
     AddOptInRequirements(context, aggregates);
     return context;
   }

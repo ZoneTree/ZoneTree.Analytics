@@ -21,6 +21,8 @@ sealed class RawSession
 
   public Dictionary<string, string> Dimensions;
 
+  public bool HasStartEvent;
+
   public bool FirstIsPageView;
 
   public string FirstPage;
@@ -35,14 +37,22 @@ sealed class RawSession
 
   /// <summary>
   /// Appends the part of the session seen in a later slice. Every event of that part is later
-  /// than the events seen so far, so the first event and the session dimensions stay, and the
-  /// last page view of the part, if it has one, replaces the current one.
+  /// than the events seen so far. A later slice may contain the actual start event after an
+  /// earlier late event initialized reconstruction; otherwise the entrance and dimensions
+  /// stay. The last page view of the part, if it has one, replaces the current one.
   /// </summary>
   public void Append(RawSession later)
   {
     Last = Math.Max(Last, later.Last);
     PageViews += later.PageViews;
     Interactions += later.Interactions;
+    if (!HasStartEvent && later.HasStartEvent)
+    {
+      HasStartEvent = true;
+      FirstIsPageView = later.FirstIsPageView;
+      FirstPage = later.FirstPage;
+      FirstHostname = later.FirstHostname;
+    }
     if (later.LastPage != null)
     {
       LastPage = later.LastPage;
@@ -142,7 +152,11 @@ sealed class RawSessionReader(RawEventStore events, SessionSchema schema, Analyt
       };
       sessions.Add(rawEvent.SessionId, session);
     }
-    var isFirstEvent = rawEvent.Ticks == session.Start && session.Dimensions == null;
+    // An earlier late event can initialize the reconstructed session before its start
+    // event is scanned. At equal timestamps, scan order preserves ingestion order.
+    var isFirstEvent = rawEvent.Ticks == session.Start && !session.HasStartEvent;
+    if (isFirstEvent)
+      session.HasStartEvent = true;
     if (session.Dimensions == null)
     {
       var dimensions = new Dictionary<string, string>(StringComparer.Ordinal);

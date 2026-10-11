@@ -366,7 +366,9 @@ options.Rollups.ValueAggregates["temperature"] = ValueAggregates.FirstAndLast;
 options.Rollups.DistinctDimensions.Add("tenant");
 ```
 
-Without them, and for ranges before they were configured, these metrics are answered from raw events; with raw events disabled such a query fails with a message that names the missing setting. Percentiles use a mergeable quantile sketch (DDSketch) with a relative error of at most 1%, so rollups and raw events give identical percentiles.
+Without them, and for ranges before they were configured, these metrics are answered from raw events; with raw events disabled such a query fails with a message that names the missing setting. Percentiles use a mergeable quantile sketch (DDSketch) with a relative error of at most 1% for retained logarithmic buckets, so rollups and raw events give identical percentiles. Magnitudes below `1e-9` share a zero bucket. Each sign keeps at most 2,048 buckets, spanning about 17 orders of magnitude; smaller magnitudes collapse when that span is exceeded. The 1% guarantee excludes zero and collapsed buckets; percentiles 0 and 100 remain exact.
+
+Average and standard deviation are accumulated independently of the sum, so a large sum does not invalidate them. A sum or variance whose true magnitude exceeds the finite range of `double` is infinite.
 
 ---
 

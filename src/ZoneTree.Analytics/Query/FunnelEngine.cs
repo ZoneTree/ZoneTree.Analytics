@@ -39,11 +39,8 @@ sealed class FunnelEngine
     /// <summary>The most steps completed in any attempt.</summary>
     public int Best;
 
-    /// <summary>When the current attempt completed its first step.</summary>
-    public long Start;
-
-    /// <summary>When the first step was last matched.</summary>
-    public long LastStart;
+    /// <summary>The latest first-step time of each unfinished prefix, for window funnels.</summary>
+    public long[] Starts;
   }
 
   public FunnelResult Execute(FunnelQuery funnel, CancellationToken cancellationToken)
@@ -216,31 +213,39 @@ sealed class FunnelEngine
   /// <summary>
   /// Advances a visitor's (or session's) progress with one event that matches the steps in
   /// <paramref name="matchedSteps"/>, one bit per step. Steps are completed in order.
-  /// With a time window, an attempt that runs out of time restarts from the latest first step
-  /// that is still inside the window.
+  /// Window funnels retain the latest start of every completed prefix. Among attempts at the
+  /// same step, that start dominates older ones: it allows every future completion they do.
+  /// Prefixes advance in reverse order so one event never completes two steps.
   /// </summary>
   static void Advance(Progress state, int stepCount, ulong matchedSteps, long ticks, long windowTicks)
   {
-    if (windowTicks > 0 && state.Current > 0 && ticks - state.Start > windowTicks)
-    {
-      if (ticks - state.LastStart <= windowTicks)
-      {
-        state.Start = state.LastStart;
-        state.Current = 1;
-      }
-      else
-      {
-        state.Current = 0;
-      }
-    }
-    if ((matchedSteps & 1) != 0)
-      state.LastStart = ticks;
-    if (state.Current == stepCount)
+    if (state.Best == stepCount)
       return;
+    if (windowTicks > 0)
+    {
+      if (state.Starts == null)
+      {
+        state.Starts = new long[stepCount - 1];
+        Array.Fill(state.Starts, long.MinValue);
+      }
+      for (var step = stepCount - 1; step > 0; --step)
+      {
+        var start = state.Starts[step - 1];
+        if (((matchedSteps >> step) & 1) == 0 || start == long.MinValue || ticks - start > windowTicks)
+          continue;
+        if (step < stepCount - 1)
+          state.Starts[step] = Math.Max(state.Starts[step], start);
+        state.Best = Math.Max(state.Best, step + 1);
+      }
+      if ((matchedSteps & 1) != 0)
+      {
+        state.Starts[0] = ticks;
+        state.Best = Math.Max(state.Best, 1);
+      }
+      return;
+    }
     if (((matchedSteps >> state.Current) & 1) != 0)
     {
-      if (state.Current == 0)
-        state.Start = ticks;
       ++state.Current;
       state.Best = Math.Max(state.Best, state.Current);
     }

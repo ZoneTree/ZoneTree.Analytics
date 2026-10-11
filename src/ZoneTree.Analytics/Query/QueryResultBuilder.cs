@@ -17,7 +17,7 @@ static class QueryResultBuilder
     var totals = new Dictionary<string, RollupAccumulator>(StringComparer.Ordinal);
     var keys = new HashSet<GroupKey>();
     // Rows of the base event come from its unconditioned sub-query, whose key is the event name.
-    var rowsFromBaseOnly = query.OnlyRowsWithBaseEvent && context.Sources.ContainsKey(context.BaseEvent);
+    var rowsFromBaseOnly = query.OnlyRowsWithBaseEvent;
     foreach (var source in context.Sources.Values)
     {
       var total = new RollupAccumulator();
@@ -27,7 +27,7 @@ static class QueryResultBuilder
         if (!accumulator.HasData)
           continue;
         total.Merge(accumulator);
-        if (addsRows)
+        if (addsRows && (!rowsFromBaseOnly || accumulator.Count > 0))
           keys.Add(key);
       }
       totals[source.Key] = total;

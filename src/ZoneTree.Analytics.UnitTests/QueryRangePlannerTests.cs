@@ -89,4 +89,59 @@ public sealed class QueryRangePlannerTests
     AssertContinuousCoverage(plan, Start, Start + TimeSpan.FromHours(3).Ticks);
     Assert.That(plan.WholeBucketSources, Is.EqualTo(Granularity.Minute | Granularity.Hour));
   }
+
+  [Test]
+  public void CoverageBoundariesRefineOnlyTheUnavailablePart()
+  {
+    var from = Start + TimeSpan.FromSeconds(10).Ticks;
+    var to = Start + TimeSpan.FromDays(3).Ticks + TimeSpan.FromSeconds(20).Ticks;
+    RollupCoverage[] tiers =
+    [
+      new(Granularity.Day, Start + TimeSpan.FromHours(12).Ticks),
+      new(Granularity.Hour, Start + TimeSpan.FromMinutes(450).Ticks),
+      new(Granularity.Minute, Start + TimeSpan.FromSeconds(10820).Ticks)
+    ];
+    var plan = QueryRangePlanner.Build(UtcCalendar, from, to, tiers, true, default);
+    AssertContinuousCoverage(plan, from, to);
+    foreach (var segment in plan.Segments.Where(s => s.Source != PlanSource.RawEvents))
+      Assert.That(segment.From, Is.GreaterThanOrEqualTo(tiers.Single(t => t.Source == segment.Source).AvailableFrom));
+    Assert.That(plan.Segments.Select(s => s.Source).Distinct(), Is.EquivalentTo(
+        new[] { PlanSource.DayRollups, PlanSource.HourRollups, PlanSource.MinuteRollups, PlanSource.RawEvents }));
+    Assert.That(plan.WholeBucketSources, Is.EqualTo(Granularity.None));
+  }
+
+  [TestCase(330)]
+  [TestCase(345)]
+  [TestCase(-210)]
+  public void CalendarBoundariesRefineCrossingHoursWithoutGaps(int offsetMinutes)
+  {
+    var zone = TimeZoneInfo.CreateCustomTimeZone("audit", TimeSpan.FromMinutes(offsetMinutes), "audit", "audit");
+    var calendar = new ReportingCalendar(zone, DayOfWeek.Monday);
+    var from = calendar.UtcStartOfLocalDay(Start);
+    var to = calendar.UtcStartOfLocalDay(Start + 3 * TimeSpan.TicksPerDay);
+    var plan = QueryRangePlanner.Build(calendar, from, to,
+        [new(Granularity.Hour, 0), new(Granularity.Minute, 0)], true, default, TimeInterval.Day);
+    AssertContinuousCoverage(plan, from, to);
+    foreach (var segment in plan.Segments)
+    {
+      // Every hourly/minute segment lies within one output day.
+      Assert.That(calendar.Bucket(segment.From, TimeInterval.Day),
+          Is.EqualTo(calendar.Bucket(segment.To - 1, TimeInterval.Day)));
+    }
+    Assert.That(plan.Segments.Any(s => s.Source == PlanSource.HourRollups), Is.True);
+    Assert.That(plan.Segments.Any(s => s.Source == PlanSource.MinuteRollups), Is.True);
+    Assert.That(plan.Segments.Any(s => s.Source == PlanSource.RawEvents), Is.False);
+  }
+
+  [Test]
+  public void AlignedDailyRollupsRemainOneReadWithAnIncompatibleHourlyTier()
+  {
+    var zone = TimeZoneInfo.CreateCustomTimeZone("audit", TimeSpan.FromMinutes(330), "audit", "audit");
+    var calendar = new ReportingCalendar(zone, DayOfWeek.Monday);
+    var from = calendar.UtcStartOfLocalDay(Start);
+    var to = calendar.UtcStartOfLocalDay(Start + 30 * TimeSpan.TicksPerDay);
+    var plan = QueryRangePlanner.Build(calendar, from, to,
+        [new(Granularity.Day, 0), new(Granularity.Hour, 0)], true, default, TimeInterval.Day);
+    Assert.That(plan.Segments, Is.EqualTo(new[] { new ReadSegment(PlanSource.DayRollups, from, to) }));
+  }
 }

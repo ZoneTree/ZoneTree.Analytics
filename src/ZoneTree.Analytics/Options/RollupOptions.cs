@@ -102,7 +102,8 @@ public enum ValueAggregates
 
   /// <summary>
   /// A quantile sketch per rollup row, for <see cref="Metric.Percentile"/> and
-  /// <see cref="Metric.Median"/>, with a relative error of at most 1%.
+  /// <see cref="Metric.Median"/>, with the relative-error guarantee and range limitations
+  /// described by <see cref="Metric.Percentile"/>.
   /// </summary>
   Percentiles = 1,
 

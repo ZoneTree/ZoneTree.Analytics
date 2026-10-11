@@ -208,6 +208,7 @@ public sealed class Metric : IEquatable<Metric>
       new(Kind.Visitors, "visitors:" + RequireName(eventName), eventName: eventName);
 
   /// <summary>Sum of a tracked value.</summary>
+  /// <remarks>A sum outside the finite double range is infinite.</remarks>
   /// <param name="value">The value name, as tracked in <see cref="AnalyticsEvent.Values"/>.</param>
   /// <param name="eventName">The event; null means the query's base event.</param>
   public static Metric Sum(string value, string eventName = null) => Value(Kind.Sum, "sum", value, eventName);
@@ -229,6 +230,7 @@ public sealed class Metric : IEquatable<Metric>
       Value(Kind.StandardDeviation, "stddev", value, eventName);
 
   /// <summary>Population variance of a tracked value.</summary>
+  /// <remarks>A variance outside the finite double range is infinite; the standard deviation may still be finite.</remarks>
   public static Metric Variance(string value, string eventName = null) => Value(Kind.Variance, "variance", value, eventName);
 
   /// <summary>
@@ -238,6 +240,9 @@ public sealed class Metric : IEquatable<Metric>
   /// <remarks>
   /// Rollups answer it when <see cref="RollupOptions.ValueAggregates"/> includes
   /// <see cref="ValueAggregates.Percentiles"/> for the value; otherwise raw events do.
+  /// Magnitudes below 1e-9 share a zero bucket. Each sign keeps at most 2,048 logarithmic
+  /// buckets (about 17 orders of magnitude); beyond that span, smaller magnitudes collapse
+  /// into the lowest retained bucket. The relative-error guarantee excludes those buckets.
   /// </remarks>
   /// <param name="value">The value name, as tracked in <see cref="AnalyticsEvent.Values"/>.</param>
   /// <param name="percentile">The percentile, 0 to 100.</param>
@@ -880,7 +885,7 @@ public sealed class Metric : IEquatable<Metric>
       Kind.Average => value.Average,
       Kind.Min => value.Count == 0 ? 0 : value.Min,
       Kind.Max => value.Count == 0 ? 0 : value.Max,
-      Kind.StandardDeviation => Math.Sqrt(value.Variance),
+      Kind.StandardDeviation => value.StandardDeviation,
       Kind.Variance => value.Variance,
       Kind.Percentile => PercentileOf(value, accumulator?.DetailOf(Argument)),
       Kind.First => accumulator?.DetailOf(Argument) is { HasFirstLast: true } first ? first.First : 0,

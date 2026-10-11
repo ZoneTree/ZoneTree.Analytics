@@ -77,7 +77,7 @@ public sealed class StorageCodecTests
         42,
         sketch,
         ["$bounces", "revenue"],
-        [new ValueStats(-3, 0, 0, 0, 0), new ValueStats(99.5, 3, 10, 50, 600.25)]);
+        [ValueStats.Delta(-3), new ValueStats(99.5, 3, 10, 50, 99.5 / 3, Math.Sqrt(600.25 / 3))]);
     var serializer = new RollupValueSerializer();
     var restored = serializer.Deserialize(serializer.Serialize(value));
     Assert.Multiple(() =>
@@ -108,7 +108,7 @@ public sealed class StorageCodecTests
       Assert.That(merged.Count, Is.EqualTo(3));
       Assert.That(merged.Visitors.Estimate(), Is.EqualTo(2));
       Assert.That(merged.ValueNames, Is.EqualTo(new[] { "x", "y" }));
-      Assert.That(merged.Values[0], Is.EqualTo(new ValueStats(12, 2, 5, 7, 2)));
+      Assert.That(merged.Values[0], Is.EqualTo(new ValueStats(12, 2, 5, 7, 6, 1)));
       Assert.That(va.Visitors.Estimate(), Is.EqualTo(1));
       Assert.That(vb.Visitors.Estimate(), Is.EqualTo(1));
     });
