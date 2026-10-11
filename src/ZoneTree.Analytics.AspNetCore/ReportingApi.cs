@@ -145,7 +145,7 @@ static class ReportingApi
       }
       var parameters = new ApiParameters(context.Request.Query, document?.RootElement);
       var options = context.RequestServices.GetRequiredService<AnalyticsWebOptions>();
-      var site = parameters.Get("site");
+      var site = Engine(context).NormalizeSite(parameters.Get("site"));
       if (options.AuthorizeSite != null && !options.AuthorizeSite(context, site))
       {
         await WriteError(context, StatusCodes.Status403Forbidden, "Access to this site is not allowed.");

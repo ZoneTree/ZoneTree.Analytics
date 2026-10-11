@@ -18,15 +18,15 @@ sealed class MetricEvaluator
   /// </summary>
   public readonly record struct Column(double[] Rows, double Total);
 
-  static readonly Func<string, RollupAccumulator> NoData = _ => null;
+  readonly IReadOnlyList<GroupKey> rows;
 
-  readonly Func<string, RollupAccumulator>[] rows;
+  readonly int dataRows;
 
-  readonly Func<string, RollupAccumulator> totals;
+  readonly Dictionary<string, SourceContext> sources;
+
+  readonly Dictionary<string, RollupAccumulator> totals;
 
   readonly string baseEvent;
-
-  readonly bool[] filled;
 
   readonly int[][] series;
 
@@ -40,7 +40,9 @@ sealed class MetricEvaluator
 
   double[] cachedRowSeconds;
 
-  /// <param name="rows">The aggregated groups of each row, by event; null for filled rows.</param>
+  /// <param name="rows">The group keys of data rows, followed by rows added by filling.</param>
+  /// <param name="dataRows">The number of rows with data, before filling.</param>
+  /// <param name="sources">The aggregated groups, by source.</param>
   /// <param name="totals">The totals, by event.</param>
   /// <param name="baseEvent">The query's base event.</param>
   /// <param name="series">The rows of each group, in bucket order.</param>
@@ -48,8 +50,10 @@ sealed class MetricEvaluator
   /// <param name="rowSeconds">Computes the length of each row's bucket within the range, for rates.</param>
   /// <param name="rangeSeconds">The length of the range, for the rate of the totals.</param>
   public MetricEvaluator(
-      Func<string, RollupAccumulator>[] rows,
-      Func<string, RollupAccumulator> totals,
+      IReadOnlyList<GroupKey> rows,
+      int dataRows,
+      Dictionary<string, SourceContext> sources,
+      Dictionary<string, RollupAccumulator> totals,
       string baseEvent,
       int[][] series,
       FillMode fill,
@@ -57,13 +61,14 @@ sealed class MetricEvaluator
       double rangeSeconds)
   {
     this.rows = rows;
+    this.dataRows = dataRows;
+    this.sources = sources;
     this.totals = totals;
     this.baseEvent = baseEvent;
     this.series = series;
     this.fill = fill;
     this.rowSeconds = rowSeconds;
     this.rangeSeconds = rangeSeconds;
-    filled = rows.Select(x => x == null).ToArray();
   }
 
   public Column Evaluate(Metric metric)
@@ -103,25 +108,24 @@ sealed class MetricEvaluator
 
   double[] Fill(double value)
   {
-    var values = new double[rows.Length];
+    var values = new double[rows.Count];
     Array.Fill(values, value);
     return values;
   }
 
   Column Aggregate(Metric metric)
   {
-    var values = new double[rows.Length];
-    var hasFilled = false;
-    for (var i = 0; i < rows.Length; ++i)
-    {
-      if (filled[i])
-        hasFilled = true;
-      else
-        values[i] = metric.EvaluateAggregate(rows[i], baseEvent);
-    }
-    if (hasFilled && fill is FillMode.Previous or FillMode.Linear)
+    // Conversion rates read the goal source first and the base source second; other aggregates read one source.
+    var sourceKeys = metric.Sources(baseEvent).Select(metric.SourceKey).ToArray();
+    var groups = sources.GetValueOrDefault(sourceKeys[0])?.Groups;
+    var baseGroups = sourceKeys.Length > 1 ? sources.GetValueOrDefault(sourceKeys[1])?.Groups : null;
+    var values = new double[rows.Count];
+    for (var i = 0; i < dataRows; ++i)
+      values[i] = metric.EvaluateAggregate(groups?.GetValueOrDefault(rows[i]), baseGroups?.GetValueOrDefault(rows[i]));
+    if (dataRows < rows.Count && fill is FillMode.Previous or FillMode.Linear)
       FillGaps(values);
-    return new Column(values, metric.EvaluateAggregate(totals, baseEvent));
+    return new Column(values, metric.EvaluateAggregate(
+        totals.GetValueOrDefault(sourceKeys[0]), sourceKeys.Length > 1 ? totals.GetValueOrDefault(sourceKeys[1]) : null));
   }
 
   /// <summary>
@@ -135,7 +139,7 @@ sealed class MetricEvaluator
       var previous = -1;
       for (var position = 0; position <= rowsOfGroup.Length; ++position)
       {
-        if (position < rowsOfGroup.Length && filled[rowsOfGroup[position]])
+        if (position < rowsOfGroup.Length && rowsOfGroup[position] >= dataRows)
           continue;
         // Positions previous + 1 .. position - 1 are filled rows between two rows with data.
         var next = position < rowsOfGroup.Length ? position : -1;

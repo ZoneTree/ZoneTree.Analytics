@@ -34,6 +34,8 @@ public sealed class AspNetCoreTests : DirectoryTest
           // Options are fixed once the engine exists: the timeout test needs its own value.
           if (TestContext.CurrentContext.Test.MethodName == nameof(ReportingApiReportsTimeouts))
             options.Queries.Timeout = TimeSpan.FromTicks(1);
+          if (TestContext.CurrentContext.Test.MethodName == nameof(ReportingApiPreservesLegacyDefaultSiteIdentity))
+            options.DefaultSite = " shop ";
         },
         web =>
         {
@@ -107,6 +109,86 @@ public sealed class AspNetCoreTests : DirectoryTest
       Assert.That(response.Content.Headers.ContentType.MediaType, Is.EqualTo("application/javascript"));
       Assert.That(script, Does.Contain("sendBeacon"));
     });
+  }
+
+  [TestCase("%20forbidden.com%20")]
+  [TestCase("forbidden.%00com")]
+  public async Task ReportingApiAuthorizesTheCanonicalSite(string site)
+  {
+    Engine.Track(new AnalyticsEvent("pageview") { Site = "forbidden.com", Url = "/secret" });
+    await Engine.FlushAsync();
+    var response = await client.GetAsync("/_analytics/api/summary?site=" + site);
+    Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Forbidden));
+    var post = await client.PostAsync("/_analytics/api/query",
+        new StringContent("{\"site\":\" forbidden.com \"}", Encoding.UTF8, "application/json"));
+    Assert.That(post.StatusCode, Is.EqualTo(HttpStatusCode.Forbidden));
+  }
+
+  [TestCase(null)]
+  [TestCase("%20%20")]
+  public async Task ReportingApiAuthorizesTheEffectiveDefaultSite(string site)
+  {
+    var options = app.Services.GetRequiredService<AnalyticsWebOptions>();
+    options.AuthorizeSite = (_, requestedSite) => requestedSite != Engine.DefaultSite;
+    var response = await client.GetAsync("/_analytics/api/summary" + (site == null ? "" : "?site=" + site));
+    Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Forbidden));
+  }
+
+  [Test]
+  public async Task ReportingApiPreservesLegacyDefaultSiteIdentity()
+  {
+    Engine.Track(new AnalyticsEvent("pageview") { VisitorId = "alice", Url = "/legacy" });
+    await Engine.FlushAsync();
+    string authorizedSite = null;
+    var options = app.Services.GetRequiredService<AnalyticsWebOptions>();
+    options.AuthorizeSite = (_, site) =>
+    {
+      authorizedSite = site;
+      return site == " shop ";
+    };
+    var (status, report) = await GetJson("/_analytics/api/summary?range=1h");
+    Assert.Multiple(() =>
+    {
+      Assert.That(status, Is.EqualTo(HttpStatusCode.OK));
+      Assert.That(authorizedSite, Is.EqualTo(" shop "));
+      Assert.That(report.GetProperty("summary").GetProperty("pageViews").GetInt32(), Is.EqualTo(1));
+    });
+  }
+
+  [TestCase(" $session")]
+  [TestCase("\t$session")]
+  [TestCase("\0$session")]
+  [TestCase("\0")]
+  public async Task BeaconReturnsBadRequestForInvalidNormalizedNames(string name)
+  {
+    var json = JsonSerializer.Serialize(new { n = name });
+    var response = await client.PostAsync("/_analytics/event", new StringContent(json, Encoding.UTF8, "text/plain"));
+    Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
+    Assert.That(Engine.GetStatistics().EventsAccepted, Is.Zero);
+  }
+
+  [Test]
+  public async Task HashRoutingBeaconsKeepRoutesDistinctAndDiscardOrdinaryAnchors()
+  {
+    foreach (var (url, routing) in new[]
+    {
+      ("https://example.com/#/pricing?utm_source=newsletter&email=private", true),
+      ("https://example.com/#!/about", true),
+      ("https://example.com/#ordinary-anchor", false)
+    })
+    {
+      var json = JsonSerializer.Serialize(new { n = "pageview", u = url, h = routing });
+      var response = await client.PostAsync("/_analytics/event", new StringContent(json, Encoding.UTF8, "text/plain"));
+      Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Accepted));
+    }
+    await Engine.FlushAsync();
+    var result = Engine.Query(new AnalyticsQuery
+    {
+      Range = Recent, GroupBy = { StandardDimensions.Page }, Metrics = { Metric.PageViews }
+    });
+    Assert.That(result.Rows.Select(x => x.Dimensions[0]), Is.EquivalentTo(new[] { "/pricing", "/about", "/" }));
+    var script = await client.GetStringAsync("/_analytics/script.js");
+    Assert.That(script, Does.Contain("payload.h = true"));
   }
 
   [Test]

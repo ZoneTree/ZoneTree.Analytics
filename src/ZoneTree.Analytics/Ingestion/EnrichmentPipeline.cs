@@ -229,7 +229,7 @@ sealed class EnrichmentPipeline
     ParsedUrl url = null;
     if (!string.IsNullOrWhiteSpace(e.Url))
     {
-      url = UrlParser.Parse(e.Url, options.Web, privacy.IncludeQueryString);
+      url = UrlParser.Parse(e.Url, options.Web, privacy.IncludeQueryString, e.HashRouting);
       result.Dimensions.TryAdd(StandardDimensions.Page, Text.Value(url.Path, privacy.MaxValueLength));
       result.Dimensions.TryAdd(StandardDimensions.Hostname, Text.Value(url.Hostname, privacy.MaxValueLength));
     }
@@ -326,7 +326,7 @@ sealed class EnrichmentPipeline
     };
     if (!string.IsNullOrWhiteSpace(e.Url))
     {
-      var url = UrlParser.Parse(e.Url, options.Web, options.Privacy.IncludeQueryString);
+      var url = UrlParser.Parse(e.Url, options.Web, options.Privacy.IncludeQueryString, e.HashRouting);
       result.Dimensions[StandardDimensions.Page] = Text.Value(url.Path, maxLength);
       result.Dimensions[StandardDimensions.Hostname] = Text.Value(url.Hostname, maxLength);
     }

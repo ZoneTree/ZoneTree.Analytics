@@ -225,6 +225,14 @@ static class RawEventCodec
     return BinaryPrimitives.ReadUInt64LittleEndian(reader.ReadBytes(8));
   }
 
+  /// <summary>Reads only the session id, without decoding the event name or body.</summary>
+  public static ulong ReadSessionId(ReadOnlySpan<byte> bytes)
+  {
+    var reader = new ByteReader(bytes);
+    reader.SkipString();
+    return BinaryPrimitives.ReadUInt64LittleEndian(reader.ReadBytes(16)[8..]);
+  }
+
   public static byte[] Utf8(string value) =>
       string.IsNullOrEmpty(value) ? [] : Encoding.UTF8.GetBytes(value);
 }

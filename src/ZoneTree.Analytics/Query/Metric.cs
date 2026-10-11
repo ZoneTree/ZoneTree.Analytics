@@ -852,26 +852,27 @@ public sealed class Metric : IEquatable<Metric>
   #region Evaluation
 
   /// <summary>
-  /// Computes an aggregate from per-event aggregates. A missing aggregate counts as empty.
+  /// Computes an aggregate from its source; conversion rates also read the base source.
+  /// A missing aggregate counts as empty.
   /// </summary>
-  internal double EvaluateAggregate(Func<string, RollupAccumulator> source, string baseEvent)
+  internal double EvaluateAggregate(RollupAccumulator source, RollupAccumulator baseSource = null)
   {
     if (IsSessionMetric)
-      return EvaluateSession(source(SourceKey(StandardEvents.Session)));
+      return EvaluateSession(source);
     if (IsPageFlowMetric)
-      return EvaluatePageFlow(source(SourceKey(StandardEvents.PageView)));
+      return EvaluatePageFlow(source);
     switch (MetricKind)
     {
       case Kind.Events:
-        return source(SourceKey(EventName ?? baseEvent))?.Count ?? 0;
+        return source?.Count ?? 0;
       case Kind.Visitors:
-        return VisitorsOf(source(SourceKey(EventName ?? baseEvent)));
+        return VisitorsOf(source);
       case Kind.ConversionRate:
-        return Ratio(VisitorsOf(source(SourceKey(Argument))), VisitorsOf(source(SourceKey(baseEvent))), clamp: true);
+        return Ratio(VisitorsOf(source), VisitorsOf(baseSource), clamp: true);
       case Kind.Distinct:
-        return source(SourceKey(EventName ?? baseEvent))?.DistinctOf(Argument)?.Estimate() ?? 0;
+        return source?.DistinctOf(Argument)?.Estimate() ?? 0;
     }
-    var accumulator = source(SourceKey(EventName ?? baseEvent));
+    var accumulator = source;
     var value = accumulator != null && accumulator.TryGetValueStats(Argument, out var found) ? found : default;
     return MetricKind switch
     {

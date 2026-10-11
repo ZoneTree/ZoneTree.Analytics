@@ -356,6 +356,8 @@ options.Rollups.Definitions.Add(new RollupDefinition("plan") { Events = ["purcha
 
 A rollup added to an existing data directory, re-added after being removed, or given different `Events` covers data from that moment on; earlier ranges are answered from raw events.
 
+Rollup granularities also record when they became active. Enabling or re-enabling a tier uses retained finer tiers or raw events for its earlier ranges. Older data directories without tier activation metadata preserve historical coverage for tiers that already contain partitions; newly added tiers start their coverage when enabled.
+
 Every tracked value has its sum, count, minimum, maximum, average and variance in rollups. Percentiles, first and last values, and distinct counts of dimensions cost storage in every rollup row they reach, so they are opt-in:
 
 ```csharp
@@ -465,6 +467,8 @@ app.MapZoneTreeAnalyticsApi()            // JSON reporting API under /_analytics
 
 Use one of the two page view options, not both. The tracker follows single-page-app navigation, uses `sendBeacon`, sets no cookies and ignores localhost unless `data-allow-localhost="true"` is set. The engine is a DI singleton, also registered as `IAnalyticsTracker`, that is flushed and disposed on shutdown, and its logs go to `Microsoft.Extensions.Logging`.
 
+For hash-routed SPAs, add `data-hash-routing="true"` to the script element. Routes such as `/#/pricing` and `/#!/pricing` become the page `/pricing`; ordinary anchors are ignored. Events tracked directly can set `AnalyticsEvent.HashRouting = true`. Query strings in hash routes follow the same privacy rules as other page URLs.
+
 ### Reporting API
 
 | Endpoint | Returns |
@@ -497,6 +501,8 @@ POST /_analytics/api/query
 ```
 
 Invalid requests return 400 with an `error` message; queries that exceed `Queries.Timeout` return 503. The API exposes analytics data: protect it with authorization, and restrict sites with `AuthorizeSite`.
+
+`AuthorizeSite` receives the normalized site that the query executes against, including `AnalyticsOptions.DefaultSite` when the request omits a site or supplies an empty one.
 
 ---
 
@@ -698,7 +704,17 @@ data/analytics/
 
 `src/ZoneTree.Analytics.Playground` generates one million page views over 30 days (50,000 recurring visitors, 12 pages, 12 referrers, 7 user agents including a bot) and measures ingestion and queries:
 
+Always run the benchmark with `DOTNET_TieredCompilation=0` to avoid timing noise from tiered recompilation. In Windows Command Prompt:
+
+```bat
+set DOTNET_TieredCompilation=0
+dotnet run -c Release --project src/ZoneTree.Analytics.Playground -- 1000000 30 1
+```
+
+In Bash:
+
 ```bash
+export DOTNET_TieredCompilation=0
 dotnet run -c Release --project src/ZoneTree.Analytics.Playground -- 1000000 30 1
 ```
 
@@ -706,17 +722,17 @@ Almost every event starts a new session, a worst case for ingestion. On an Intel
 
 | Measure | Result |
 | --- | ---: |
-| Ingestion, 1 worker | ~80,000 events/s |
-| Ingestion, 4 workers | ~145,000 events/s |
-| 30-day summary, with or without comparison | < 1 ms |
-| 30-day daily time series, 7-day hourly time series | 1–1.5 ms |
-| 30-day pages, sources, countries | 2–6 ms |
-| Unaligned range (rollups plus raw edges) | ~10 ms |
-| Ad-hoc two-filter breakdown, 1 day of raw events | ~30 ms |
-| Ad-hoc two-filter breakdown, 30 days of raw events (~860k events) | ~0.8 s |
-| Segment over 7 days | ~150 ms |
-| Funnel over 7 days | ~90 ms |
-| Disk usage | ~120–150 bytes per event, rollups included |
+| Ingestion, 1 worker | ~101,022 events/s |
+| Ingestion, 4 workers | ~164,235 events/s |
+| 30-day summary, with or without comparison | < 0.8 ms |
+| 30-day daily time series, 7-day hourly time series | 0.76–2.88 ms |
+| 30-day pages, sources, countries | 4–8 ms |
+| Unaligned range (rollups plus raw edges) | ~5.8 ms |
+| Ad-hoc two-filter breakdown, 1 day of raw events | ~40 ms |
+| Ad-hoc two-filter breakdown, 30 days of raw events (~858k events) | ~0.04 s |
+| Segment over 7 days | ~17 ms |
+| Funnel over 7 days | ~24.5 ms |
+| Disk usage | ~180–181 bytes per event, rollups included |
 
 Rollup query time depends on the number of rows in the range, not on the number of events.
 

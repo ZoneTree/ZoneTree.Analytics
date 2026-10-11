@@ -140,14 +140,15 @@ sealed class RollupStore : IDisposable
   }
 
   /// <summary>
-  /// Lists the event names of a site present in the partitions overlapping the range.
-  /// Uses seek-based skip scanning: one seek per distinct event name.
+  /// Lists event names with a positive event count in [fromBucket, toBucket).
+  /// Seeks into each dimension set, and skips the remaining sets once an event is found.
   /// </summary>
-  public SortedSet<string> ListEventNames(Granularity granularity, string site, long fromBucket, long toBucket)
+  public SortedSet<string> ListEventNames(
+      Granularity granularity, string site, long fromBucket, long toBucket, CancellationToken cancellationToken)
   {
     var result = new SortedSet<string>(StringComparer.Ordinal);
     var store = GetStore(granularity);
-    if (store == null)
+    if (store == null || fromBucket >= toBucket)
       return result;
     var sitePrefix = KeyCodec.SitePrefix(site);
     foreach (var partition in store.PartitionsInRange(fromBucket, toBucket))
@@ -159,12 +160,38 @@ sealed class RollupStore : IDisposable
       iterator.Seek(sitePrefix);
       while (iterator.Next())
       {
+        cancellationToken.ThrowIfCancellationRequested();
         var key = iterator.CurrentKey.Span;
         if (!key.StartsWith(sitePrefix))
           break;
         var eventName = KeyCodec.ReadSegment(key, sitePrefix.Length, out var next);
-        result.Add(eventName);
-        iterator.Seek(KeyCodec.AfterSegment(key[..(next - 1)]));
+        var afterEvent = KeyCodec.AfterSegment(key[..(next - 1)]);
+        if (!result.Contains(eventName))
+        {
+          KeyCodec.ReadSegment(key, next, out var seriesLength);
+          var series = key[..seriesLength].ToArray();
+          iterator.Seek(KeyCodec.SeekKey(series, fromBucket));
+          var count = 0;
+          while (iterator.Next())
+          {
+            if (++count % RawEventStore.CancellationCheckInterval == 0)
+              cancellationToken.ThrowIfCancellationRequested();
+            key = iterator.CurrentKey.Span;
+            if (!key.StartsWith(series) || KeyCodec.ReadBucket(key, series.Length) >= toBucket)
+              break;
+            if (iterator.CurrentValue.Count > 0)
+            {
+              result.Add(eventName);
+              break;
+            }
+          }
+          if (!result.Contains(eventName))
+          {
+            iterator.Seek(KeyCodec.AfterSegment(series.AsSpan(0, series.Length - 1)));
+            continue;
+          }
+        }
+        iterator.Seek(afterEvent);
       }
     }
     return result;

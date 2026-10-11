@@ -49,8 +49,9 @@ public sealed class AnalyticsWebOptions
   public int MaxPayloadBytes { get; set; } = 8 * 1024;
 
   /// <summary>
-  /// Authorizes access to a site through the reporting API (the site argument is null for the
-  /// default site). Default is null: every site is allowed, so protect the API itself, for example
+  /// Authorizes access to the normalized site executed by the reporting API. Omitted and empty
+  /// sites resolve to <see cref="AnalyticsOptions.DefaultSite"/>. Default is null: every site is
+  /// allowed, so protect the API itself, for example
   /// with <c>RequireAuthorization()</c>.
   /// </summary>
   public Func<HttpContext, string, bool> AuthorizeSite { get; set; }

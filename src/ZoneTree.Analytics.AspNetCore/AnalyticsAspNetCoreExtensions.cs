@@ -202,8 +202,9 @@ static class TrackerEndpoints
     try
     {
       analyticsEvent = Parse(body, context, options);
+      analyticsEvent?.Validate();
     }
-    catch (JsonException)
+    catch (Exception exception) when (exception is JsonException or ArgumentException)
     {
       analyticsEvent = null;
     }
@@ -247,6 +248,7 @@ static class TrackerEndpoints
 
     var analyticsEvent = RequestEvents.Create(context, options, name);
     analyticsEvent.Url = GetString(root, "u");
+    analyticsEvent.HashRouting = root.TryGetProperty("h", out var hashRouting) && hashRouting.ValueKind == JsonValueKind.True;
     analyticsEvent.Referrer = GetString(root, "r");
     if (root.TryGetProperty("p", out var props) && props.ValueKind == JsonValueKind.Object)
     {

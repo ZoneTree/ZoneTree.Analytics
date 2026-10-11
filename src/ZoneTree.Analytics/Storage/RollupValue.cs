@@ -101,15 +101,15 @@ sealed class ValueDetail
     }
   }
 
-  public void MergeWith(ValueDetail other)
+  public void MergeWith(ValueDetail other, ValueAggregates aggregates = ValueAggregates.All)
   {
-    if (other.HasFirstLast)
+    if (other.HasFirstLast && (aggregates & ValueAggregates.FirstAndLast) != 0)
     {
       AddFirst(other.First, other.FirstTicks);
       AddLast(other.Last, other.LastTicks);
       HasFirstLast = true;
     }
-    if (other.Quantiles != null)
+    if (other.Quantiles != null && (aggregates & ValueAggregates.Percentiles) != 0)
     {
       if (Quantiles == null)
         Quantiles = other.Quantiles.Clone();
@@ -118,14 +118,14 @@ sealed class ValueDetail
     }
   }
 
-  public ValueDetail Clone() => new()
+  public ValueDetail Clone(ValueAggregates aggregates = ValueAggregates.All) => new()
   {
-    HasFirstLast = HasFirstLast,
+    HasFirstLast = HasFirstLast && (aggregates & ValueAggregates.FirstAndLast) != 0,
     First = First,
     FirstTicks = FirstTicks,
     Last = Last,
     LastTicks = LastTicks,
-    Quantiles = Quantiles?.Clone()
+    Quantiles = (aggregates & ValueAggregates.Percentiles) != 0 ? Quantiles?.Clone() : null
   };
 
   /// <summary>
@@ -378,6 +378,9 @@ sealed class RollupAccumulator
 
   bool ownsVisitors;
 
+  // Queries can retain visitor-only row presence without building an unused visitor sketch.
+  bool hasSkippedVisitors;
+
   string[] valueNames;
 
   ValueStats[] valueStats;
@@ -417,7 +420,7 @@ sealed class RollupAccumulator
   {
     get
     {
-      if (Count != 0 || (visitors != null && !visitors.IsEmpty))
+      if (Count != 0 || hasSkippedVisitors || (visitors != null && !visitors.IsEmpty))
         return true;
       for (var i = 0; i < valueCount; ++i)
       {
@@ -583,20 +586,65 @@ sealed class RollupAccumulator
     if (value == null)
       return;
     Count += value.Count;
-    if (value.Visitors != null && !value.Visitors.IsEmpty)
+    MergeVisitors(value.Visitors);
+    MergeValues(value);
+    for (var i = 0; i < value.ValueNames.Length; ++i)
     {
-      if (visitors == null)
+      if (value.DetailAt(i) is { } detail)
+        MergeDetail(value.ValueNames[i], detail);
+    }
+    var distinctNames = value.DistinctNames;
+    for (var i = 0; i < distinctNames.Length; ++i)
+      MergeDistinct(distinctNames[i], value.Distinct[i]);
+  }
+
+  /// <summary>Merges only the sketches and details a query reads, preserving scalar row presence.</summary>
+  public void MergeForQuery(RollupValue value, RollupReadRequirements requirements)
+  {
+    if (value == null)
+      return;
+    Count += value.Count;
+    if (requirements.Visitors)
+      MergeVisitors(value.Visitors);
+    else
+      hasSkippedVisitors |= value.Visitors != null && !value.Visitors.IsEmpty;
+    MergeValues(value);
+    if (requirements.ValueDetails != null)
+    {
+      foreach (var (name, aggregates) in requirements.ValueDetails)
       {
-        // Share the stored sketch until this accumulator needs to modify it.
-        visitors = value.Visitors;
-        ownsVisitors = false;
-      }
-      else
-      {
-        EnsureOwnVisitors(visitors.Precision);
-        visitors.UnionWith(value.Visitors);
+        var index = Array.IndexOf(value.ValueNames, name);
+        if (index >= 0 && value.DetailAt(index) is { } detail)
+          MergeDetail(name, detail, aggregates);
       }
     }
+    foreach (var dimension in requirements.DistinctDimensions ?? [])
+    {
+      var index = Array.IndexOf(value.DistinctNames, dimension);
+      if (index >= 0)
+        MergeDistinct(dimension, value.Distinct[index]);
+    }
+  }
+
+  void MergeVisitors(HyperLogLog sketch)
+  {
+    if (sketch == null || sketch.IsEmpty)
+      return;
+    if (visitors == null)
+    {
+      // Share the stored sketch until this accumulator needs to modify it.
+      visitors = sketch;
+      ownsVisitors = false;
+    }
+    else
+    {
+      EnsureOwnVisitors(visitors.Precision);
+      visitors.UnionWith(sketch);
+    }
+  }
+
+  void MergeValues(RollupValue value)
+  {
     if (valueCount == 0 && value.ValueNames.Length > 0)
     {
       // Share the stored values until this accumulator needs to modify them.
@@ -604,29 +652,18 @@ sealed class RollupAccumulator
       valueStats = value.Values;
       valueCount = value.ValueNames.Length;
       sharesValues = true;
-      for (var i = 0; i < valueCount; ++i)
-      {
-        if (value.DetailAt(i) is { } detail)
-          MergeDetail(value.ValueNames[i], detail);
-      }
     }
     else
     {
       for (var i = 0; i < value.ValueNames.Length; ++i)
-      {
         MergeValue(value.ValueNames[i], value.Values[i]);
-        if (value.DetailAt(i) is { } detail)
-          MergeDetail(value.ValueNames[i], detail);
-      }
     }
-    var distinctNames = value.DistinctNames;
-    for (var i = 0; i < distinctNames.Length; ++i)
-      MergeDistinct(distinctNames[i], value.Distinct[i]);
   }
 
   public void Merge(RollupAccumulator other)
   {
     Count += other.Count;
+    hasSkippedVisitors |= other.hasSkippedVisitors;
     if (other.visitors != null && !other.visitors.IsEmpty)
     {
       if (visitors == null)
@@ -661,20 +698,22 @@ sealed class RollupAccumulator
   /// <summary>
   /// Merges details that may be shared: a first one is shared, later ones merge into a copy.
   /// </summary>
-  void MergeDetail(string name, ValueDetail detail)
+  void MergeDetail(string name, ValueDetail detail, ValueAggregates aggregates = ValueAggregates.All)
   {
     var details = (optIn ??= new()).Details;
     if (!details.TryGetValue(name, out var slot))
     {
-      details.Add(name, new Shared<ValueDetail>(detail, false));
+      var needsProjection = (detail.HasFirstLast && (aggregates & ValueAggregates.FirstAndLast) == 0) ||
+          (detail.Quantiles != null && (aggregates & ValueAggregates.Percentiles) == 0);
+      details.Add(name, new Shared<ValueDetail>(needsProjection ? detail.Clone(aggregates) : detail, needsProjection));
       return;
     }
     if (!slot.Owned)
     {
-      slot.Value = slot.Value.Clone();
+      slot.Value = slot.Value.Clone(aggregates);
       slot.Owned = true;
     }
-    slot.Value.MergeWith(detail);
+    slot.Value.MergeWith(detail, aggregates);
   }
 
   void MergeDistinct(string dimension, HyperLogLog sketch)

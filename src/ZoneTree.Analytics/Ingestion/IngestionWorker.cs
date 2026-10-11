@@ -7,7 +7,7 @@ using ZoneTree.Logger;
 namespace ZoneTree.Analytics.Ingestion;
 
 /// <summary>
-/// A queued unit of work: an event or a flush request.
+/// A queued unit of work: an event, a flush request or a visitor erasure.
 /// </summary>
 readonly struct WorkItem
 {
@@ -15,18 +15,31 @@ readonly struct WorkItem
 
   public readonly TaskCompletionSource Flush;
 
+  public readonly VisitorErasure Erasure;
+
   public WorkItem(EventSnapshot snapshot)
   {
     Event = snapshot;
     Flush = null;
+    Erasure = null;
   }
 
   public WorkItem(TaskCompletionSource flush)
   {
     Event = null;
     Flush = flush;
+    Erasure = null;
+  }
+
+  public WorkItem(VisitorErasure erasure)
+  {
+    Event = null;
+    Flush = null;
+    Erasure = erasure;
   }
 }
+
+sealed record VisitorErasure(ulong Visitor, Func<long> DeleteEvents, TaskCompletionSource<long> Completion);
 
 /// <summary>
 /// Components shared by all workers.
@@ -167,6 +180,24 @@ sealed class IngestionWorker
     {
       while (reader.TryRead(out var item))
       {
+        if (item.Erasure is { } erasure)
+        {
+          try
+          {
+            Flush();
+            // This worker cannot process another event for the visitor during the scan.
+            var deleted = erasure.DeleteEvents();
+            services.Sessions?.ForceDelete(erasure.Visitor);
+            sessions.Remove(erasure.Visitor);
+            dirtySessions.Remove(erasure.Visitor);
+            erasure.Completion.TrySetResult(deleted);
+          }
+          catch (Exception e)
+          {
+            erasure.Completion.TrySetException(e);
+          }
+          continue;
+        }
         if (item.Flush != null)
         {
           Flush();

@@ -152,6 +152,17 @@ sealed class ReportingCalendar
     var start = UtcStartOfLocalDay(LocalDay(utcTicks));
     return start <= utcTicks ? start : UtcStartOfLocalDay(LocalDay(utcTicks) - TimeSpan.TicksPerDay);
   }
+
+  /// <summary>
+  /// Enumerates bucket keys overlapping [from, to) lazily, so query limits can be checked
+  /// before a large time series is materialized.
+  /// </summary>
+  public IEnumerable<long> EnumerateBuckets(long from, long to, TimeInterval interval)
+  {
+    for (var bucket = Bucket(from, interval); UtcStartOfBucket(bucket, interval) < to;
+        bucket = NextBucket(bucket, interval))
+      yield return bucket;
+  }
 }
 
 /// <summary>

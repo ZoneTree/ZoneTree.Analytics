@@ -122,7 +122,7 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
     {
       meta = new MetaStore(Path.Combine(root, "meta"));
       var isNew = ValidateConfiguration();
-      var activations = RollupActivations.Register(meta, options.Rollups, isNew);
+      var activations = RollupActivations.Register(meta, options.Rollups, isNew, root);
       sequence = Math.Max(
           DateTime.UtcNow.Ticks,
           meta.Get("raw-sequence") is { } stored ? long.Parse(stored, CultureInfo.InvariantCulture) : 0);
@@ -196,6 +196,8 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
   }
 
   internal AnalyticsOptions Options => options;
+
+  internal string NormalizeSite(string site) => enricher.NormalizeSite(site);
 
   internal SessionSchema Schema => enricher.Schema;
 
@@ -317,13 +319,16 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
   }
 
   IngestionWorker Route(EventSnapshot analyticsEvent)
+      => Route(enricher.NormalizeSite(analyticsEvent.Site), analyticsEvent.VisitorId, analyticsEvent.IpAddress, analyticsEvent.UserAgent);
+
+  IngestionWorker Route(string site, string visitorId, string ipAddress = null, string userAgent = null)
   {
     if (workers.Length == 1)
       return workers[0];
     // Route by visitor identity so a visitor's events are processed by one worker, in order.
-    var hash = analyticsEvent.VisitorId != null
-        ? HashCode.Combine(analyticsEvent.Site, analyticsEvent.VisitorId)
-        : HashCode.Combine(analyticsEvent.Site, analyticsEvent.IpAddress, analyticsEvent.UserAgent);
+    var hash = !string.IsNullOrEmpty(visitorId)
+        ? HashCode.Combine(site, visitorId)
+        : HashCode.Combine(site, ipAddress ?? "", userAgent ?? "");
     return workers[(int)((uint)hash % (uint)workers.Length)];
   }
 
@@ -498,6 +503,10 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
   /// <summary>
   /// Lists the event names recorded for a site in a range, including <see cref="StandardEvents.Session"/>.
   /// </summary>
+  /// <remarks>
+  /// Partial rollup buckets are resolved from raw events when stored. Without raw events,
+  /// discovery uses whole available buckets, matching rollup-only query fallback behavior.
+  /// </remarks>
   /// <param name="range">The time range.</param>
   /// <param name="site">The site; null for <see cref="AnalyticsOptions.DefaultSite"/>.</param>
   /// <param name="timeZone">The time zone of the range; null for the engine's reporting time zone.</param>
@@ -507,7 +516,7 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
   {
     ObjectDisposedException.ThrowIf(IsDisposed, this);
     cancellationToken.ThrowIfCancellationRequested();
-    return queryEngine.GetEventNames(range, site, timeZone);
+    return WithTimeout(token => queryEngine.GetEventNames(range, site, timeZone, token), cancellationToken);
   }
 
   /// <summary>
@@ -563,12 +572,7 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
   /// <param name="site">The site; null for <see cref="AnalyticsOptions.DefaultSite"/>.</param>
   /// <param name="cancellationToken">Cancels the operation.</param>
   public long EraseVisitor(string visitorId, string site = null, CancellationToken cancellationToken = default)
-  {
-    ObjectDisposedException.ThrowIf(IsDisposed, this);
-    ArgumentException.ThrowIfNullOrEmpty(visitorId);
-    Flush(cancellationToken);
-    return EraseFlushedVisitor(visitorId, site, cancellationToken);
-  }
+      => EraseVisitorAsync(visitorId, site, cancellationToken).GetAwaiter().GetResult();
 
   /// <inheritdoc cref="EraseVisitor"/>
   public async Task<long> EraseVisitorAsync(string visitorId, string site = null, CancellationToken cancellationToken = default)
@@ -576,15 +580,19 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
     ObjectDisposedException.ThrowIf(IsDisposed, this);
     ArgumentException.ThrowIfNullOrEmpty(visitorId);
     await FlushAsync(cancellationToken).ConfigureAwait(false);
-    return await Task.Run(() => EraseFlushedVisitor(visitorId, site, cancellationToken), cancellationToken).ConfigureAwait(false);
-  }
-
-  long EraseFlushedVisitor(string visitorId, string site, CancellationToken cancellationToken)
-  {
     site = enricher.NormalizeSite(site);
     var hash = visitorHasher.HashVisitorId(site, visitorId);
     if (hash == 0)
       return 0;
+    var worker = Route(site, visitorId);
+    var completion = new TaskCompletionSource<long>(TaskCreationOptions.RunContinuationsAsynchronously);
+    var erasure = new VisitorErasure(hash, () => EraseFlushedVisitor(hash, site, cancellationToken), completion);
+    await worker.Writer.WriteAsync(new WorkItem(erasure), cancellationToken).ConfigureAwait(false);
+    return await completion.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+  }
+
+  long EraseFlushedVisitor(ulong hash, string site, CancellationToken cancellationToken)
+  {
     long deleted = 0;
     if (rawEvents != null)
     {
@@ -616,7 +624,6 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
         Interlocked.Add(ref deleted, toDelete.Count);
       });
     }
-    sessions?.ForceDelete(hash);
     return deleted;
   }
 
@@ -839,10 +846,19 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
     {
       logger.LogError(e);
     }
-    lock (housekeepingLock)
+    finally
     {
-      PersistSequence();
-      DisposeStorage();
+      lock (housekeepingLock)
+      {
+        try
+        {
+          PersistSequence();
+        }
+        finally
+        {
+          DisposeStorage();
+        }
+      }
     }
   }
 

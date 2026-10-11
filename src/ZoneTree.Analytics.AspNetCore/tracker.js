@@ -16,6 +16,7 @@
     if (navigator.webdriver) return;
     if (!allowLocalhost && /^(localhost|127\.|\[::1\])/.test(location.hostname)) return;
     var payload = { n: name, u: currentUrl(), r: document.referrer || null };
+    if (hashRouting) payload.h = true;
     if (props) payload.p = props;
     if (metrics) payload.m = metrics;
     var body = JSON.stringify(payload);

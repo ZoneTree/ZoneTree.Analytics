@@ -25,7 +25,7 @@ sealed class ParsedUrl
 /// </summary>
 static class UrlParser
 {
-  public static ParsedUrl Parse(string url, WebOptions web, bool includeQueryString)
+  public static ParsedUrl Parse(string url, WebOptions web, bool includeQueryString, bool hashRouting = false)
   {
     var result = new ParsedUrl();
     if (string.IsNullOrWhiteSpace(url))
@@ -54,13 +54,30 @@ static class UrlParser
       path = "/" + url;
     }
 
+    var routeIndex = hashRouting ? url.IndexOf('#') : -1;
+    if (routeIndex >= 0)
+    {
+      var route = url[(routeIndex + 1)..];
+      if (route.StartsWith("!/", StringComparison.Ordinal))
+        route = route[1..];
+      if (route.StartsWith('/'))
+      {
+        var basePath = path.Split('#')[0];
+        var baseQuery = basePath.IndexOf('?');
+        if (baseQuery >= 0)
+          query = basePath[(baseQuery + 1)..];
+        path = route;
+      }
+    }
+
     var hashIndex = path.IndexOf('#');
     if (hashIndex >= 0)
       path = path[..hashIndex];
     var queryIndex = path.IndexOf('?');
     if (queryIndex >= 0)
     {
-      query = path[(queryIndex + 1)..];
+      var pageQuery = path[(queryIndex + 1)..];
+      query = query == null ? pageQuery : query + "&" + pageQuery;
       path = path[..queryIndex];
     }
 
