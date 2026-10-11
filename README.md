@@ -694,7 +694,7 @@ data/analytics/
 ```
 
 * **Order-preserving keys.** Rollup keys are `site · event · dimension-set · bucket · values`, so every rollup sub-query is one contiguous range scan. Raw event keys are `site · timestamp · sequence`.
-* **Pre-aggregation with atomic merges.** Workers aggregate in memory and merge rows with `TryAtomicAddOrUpdate`. Stored values are immutable; every merge creates a new value.
+* **Pre-aggregation with serialized merges.** Workers aggregate in memory; a writer per partition serializes merges and resumes failed writes. Stored values are immutable; every merge creates a new value. Retrying a failed write does not apply its contribution twice, even when the write changed memory before throwing.
 * **Partitioning by size.** Each tier is a sequence of ZoneTrees, each with its own maintainer and a contiguous time range; a tier starts a new tree when the latest one holds 10 million records by default, see [Partitioning](#partitioning). Idle partitions are merged to disk and closed; partitions that expire as a whole are dropped with `Maintenance.Drop()`.
 * **Retention by deletion predicate.** Raw event and rollup trees treat records older than retention as deleted, so readers skip them and merges drop them. Deleting the first record of each expired key range makes merges read parts they would otherwise copy unchanged, so expired data leaves the disk inside large, long-lived trees too; parts within one key range that expired as a whole are dropped without being read (`IsRangeDeleted`). Maintainers merge bottom segments whenever two or more exist.
 * **Sessions with TTL.** Expired sessions disappear through ZoneTree's deletion predicate and are removed by normal merges.
@@ -744,8 +744,8 @@ Rollup query time depends on the number of rows in the range, not on the number 
 
 ## Operations
 
-* **Freshness.** Rollup-based answers lag ingestion by at most `Ingestion.FlushInterval` (2 seconds). `await analytics.FlushAsync()` makes everything tracked so far visible. Raw events, and therefore `GetCurrentVisitors`, are real-time.
-* **Durability.** After a crash, aggregates buffered since the last flush are lost, and recent records follow ZoneTree's write-ahead log guarantees. A graceful `Dispose` processes the queue and flushes everything.
+* **Freshness.** With healthy storage, rollup-based answers lag ingestion by at most `Ingestion.FlushInterval` (2 seconds). A successful `await analytics.FlushAsync()` makes everything tracked so far visible. Storage failures are logged and counted; an explicit flush reports the exception. Pending aggregates are retained and retried by later flushes. During a prolonged outage, ingestion pauses at its buffer limits and the bounded queue uses the configured drop or wait behavior. Raw events, and therefore `GetCurrentVisitors`, are real-time.
+* **Durability.** After a crash, aggregates buffered since the last successful flush are lost, and recent records follow ZoneTree's write-ahead log guarantees. A graceful `Dispose` processes the queue and flushes everything; if the final flush fails, disposal closes storage and reports the exception. Pending flush recovery is in memory and does not provide transactional crash recovery across stores.
 * **Statistics.** `analytics.GetStatistics()` reports accepted, dropped, processed, rejected, filtered and bot events, sessions, flushes, errors, queue length, open partitions, and every partition with its approximate record count.
 * **Logging.** Pass `Storage.Logger` (a ZoneTree `ILogger`); the ASP.NET Core package bridges to `Microsoft.Extensions.Logging`.
 * **Backups.** Every partition is a regular ZoneTree directory. For a consistent offline backup, dispose the engine and copy the data directory, and `Storage.WriteAheadLogDirectory` when it is set: the logs hold records that are not in disk segments yet.

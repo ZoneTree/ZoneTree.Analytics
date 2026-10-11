@@ -116,7 +116,7 @@ public sealed class ReleaseRegressionTests : DirectoryTest
       };
     });
     engine.Track(new AnalyticsEvent("before") { VisitorId = "alice", Timestamp = Utc(Day0.AddHours(1)) });
-    engine.Flush();
+    Assert.Throws<IOException>(() => engine.Flush());
     Assert.That(engine.Track(new AnalyticsEvent("after") { VisitorId = "bob", Timestamp = Utc(Day0.AddHours(2)) }), Is.True);
     engine.Flush();
     Assert.Multiple(() =>
@@ -126,6 +126,11 @@ public sealed class ReleaseRegressionTests : DirectoryTest
       Assert.That(logger.Problems.Any(x => x.Contains("Rollup open failure", StringComparison.Ordinal)), Is.True);
       Assert.That(engine.Query(new AnalyticsQuery { Event = "after", Range = Day(Day0), Metrics = { Metric.Events } })
           .Totals[Metric.Events], Is.EqualTo(1));
+      foreach (var source in new[] { QuerySource.RawEvents, QuerySource.Rollups, QuerySource.Auto })
+      {
+        Assert.That(engine.Query(new AnalyticsQuery { Event = "before", Range = Day(Day0), Source = source, Metrics = { Metric.Events } })
+            .Totals[Metric.Events], Is.EqualTo(1));
+      }
     });
   }
 

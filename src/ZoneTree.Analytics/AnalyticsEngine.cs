@@ -381,6 +381,10 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
   /// Waits until every event queued before this call is processed and all buffered
   /// aggregates are written to storage.
   /// </summary>
+  /// <remarks>
+  /// A storage failure is reported to the caller. Pending aggregates are retained and retried
+  /// by subsequent flushes, including automatic flushes, without applying successful writes twice.
+  /// </remarks>
   public async Task FlushAsync(CancellationToken cancellationToken = default)
   {
     ObjectDisposedException.ThrowIf(IsDisposed, this);
@@ -774,7 +778,7 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
       return;
     // Ask idle workers to flush. Busy workers flush on their own schedule.
     foreach (var worker in workers)
-      worker.Writer.TryWrite(new WorkItem(new TaskCompletionSource()));
+      worker.Writer.TryWrite(WorkItem.BackgroundFlush);
 
     var now = DateTime.UtcNow.Ticks;
     if (now - lastHousekeepingTicks < TimeSpan.TicksPerMinute)
@@ -828,6 +832,7 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
   /// <summary>
   /// Stops accepting events, processes queued events, flushes and closes all stores.
   /// </summary>
+  /// <remarks>A final flush failure is reported after storage is closed.</remarks>
   public void Dispose() => DisposeAsync().AsTask().GetAwaiter().GetResult();
 
   /// <inheritdoc cref="Dispose"/>
@@ -836,15 +841,9 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
     if (Interlocked.Exchange(ref disposed, 1) == 1)
       return;
     timer?.Dispose();
-    foreach (var worker in workers)
-      worker.Writer.TryComplete();
     try
     {
-      await Task.WhenAll(workers.Select(x => x.Completion)).ConfigureAwait(false);
-    }
-    catch (Exception e)
-    {
-      logger.LogError(e);
+      await Task.WhenAll(workers.Select(x => x.DisposeAsync().AsTask())).ConfigureAwait(false);
     }
     finally
     {

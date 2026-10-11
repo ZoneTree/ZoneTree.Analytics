@@ -141,6 +141,13 @@ public sealed class ChangeReviewRegressionTests : DirectoryTest
       Assert.That(engine.GetStatistics().EventsProcessed, Is.EqualTo(100));
       Assert.That(engine.GetStatistics().Errors, Is.EqualTo(1));
       Assert.That(engine.GetStatistics().QueueLength, Is.Zero);
+      for (var i = 0; i < 100; ++i)
+      {
+        Assert.That(engine.Query(new AnalyticsQuery
+        {
+          Event = "purchase", Site = "s" + i, Range = Day(Day0), Metrics = { Metric.Events }
+        }).Totals[Metric.Events], Is.EqualTo(1), "accepted events survive the background flush failure");
+      }
     });
     Assert.That(engine.Track(new AnalyticsEvent("after") { Timestamp = Utc(Day0.AddHours(1)) }), Is.True);
     await engine.FlushAsync().WaitAsync(TimeSpan.FromSeconds(5));

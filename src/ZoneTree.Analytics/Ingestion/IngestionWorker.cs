@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.ExceptionServices;
 using System.Threading.Channels;
 using ZoneTree.Analytics.Internal;
 using ZoneTree.Analytics.Storage;
@@ -11,6 +12,9 @@ namespace ZoneTree.Analytics.Ingestion;
 /// </summary>
 readonly struct WorkItem
 {
+  /// <summary>An automatic flush; failure is logged without creating an unobserved task.</summary>
+  public static WorkItem BackgroundFlush => new((TaskCompletionSource)null);
+
   public readonly EventSnapshot Event;
 
   public readonly TaskCompletionSource Flush;
@@ -85,7 +89,7 @@ sealed class IngestionServices
 /// memory and merged into ZoneTree on flush, together with the changed session states.
 /// </para>
 /// </remarks>
-sealed class IngestionWorker
+sealed class IngestionWorker : IAsyncDisposable
 {
   readonly IngestionServices services;
 
@@ -130,6 +134,12 @@ sealed class IngestionWorker
 
   PartitionLease<Memory<byte>, Memory<byte>> rawLease;
 
+  RollupWriteBatch pendingRollups;
+
+  Exception lastFlushFailure;
+
+  readonly TaskCompletionSource stopping = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
   Task task;
 
   public IngestionWorker(IngestionServices services)
@@ -173,52 +183,92 @@ sealed class IngestionWorker
 
   public Task Completion => task ?? Task.CompletedTask;
 
+  public void Stop()
+  {
+    channel.Writer.TryComplete();
+    stopping.TrySetResult();
+  }
+
+  public async ValueTask DisposeAsync()
+  {
+    Stop();
+    await Completion.ConfigureAwait(false);
+  }
+
   async Task RunAsync()
   {
-    var reader = channel.Reader;
-    while (await reader.WaitToReadAsync().ConfigureAwait(false))
+    try
     {
-      while (reader.TryRead(out var item))
+      var reader = channel.Reader;
+      while (await reader.WaitToReadAsync().ConfigureAwait(false))
       {
-        if (item.Erasure is { } erasure)
+        while (reader.TryRead(out var item))
         {
+          if (item.Erasure is { } erasure)
+          {
+            try
+            {
+              if (TryFlush() is { } failure)
+                ExceptionDispatchInfo.Throw(failure);
+              // This worker cannot process another event for the visitor during the scan.
+              var deleted = erasure.DeleteEvents();
+              services.Sessions?.ForceDelete(erasure.Visitor);
+              sessions.Remove(erasure.Visitor);
+              dirtySessions.Remove(erasure.Visitor);
+              erasure.Completion.TrySetResult(deleted);
+            }
+            catch (Exception e)
+            {
+              erasure.Completion.TrySetException(e);
+            }
+            continue;
+          }
+          if (item.Event == null)
+          {
+            if (TryFlush() is { } failure)
+              item.Flush?.TrySetException(failure);
+            else
+              item.Flush?.TrySetResult();
+            continue;
+          }
           try
           {
-            Flush();
-            // This worker cannot process another event for the visitor during the scan.
-            var deleted = erasure.DeleteEvents();
-            services.Sessions?.ForceDelete(erasure.Visitor);
-            sessions.Remove(erasure.Visitor);
-            dirtySessions.Remove(erasure.Visitor);
-            erasure.Completion.TrySetResult(deleted);
+            Process(item.Event);
           }
           catch (Exception e)
           {
-            erasure.Completion.TrySetException(e);
+            Interlocked.Increment(ref services.Counters.Errors);
+            services.Logger.LogError(e);
           }
-          continue;
+          if (buffer.Count >= maxBufferedRows ||
+              Stopwatch.GetTimestamp() - lastFlushTimestamp >= flushIntervalTimestamp)
+            TryFlush();
+          await WaitForFlushRecoveryAsync().ConfigureAwait(false);
         }
-        if (item.Flush != null)
-        {
-          Flush();
-          item.Flush.TrySetResult();
-          continue;
-        }
-        try
-        {
-          Process(item.Event);
-        }
-        catch (Exception e)
-        {
-          Interlocked.Increment(ref services.Counters.Errors);
-          services.Logger.LogError(e);
-        }
-        if (buffer.Count >= maxBufferedRows ||
-            Stopwatch.GetTimestamp() - lastFlushTimestamp >= flushIntervalTimestamp)
-          Flush();
       }
+      if (TryFlush() is { } finalFailure)
+        ExceptionDispatchInfo.Throw(finalFailure);
     }
-    Flush();
+    finally
+    {
+      pendingRollups?.Dispose();
+    }
+  }
+
+  /// <summary>
+  /// A prolonged outage must not turn retained work into an unbounded buffer. Once the new
+  /// buffer or session cache reaches its limit, the bounded channel provides backpressure.
+  /// Shutdown wakes the retry wait so it can drain the finite queue and report a final failure.
+  /// </summary>
+  async Task WaitForFlushRecoveryAsync()
+  {
+    while (lastFlushFailure != null && !stopping.Task.IsCompleted &&
+        (buffer.Count >= maxBufferedRows || sessions.Count >= services.Options.Sessions.MaxCachedSessions))
+    {
+      await Task.WhenAny(Task.Delay(services.Options.Ingestion.FlushInterval), stopping.Task).ConfigureAwait(false);
+      if (!stopping.Task.IsCompleted)
+        TryFlush();
+    }
   }
 
   void Process(EventSnapshot snapshot)
@@ -483,19 +533,45 @@ sealed class IngestionWorker
     rawLease.Tree.Upsert(key, value);
   }
 
+  Exception TryFlush()
+  {
+    try
+    {
+      Flush();
+      lastFlushFailure = null;
+    }
+    catch (Exception e)
+    {
+      lastFlushFailure = e;
+      Interlocked.Increment(ref services.Counters.Errors);
+      services.Logger.LogError(e);
+    }
+    return lastFlushFailure;
+  }
+
+  void WritePendingRollups()
+  {
+    if (pendingRollups == null)
+      return;
+    services.Rollups.Write(pendingRollups);
+    pendingRollups.Dispose();
+    pendingRollups = null;
+  }
+
   void Flush()
   {
     lastFlushTimestamp = Stopwatch.GetTimestamp();
     RefreshRetentionCutoffs();
     try
     {
+      WritePendingRollups();
       foreach (var visitor in dirtySessions)
       {
         if (sessions.TryGetValue(visitor, out var dirty))
           EmitSessionDeltas(dirty);
       }
-      var rows = buffer.Swap();
-      services.Rollups.Write(rows);
+      pendingRollups = new RollupWriteBatch(buffer.Swap());
+      WritePendingRollups();
 
       if (dirtySessions.Count > 0)
       {
@@ -512,11 +588,6 @@ sealed class IngestionWorker
       }
       EvictSessions();
       Interlocked.Increment(ref services.Counters.Flushes);
-    }
-    catch (Exception e)
-    {
-      Interlocked.Increment(ref services.Counters.Errors);
-      services.Logger.LogError(e);
     }
     finally
     {

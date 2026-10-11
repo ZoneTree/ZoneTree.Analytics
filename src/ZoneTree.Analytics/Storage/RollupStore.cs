@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using ZoneTree.Analytics.Ingestion;
 using ZoneTree.Logger;
 
@@ -9,8 +10,8 @@ namespace ZoneTree.Analytics.Storage;
 /// <remarks>
 /// Each granularity has its own partitioned store, which starts a new partition after the
 /// number of rows configured in <see cref="PartitioningOptions"/>.
-/// Rows are merged with ZoneTree's atomic add-or-update, which keeps concurrent
-/// flushes from several ingestion workers consistent.
+/// A writer per partition serializes merges and resumes failed writes, which keeps concurrent
+/// flushes from several ingestion workers consistent even when an upsert throws after updating memory.
 /// </remarks>
 sealed class RollupStore : IDisposable
 {
@@ -22,6 +23,8 @@ sealed class RollupStore : IDisposable
   readonly PartitionedStore<Memory<byte>, RollupValue>[] stores = new PartitionedStore<Memory<byte>, RollupValue>[3];
 
   readonly RollupDefinition[] definitions;
+
+  readonly ConditionalWeakTable<IZoneTree<Memory<byte>, RollupValue>, RollupWriter> writers = new();
 
   public RollupStore(
       string rootDirectory,
@@ -56,45 +59,47 @@ sealed class RollupStore : IDisposable
   public IEnumerable<PartitionedStore<Memory<byte>, RollupValue>> AllStores => stores.Where(x => x != null);
 
   /// <summary>
-  /// Merges buffered rows into storage.
+  /// Merges a flush into storage, retaining progress and leases if a write fails.
   /// </summary>
-  public void Write(Dictionary<RollupBufferKey, RollupAccumulator> rows)
+  public void Write(RollupWriteBatch batch)
   {
-    if (rows.Count == 0)
-      return;
-    var groups = new Dictionary<(Granularity, string), List<KeyValuePair<Memory<byte>, RollupValue>>>();
+    if (batch.Partitions == null)
+    {
+      // Preparation can fail too: keep the detached accumulators until it completes.
+      batch.Partitions = PrepareWrites(batch.Rows);
+      batch.Rows = null;
+    }
+    for (; batch.NextPartition < batch.Partitions.Count; ++batch.NextPartition)
+    {
+      var partition = batch.Partitions[batch.NextPartition];
+      partition.Lease ??= GetStore(partition.Granularity).Acquire(partition.Name);
+      if (partition.Lease == null)
+        continue; // The partition was dropped by retention.
+      var writer = writers.GetValue(partition.Lease.Tree, static tree => new RollupWriter(tree));
+      for (; partition.NextRow < partition.Rows.Count; ++partition.NextRow)
+        writer.Write(partition.Rows[partition.NextRow]);
+      partition.Lease.Dispose();
+      partition.Lease = null;
+    }
+  }
+
+  List<RollupWriteBatch.PartitionWrites> PrepareWrites(Dictionary<RollupBufferKey, RollupAccumulator> rows)
+  {
+    var groups = new Dictionary<(Granularity, string), RollupWriteBatch.PartitionWrites>();
     foreach (var (key, accumulator) in rows)
     {
       var store = GetStore(key.Granularity);
       var partition = store.Route(key.Bucket);
-      if (!groups.TryGetValue((key.Granularity, partition), out var list))
+      if (!groups.TryGetValue((key.Granularity, partition), out var writes))
       {
-        list = [];
-        groups.Add((key.Granularity, partition), list);
+        writes = new(key.Granularity, partition);
+        groups.Add((key.Granularity, partition), writes);
       }
       var definition = definitions[key.Definition];
       var storageKey = KeyCodec.RollupKey(key.Site, key.Event, definition.Id, key.Bucket, key.Value);
-      list.Add(new(storageKey, accumulator.ToValue()));
+      writes.Rows.Add(new(storageKey, accumulator.ToValue()));
     }
-    foreach (var ((granularity, partition), list) in groups)
-    {
-      using var lease = GetStore(granularity).Acquire(partition);
-      if (lease == null)
-        continue; // The partition is being dropped by retention.
-      var tree = lease.Tree;
-      foreach (var (key, delta) in list)
-      {
-        tree.TryAtomicAddOrUpdate(
-            key,
-            delta,
-            (ref RollupValue existing) =>
-            {
-              // Never mutate the stored instance: merge creates a new value.
-              existing = RollupValue.Merge(existing, delta);
-              return true;
-            });
-      }
-    }
+    return [.. groups.Values];
   }
 
   /// <summary>
