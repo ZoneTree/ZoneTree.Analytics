@@ -34,6 +34,8 @@ sealed class PartitionedStore<TKey, TValue> : IDisposable
 {
   const string NameFormat = "yyyy-MM-dd";
 
+  enum PartitionState { Open, Closing, CleanupFailed, Closed }
+
   sealed class Partition
   {
     public string Name;
@@ -48,7 +50,17 @@ sealed class PartitionedStore<TKey, TValue> : IDisposable
 
     public bool DropRequested;
 
-    public bool Closing;
+    public PartitionState State;
+
+    public bool Disposing;
+
+    public bool TreeDropped;
+
+    public bool FilesDeleted;
+
+    public long? RecordCount;
+
+    public Exception CleanupFailure;
   }
 
   /// <summary>
@@ -107,9 +119,13 @@ sealed class PartitionedStore<TKey, TValue> : IDisposable
 
   readonly ILogger logger;
 
+  readonly Action<string> deleteDirectory;
+
   volatile PartitionMap map;
 
   bool isDisposed;
+
+  int completedDrops;
 
   public PartitionedStore(
       string rootDirectory,
@@ -117,7 +133,8 @@ sealed class PartitionedStore<TKey, TValue> : IDisposable
       Func<string, IZoneTree<TKey, TValue>> openTree,
       ILogger logger,
       Func<IZoneTree<TKey, TValue>, IMaintainer> createMaintainer,
-      Func<string, string> writeAheadLogDirectoryOf)
+      Func<string, string> writeAheadLogDirectoryOf,
+      Action<string> deleteDirectory = null)
   {
     RootDirectory = rootDirectory;
     this.recordsPerPartition = recordsPerPartition;
@@ -125,6 +142,7 @@ sealed class PartitionedStore<TKey, TValue> : IDisposable
     this.createMaintainer = createMaintainer;
     this.writeAheadLogDirectoryOf = writeAheadLogDirectoryOf;
     this.logger = logger;
+    this.deleteDirectory = deleteDirectory ?? DeleteDirectory;
     Directory.CreateDirectory(rootDirectory);
     map = LoadMap(rootDirectory);
   }
@@ -136,7 +154,7 @@ sealed class PartitionedStore<TKey, TValue> : IDisposable
     get
     {
       lock (sync)
-        return partitions.Count;
+        return partitions.Values.Count(x => x.Tree != null);
     }
   }
 
@@ -173,6 +191,8 @@ sealed class PartitionedStore<TKey, TValue> : IDisposable
         return current.Names[current.IndexOf(ticks)];
       var start = ReportingCalendar.FloorTicks(ticks, TimeSpan.TicksPerDay);
       var name = NameOf(start);
+      if (partitions.ContainsKey(name))
+        throw new IOException($"The partition '{name}' is still being deleted; retry after cleanup succeeds.");
       Directory.CreateDirectory(PathOf(name));
       map = current.Add(start, name);
       return name;
@@ -215,13 +235,16 @@ sealed class PartitionedStore<TKey, TValue> : IDisposable
         ObjectDisposedException.ThrowIf(isDisposed, this);
         if (partitions.TryGetValue(name, out var partition))
         {
-          if (partition.Closing)
+          if (partition.DropRequested)
+            return null;
+          if (partition.State == PartitionState.Closing)
           {
             Monitor.Wait(sync);
             continue;
           }
-          if (partition.DropRequested)
-            return null;
+          if (partition.State == PartitionState.CleanupFailed)
+            throw new IOException($"The partition '{name}' could not be closed; cleanup must succeed before it can reopen.",
+                partition.CleanupFailure);
           ++partition.Leases;
           partition.LastUsedTicks = Environment.TickCount64;
           return new PartitionLease<TKey, TValue>(this, name, partition.Tree);
@@ -234,9 +257,22 @@ sealed class PartitionedStore<TKey, TValue> : IDisposable
         {
           maintainer = createMaintainer(tree);
         }
-        catch
+        catch (Exception openFailure)
         {
-          tree.Dispose();
+          try
+          {
+            tree.Dispose();
+          }
+          catch (Exception cleanupFailure)
+          {
+            partitions.Add(name, new Partition
+            {
+              Name = name, Tree = tree, Disposing = true, State = PartitionState.CleanupFailed,
+              CleanupFailure = cleanupFailure
+            });
+            throw new AggregateException("Creating the partition maintainer and releasing its tree both failed.",
+                openFailure, cleanupFailure);
+          }
           throw;
         }
         partition = new Partition
@@ -263,9 +299,9 @@ sealed class PartitionedStore<TKey, TValue> : IDisposable
         return;
       --partition.Leases;
       partition.LastUsedTicks = Environment.TickCount64;
-      if (partition.Leases == 0 && partition.DropRequested && !partition.Closing)
+      if (!isDisposed && partition.Leases == 0 && partition.DropRequested && partition.State != PartitionState.Closing)
       {
-        partition.Closing = true;
+        partition.State = PartitionState.Closing;
         dropNow = partition;
       }
     }
@@ -289,7 +325,7 @@ sealed class PartitionedStore<TKey, TValue> : IDisposable
       var current = map;
       if (current.Count == 0 ||
           !partitions.TryGetValue(current.Names[^1], out var latest) ||
-          latest.Closing ||
+          latest.State != PartitionState.Open ||
           latest.DropRequested ||
           latest.Tree.Maintenance.TotalRecordCount < recordsPerPartition)
         return false;
@@ -306,17 +342,22 @@ sealed class PartitionedStore<TKey, TValue> : IDisposable
   /// <summary>
   /// Drops every partition that ends at or before the cutoff. The latest partition never ends.
   /// Leased partitions are dropped when their last lease is released.
+  /// Returns completed deletions since the previous call, including deferred drops. Failed
+  /// cleanup is retried even though its partition has already been removed from routing.
   /// </summary>
   public int DropPartitionsEndingBefore(long cutoffTicks)
   {
+    List<string> pending;
+    lock (sync)
+      pending = [.. partitions.Values.Where(x => x.DropRequested).Select(x => x.Name)];
+    foreach (var name in pending)
+      Drop(name);
     var current = map;
-    var count = 0;
     for (var i = 0; i < current.Count - 1 && current.To(i) <= cutoffTicks; ++i)
     {
       Drop(current.Names[i]);
-      ++count;
     }
-    return count;
+    return Interlocked.Exchange(ref completedDrops, 0);
   }
 
   /// <summary>
@@ -327,28 +368,31 @@ sealed class PartitionedStore<TKey, TValue> : IDisposable
     Partition dropNow = null;
     lock (sync)
     {
+      ObjectDisposedException.ThrowIf(isDisposed, this);
+      if (Array.IndexOf(map.Names, name) < 0 && !partitions.ContainsKey(name))
+        return;
       map = map.Remove(name);
       closedRecordCounts.Remove(name);
-      while (true)
+      if (!partitions.TryGetValue(name, out var partition))
       {
-        if (!partitions.TryGetValue(name, out var partition))
-        {
-          // Not open: delete the files directly.
-          DeletePartitionFiles(name);
-          return;
-        }
-        if (partition.Closing)
-        {
-          Monitor.Wait(sync);
-          continue;
-        }
-        partition.DropRequested = true;
-        if (partition.Leases == 0)
-        {
-          partition.Closing = true;
-          dropNow = partition;
-        }
-        break;
+        // Register even an unopened partition: deletion failures need an owner and a retry.
+        partition = new Partition { Name = name, DropRequested = true, Disposing = true };
+        partitions.Add(name, partition);
+      }
+      partition.DropRequested = true;
+      while (partition.State == PartitionState.Closing)
+      {
+        Monitor.Wait(sync);
+        ObjectDisposedException.ThrowIf(isDisposed, this);
+      }
+      // A concurrent operation may have finished this drop. Never delete a new generation
+      // routed to the same name after that operation released the old directory.
+      if (!partitions.TryGetValue(name, out var current) || !ReferenceEquals(current, partition))
+        return;
+      if (partition.Leases == 0)
+      {
+        partition.State = PartitionState.Closing;
+        dropNow = partition;
       }
     }
     if (dropNow != null)
@@ -364,15 +408,18 @@ sealed class PartitionedStore<TKey, TValue> : IDisposable
     var toClose = new List<Partition>();
     lock (sync)
     {
+      if (isDisposed)
+        return;
       var now = Environment.TickCount64;
       var latest = map.Count == 0 ? null : map.Names[^1];
       foreach (var partition in partitions.Values)
       {
-        if (partition.Leases > 0 || partition.Closing || (keepLatestOpen && partition.Name == latest))
+        if (partition.Leases > 0 || partition.State == PartitionState.Closing)
           continue;
-        if (now - partition.LastUsedTicks < idleTimeout.TotalMilliseconds)
+        if (!partition.Disposing && !partition.DropRequested &&
+            ((keepLatestOpen && partition.Name == latest) || now - partition.LastUsedTicks < idleTimeout.TotalMilliseconds))
           continue;
-        partition.Closing = true;
+        partition.State = PartitionState.Closing;
         toClose.Add(partition);
       }
     }
@@ -390,7 +437,8 @@ sealed class PartitionedStore<TKey, TValue> : IDisposable
     lock (sync)
     {
       return [.. map.Names.Select(name => (name,
-          partitions.TryGetValue(name, out var partition) ? partition.Tree.Maintenance.TotalRecordCount :
+          partitions.TryGetValue(name, out var partition) ?
+              partition.State == PartitionState.Open ? partition.Tree.Maintenance.TotalRecordCount : partition.RecordCount :
           closedRecordCounts.TryGetValue(name, out var count) ? count : (long?)null))];
     }
   }
@@ -436,7 +484,7 @@ sealed class PartitionedStore<TKey, TValue> : IDisposable
       ObjectDisposedException.ThrowIf(isDisposed, this);
       foreach (var partition in partitions.Values)
       {
-        if (partition.Closing || partition.DropRequested)
+        if (partition.State != PartitionState.Open || partition.DropRequested)
           continue;
         ++partition.Leases;
         open.Add((partition.Maintainer, new PartitionLease<TKey, TValue>(this, partition.Name, partition.Tree)));
@@ -456,42 +504,71 @@ sealed class PartitionedStore<TKey, TValue> : IDisposable
     }
   }
 
-  void CloseOrDrop(Partition partition, bool drop)
+  Exception CloseOrDrop(Partition partition, bool drop, bool disposingStore = false)
   {
-    long? recordCount = null;
+    Exception failure = null;
     try
     {
-      if (drop)
-      {
-        partition.Maintainer.TryCancelBackgroundThreads();
-        partition.Maintainer.Dispose();
-        partition.Tree.Maintenance.Drop();
-        partition.Tree.Dispose();
-        DeletePartitionFiles(partition.Name);
-      }
-      else
+      if (!partition.Disposing && !drop && !disposingStore)
       {
         partition.Maintainer.EvictToDisk();
         partition.Maintainer.WaitForBackgroundThreads();
-        recordCount = partition.Tree.Maintenance.TotalRecordCount;
+        partition.RecordCount = partition.Tree.Maintenance.TotalRecordCount;
+      }
+      // From here a resource may be partially disposed; it must never be leased again.
+      partition.Disposing = true;
+      if (partition.Maintainer != null)
+      {
+        if (drop)
+          partition.Maintainer.TryCancelBackgroundThreads();
         partition.Maintainer.Dispose();
+        partition.Maintainer = null;
+      }
+      if (partition.Tree != null)
+      {
+        if (drop && !partition.TreeDropped)
+        {
+          partition.Tree.Maintenance.Drop();
+          partition.TreeDropped = true;
+        }
         partition.Tree.Dispose();
+        partition.Tree = null;
+      }
+      lock (sync)
+        drop |= partition.DropRequested;
+      if (drop)
+      {
+        DeletePartitionFiles(partition.Name);
+        partition.FilesDeleted = true;
       }
     }
     catch (Exception e)
     {
+      failure = e;
       logger.LogError(e);
     }
     finally
     {
       lock (sync)
       {
-        partitions.Remove(partition.Name);
-        if (recordCount.HasValue && Array.IndexOf(map.Names, partition.Name) >= 0)
-          closedRecordCounts[partition.Name] = recordCount.Value;
+        if (failure == null && (!partition.DropRequested || partition.FilesDeleted))
+        {
+          partition.State = PartitionState.Closed;
+          partitions.Remove(partition.Name);
+          if (partition.RecordCount.HasValue && Array.IndexOf(map.Names, partition.Name) >= 0)
+            closedRecordCounts[partition.Name] = partition.RecordCount.Value;
+          if (partition.FilesDeleted)
+            Interlocked.Increment(ref completedDrops);
+        }
+        else
+        {
+          partition.State = failure != null && partition.Disposing ? PartitionState.CleanupFailed : PartitionState.Open;
+          partition.CleanupFailure = failure;
+        }
         Monitor.PulseAll(sync);
       }
     }
+    return failure;
   }
 
   /// <summary>
@@ -499,22 +576,28 @@ sealed class PartitionedStore<TKey, TValue> : IDisposable
   /// </summary>
   void DeletePartitionFiles(string name)
   {
-    DeleteDirectory(PathOf(name));
+    var failures = new List<Exception>();
+    void Delete(string path)
+    {
+      try
+      {
+        deleteDirectory(path);
+      }
+      catch (Exception exception)
+      {
+        failures.Add(exception);
+      }
+    }
+    Delete(PathOf(name));
     if (writeAheadLogDirectoryOf(PathOf(name)) is { } walDirectory)
-      DeleteDirectory(walDirectory);
+      Delete(walDirectory);
+    Disposal.ThrowFailures(failures);
   }
 
-  void DeleteDirectory(string path)
+  static void DeleteDirectory(string path)
   {
-    try
-    {
-      if (Directory.Exists(path))
-        Directory.Delete(path, recursive: true);
-    }
-    catch (Exception e)
-    {
-      logger.LogError(e);
-    }
+    if (Directory.Exists(path))
+      Directory.Delete(path, recursive: true);
   }
 
   public void Dispose()
@@ -522,28 +605,22 @@ sealed class PartitionedStore<TKey, TValue> : IDisposable
     List<Partition> all;
     lock (sync)
     {
-      if (isDisposed)
-        return;
       isDisposed = true;
       // Let in-flight close and drop operations finish; they own their trees.
-      while (partitions.Values.Any(x => x.Closing))
+      while (partitions.Values.Any(x => x.State == PartitionState.Closing))
         Monitor.Wait(sync);
       all = [.. partitions.Values];
-      partitions.Clear();
+      foreach (var partition in all)
+        partition.State = PartitionState.Closing;
       Monitor.PulseAll(sync);
     }
+    var failures = new List<Exception>();
     foreach (var partition in all)
     {
-      try
-      {
-        partition.Maintainer.Dispose();
-        partition.Tree.Dispose();
-      }
-      catch (Exception e)
-      {
-        logger.LogError(e);
-      }
+      if (CloseOrDrop(partition, partition.DropRequested, disposingStore: true) is { } failure)
+        failures.Add(failure);
     }
+    Disposal.ThrowFailures(failures);
   }
 }
 

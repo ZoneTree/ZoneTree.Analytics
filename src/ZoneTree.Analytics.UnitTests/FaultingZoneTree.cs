@@ -14,6 +14,12 @@ sealed class FaultingZoneTree<TKey, TValue>(IZoneTree<TKey, TValue> inner) : IZo
 
   public bool FailAfterWrite { get; set; }
 
+  public Action BeforeDispose { get; set; }
+
+  public int DisposeAttempts { get; private set; }
+
+  public bool Released { get; private set; }
+
   public long Upsert(in TKey key, in TValue value)
   {
     var fail = ++upserts == FailOnUpsert;
@@ -65,5 +71,11 @@ sealed class FaultingZoneTree<TKey, TValue>(IZoneTree<TKey, TValue> inner) : IZo
   public IZoneTreeIterator<TKey, TValue> CreateReverseIterator(IteratorType type, bool includeDeletedRecords,
       bool contributeToTheBlockCache, int diskSegmentPrefetchSize) =>
       inner.CreateReverseIterator(type, includeDeletedRecords, contributeToTheBlockCache, diskSegmentPrefetchSize);
-  public void Dispose() => inner.Dispose();
+  public void Dispose()
+  {
+    ++DisposeAttempts;
+    BeforeDispose?.Invoke();
+    inner.Dispose();
+    Released = true;
+  }
 }

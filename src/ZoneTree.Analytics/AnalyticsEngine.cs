@@ -77,6 +77,14 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
 
   readonly object housekeepingLock = new();
 
+  readonly object disposalLock = new();
+
+  readonly List<IDisposable> ownedStores = [];
+
+  Task disposalTask;
+
+  bool storageReleased;
+
   long sequence;
 
   long lastHousekeepingTicks;
@@ -135,16 +143,22 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
 
       if (options.Sessions.Enabled)
       {
+        var sessionResources = new DisposalGroup();
+        ownedStores.Add(sessionResources);
         sessions = factory.OpenSessions(Path.Combine(root, "sessions"), enricher.Schema);
+        sessionResources.Add(sessions);
         sessionsMaintainer = factory.CreateSessionsMaintainer(sessions);
+        sessionResources.Add(sessionsMaintainer);
       }
       var definitions = options.Rollups.Definitions.ToArray();
       rollups = new RollupStore(
           Path.Combine(root, "rollups"), options.Rollups.Granularities, options.Storage.Partitioning, definitions, factory, storageLogger);
+      ownedStores.Add(rollups);
       if (options.Storage.StoreRawEvents)
       {
         rawEvents = new RawEventStore(
             Path.Combine(root, "events"), options.Storage.Partitioning.RawEvents, factory, storageLogger);
+        ownedStores.Add(rawEvents);
       }
 
       var services = new IngestionServices
@@ -832,14 +846,40 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
   /// <summary>
   /// Stops accepting events, processes queued events, flushes and closes all stores.
   /// </summary>
-  /// <remarks>A final flush failure is reported after storage is closed.</remarks>
+  /// <remarks>
+  /// A final flush or cleanup failure is reported. If cleanup fails, the directory lock stays
+  /// held and a later disposal retries the remaining resources. Concurrent disposals share the attempt.
+  /// </remarks>
   public void Dispose() => DisposeAsync().AsTask().GetAwaiter().GetResult();
 
   /// <inheritdoc cref="Dispose"/>
-  public async ValueTask DisposeAsync()
+  public ValueTask DisposeAsync()
   {
-    if (Interlocked.Exchange(ref disposed, 1) == 1)
+    lock (disposalLock)
+    {
+      if (disposalTask == null)
+      {
+        Volatile.Write(ref disposed, 1);
+        disposalTask = DisposeCoreAsync(stopWorkers: true);
+      }
+      else if (disposalTask.IsCompleted)
+      {
+        if (storageReleased)
+          return ValueTask.CompletedTask;
+        disposalTask = DisposeCoreAsync(stopWorkers: false);
+      }
+      return new ValueTask(disposalTask);
+    }
+  }
+
+  async Task DisposeCoreAsync(bool stopWorkers)
+  {
+    if (!stopWorkers)
+    {
+      lock (housekeepingLock)
+        DisposeStorage();
       return;
+    }
     timer?.Dispose();
     try
     {
@@ -863,17 +903,9 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
 
   void DisposeStorage()
   {
-    try
-    {
-      rawEvents?.Dispose();
-      rollups?.Dispose();
-      sessionsMaintainer?.Dispose();
-      sessions?.Dispose();
-    }
-    finally
-    {
-      // Released last: no other engine may open the directory while stores are still closing.
-      directoryLock?.Dispose();
-    }
+    Disposal.DisposeAll(ownedStores);
+    // Release only after every resource confirms closure. Failed cleanup remains owned for retry.
+    directoryLock?.Dispose();
+    storageReleased = true;
   }
 }

@@ -44,7 +44,10 @@ public sealed class AnalyticsStatistics
   /// <summary>Open ZoneTree partitions.</summary>
   public int OpenPartitions { get; init; }
 
-  /// <summary>Partitions removed by retention.</summary>
+  /// <summary>
+  /// Completed partition deletions reported by retention. Failed or still-leased drops are
+  /// counted by a later retention check after cleanup succeeds.
+  /// </summary>
   public long PartitionsDropped { get; init; }
 
   /// <summary>

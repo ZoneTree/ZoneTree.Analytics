@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using ZoneTree.Analytics.Ingestion;
+using ZoneTree.Analytics.Internal;
 using ZoneTree.Logger;
 
 namespace ZoneTree.Analytics.Storage;
@@ -24,6 +25,8 @@ sealed class RollupStore : IDisposable
 
   readonly RollupDefinition[] definitions;
 
+  readonly List<IDisposable> ownedStores = [];
+
   readonly ConditionalWeakTable<IZoneTree<Memory<byte>, RollupValue>, RollupWriter> writers = new();
 
   public RollupStore(
@@ -41,6 +44,7 @@ sealed class RollupStore : IDisposable
       stores[1] = new(Path.Combine(rootDirectory, "hour"), partitioning.HourRollups, directory => factory.OpenRollups(directory, Granularity.Hour), logger, factory.CreateRollupsMaintainer, factory.WriteAheadLogDirectoryOf);
     if ((granularities & Granularity.Day) != 0)
       stores[2] = new(Path.Combine(rootDirectory, "day"), partitioning.DayRollups, directory => factory.OpenRollups(directory, Granularity.Day), logger, factory.CreateRollupsMaintainer, factory.WriteAheadLogDirectoryOf);
+    ownedStores.AddRange(AllStores);
   }
 
   static int IndexOf(Granularity granularity) => granularity switch
@@ -202,9 +206,5 @@ sealed class RollupStore : IDisposable
     return result;
   }
 
-  public void Dispose()
-  {
-    foreach (var store in AllStores)
-      store.Dispose();
-  }
+  public void Dispose() => Disposal.DisposeAll(ownedStores);
 }
