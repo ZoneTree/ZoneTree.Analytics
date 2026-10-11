@@ -123,15 +123,22 @@ sealed class ByteWriter
 /// </summary>
 ref struct ByteReader
 {
+  static readonly UTF8Encoding StrictUtf8 = new(false, true);
+
   readonly ReadOnlySpan<byte> span;
+
+  readonly bool strict;
 
   int position;
 
-  public ByteReader(ReadOnlySpan<byte> span)
+  public ByteReader(ReadOnlySpan<byte> span, bool strict = false)
   {
     this.span = span;
+    this.strict = strict;
     position = 0;
   }
+
+  public readonly int Remaining => span.Length - position;
 
   public byte ReadByte() => span[position++];
 
@@ -156,6 +163,8 @@ ref struct ByteReader
     while (true)
     {
       var b = span[position++];
+      if (strict && shift == 63 && (b & 0xFE) != 0)
+        throw new FormatException("Invalid variable-length integer.");
       result |= (ulong)(b & 0x7F) << shift;
       if ((b & 0x80) == 0)
         return result;
@@ -192,7 +201,9 @@ ref struct ByteReader
     var lengthPlusOne = ReadVarUInt64();
     if (lengthPlusOne == 0)
       return null;
-    var byteCount = (int)(lengthPlusOne - 1);
+    var byteCount = checked((int)(lengthPlusOne - 1));
+    if (strict)
+      StrictUtf8.GetCharCount(span.Slice(position, byteCount));
     var result = cache.Get(span.Slice(position, byteCount));
     position += byteCount;
     return result;

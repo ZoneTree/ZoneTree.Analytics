@@ -13,7 +13,7 @@ namespace ZoneTree.Analytics.Storage;
 /// <param name="Max">The largest value.</param>
 /// <param name="Mean">The mean, independent of a possibly overflowing sum.</param>
 /// <param name="StandardDeviation">The population spread, stored without squaring it.</param>
-readonly record struct ValueStats(double Sum, long Count, double Min, double Max, double Mean, double StandardDeviation)
+public readonly record struct ValueStats(double Sum, long Count, double Min, double Max, double Mean, double StandardDeviation)
 {
   /// <summary>
   /// The average of the values, or zero when there are none.
@@ -25,8 +25,10 @@ readonly record struct ValueStats(double Sum, long Count, double Min, double Max
   /// </summary>
   public double Variance => StandardDeviation * StandardDeviation;
 
+  /// <summary>Creates statistics for one measured value.</summary>
   public static ValueStats Of(double value) => new(value, 1, value, value, value, 0);
 
+  /// <summary>Creates a sum-only delta without a measured value count.</summary>
   public static ValueStats Delta(double delta) => new(delta, 0, 0, 0, 0, 0);
 
   /// <summary>
@@ -86,24 +88,31 @@ readonly record struct ValueStats(double Sum, long Count, double Min, double Max
 /// Ties of first and last values at the same instant are broken by value, so results do not
 /// depend on the order in which rows merge.
 /// </remarks>
-sealed class ValueDetail
+public sealed class ValueDetail
 {
   const byte HasFirstLastFlag = 1;
 
   const byte HasQuantilesFlag = 2;
 
+  /// <summary>Whether first and last values are present.</summary>
   public bool HasFirstLast;
 
+  /// <summary>The first measured value.</summary>
   public double First;
 
+  /// <summary>The UTC ticks of the first value.</summary>
   public long FirstTicks;
 
+  /// <summary>The last measured value.</summary>
   public double Last;
 
+  /// <summary>The UTC ticks of the last value.</summary>
   public long LastTicks;
 
+  /// <summary>The quantile sketch, or null when percentiles were not collected.</summary>
   public QuantileSketch Quantiles;
 
+  /// <summary>Includes a value in the first and last aggregates.</summary>
   public void AddFirstLast(double value, long ticks)
   {
     AddFirst(value, ticks);
@@ -129,6 +138,7 @@ sealed class ValueDetail
     }
   }
 
+  /// <summary>Merges the requested aggregates from another detail into this instance.</summary>
   public void MergeWith(ValueDetail other, ValueAggregates aggregates = ValueAggregates.All)
   {
     if (other.HasFirstLast && (aggregates & ValueAggregates.FirstAndLast) != 0)
@@ -146,6 +156,7 @@ sealed class ValueDetail
     }
   }
 
+  /// <summary>Creates a deep copy of the requested aggregates.</summary>
   public ValueDetail Clone(ValueAggregates aggregates = ValueAggregates.All) => new()
   {
     HasFirstLast = HasFirstLast && (aggregates & ValueAggregates.FirstAndLast) != 0,
@@ -170,7 +181,7 @@ sealed class ValueDetail
     return merged;
   }
 
-  public void Write(ByteWriter writer)
+  internal void Write(ByteWriter writer)
   {
     var flags = (byte)((HasFirstLast ? HasFirstLastFlag : 0) | (Quantiles != null ? HasQuantilesFlag : 0));
     writer.WriteByte(flags);
@@ -184,7 +195,7 @@ sealed class ValueDetail
     Quantiles?.Write(writer);
   }
 
-  public static ValueDetail Read(ref ByteReader reader)
+  internal static ValueDetail Read(ref ByteReader reader)
   {
     var flags = reader.ReadByte();
     var detail = new ValueDetail();
@@ -203,17 +214,21 @@ sealed class ValueDetail
 }
 
 /// <summary>
-/// A stored rollup row. Instances are immutable: merges create new instances,
-/// so values held by ZoneTree segments are never modified.
+/// A stored rollup row. Treat instances, their arrays and sketches as immutable:
+/// merges create new instances, so values held by ZoneTree segments are never modified.
 /// </summary>
-sealed class RollupValue
+public sealed class RollupValue
 {
+  /// <summary>The number of events or session deltas represented by this row.</summary>
   public readonly long Count;
 
+  /// <summary>The visitor sketch, or null when the row has no visitors.</summary>
   public readonly HyperLogLog Visitors;
 
+  /// <summary>The measured value names, in ordinal order.</summary>
   public readonly string[] ValueNames;
 
+  /// <summary>The measured statistics, aligned with <see cref="ValueNames"/>.</summary>
   public readonly ValueStats[] Values;
 
   // The opt-in parts, null for the rows of values without them: queries read many rows, so the
@@ -222,6 +237,7 @@ sealed class RollupValue
 
   sealed record OptInParts(ValueDetail[] Details, string[] DistinctNames, HyperLogLog[] Distinct);
 
+  /// <summary>Creates a stored row. Arrays and sketches are retained without copying.</summary>
   public RollupValue(
       long count,
       HyperLogLog visitors,
@@ -254,8 +270,10 @@ sealed class RollupValue
   /// </summary>
   public HyperLogLog[] Distinct => optIn?.Distinct ?? [];
 
+  /// <summary>The opt-in detail at a value index, or null when no details were collected.</summary>
   public ValueDetail DetailAt(int index) => Details?[index];
 
+  /// <summary>Merges two rows without modifying either row, its arrays or sketches.</summary>
   public static RollupValue Merge(RollupValue existing, RollupValue delta)
   {
     if (existing == null)

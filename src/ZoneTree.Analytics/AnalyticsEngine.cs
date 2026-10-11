@@ -183,6 +183,8 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
           options, calendar, rollups, rawEvents, definitions, activations, enricher);
       funnelEngine = new FunnelEngine(options, calendar, rawEvents, enricher);
       Web = new WebAnalytics(this);
+      Storage = new AnalyticsStorage(rawEvents?.Store, rollups, sessions, sessionsMaintainer,
+          () => ObjectDisposedException.ThrowIf(IsDisposed, this));
       visitorHasher.RotateSalts(DateTime.UtcNow);
 
       // Create the timer disabled, then start background work inside the cleanup boundary.
@@ -262,6 +264,16 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
   /// Web analytics reports: summaries, time series and breakdowns.
   /// </summary>
   public WebAnalytics Web { get; }
+
+  /// <summary>
+  /// Advanced access to the engine's ZoneTrees and their existing maintainers.
+  /// </summary>
+  /// <remarks>
+  /// The engine owns these resources. Release partition leases before disposing the engine;
+  /// do not dispose or drop its trees, dispose its maintainers, or create additional maintainers.
+  /// Direct writes bypass ingestion, aggregation and cached session state.
+  /// </remarks>
+  public AnalyticsStorage Storage { get; }
 
   bool IsDisposed => Volatile.Read(ref disposed) != 0;
 

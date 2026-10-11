@@ -10,13 +10,17 @@ namespace ZoneTree.Analytics.Storage;
 /// <remarks>
 /// The ingestion worker that owns a visitor mutates its cached instance and writes
 /// clones to ZoneTree on flush, so instances stored in ZoneTree are never modified.
+/// Advanced callers must also treat stored instances as immutable and write a <see cref="Clone"/>.
 /// </remarks>
-sealed class SessionState
+public sealed class SessionState
 {
+  /// <summary>The session identifier.</summary>
   public ulong SessionId;
 
+  /// <summary>The UTC ticks of the first event.</summary>
   public long StartTicks;
 
+  /// <summary>The UTC ticks of the most recent event.</summary>
   public long LastTicks;
 
   /// <summary>
@@ -24,20 +28,28 @@ sealed class SessionState
   /// </summary>
   public long ExpiresAtUtcTicks;
 
+  /// <summary>The number of page views.</summary>
   public int PageViews;
 
+  /// <summary>The number of interactions used to determine whether the session bounced.</summary>
   public int Interactions;
 
+  /// <summary>The number of events.</summary>
   public int Events;
 
+  /// <summary>The entry page path.</summary>
   public string EntryPage = "";
 
+  /// <summary>The entry page hostname.</summary>
   public string EntryHostname = "";
 
+  /// <summary>The most recent page path.</summary>
   public string LastPage;
 
+  /// <summary>The most recent page hostname.</summary>
   public string LastHostname;
 
+  /// <summary>The UTC ticks of the most recent page view.</summary>
   public long LastPageTicks;
 
   /// <summary>
@@ -47,22 +59,22 @@ sealed class SessionState
 
   // Transient state of the owning worker. Not persisted.
 
-  public string Site;
+  internal string Site;
 
-  public bool PendingStart;
+  internal bool PendingStart;
 
-  public ulong PendingVisitor;
+  internal ulong PendingVisitor;
 
-  public int PendingBounces;
+  internal int PendingBounces;
 
-  public long PendingDurationTicks;
+  internal long PendingDurationTicks;
 
-  public int PendingPageViews;
+  internal int PendingPageViews;
 
-  public bool HasPendingDeltas =>
+  internal bool HasPendingDeltas =>
       PendingStart || PendingBounces != 0 || PendingDurationTicks != 0 || PendingPageViews != 0;
 
-  public void ClearPendingDeltas()
+  internal void ClearPendingDeltas()
   {
     PendingStart = false;
     PendingVisitor = 0;
@@ -71,8 +83,10 @@ sealed class SessionState
     PendingPageViews = 0;
   }
 
+  /// <summary>Whether the session has at most one interaction.</summary>
   public bool IsBounce => Interactions <= 1;
 
+  /// <summary>Creates a copy with its own dimensions array.</summary>
   public SessionState Clone()
   {
     var clone = (SessionState)MemberwiseClone();

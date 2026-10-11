@@ -643,6 +643,85 @@ options.Storage.WriteAheadLogDirectory = "/fast-disk/analytics-wal";
 
 ---
 
+### Advanced storage access
+
+`analytics.Storage` exposes the actual ZoneTrees and their existing maintainers. Raw events and
+rollups are partitioned: list the partition names, then acquire a disposable lease. Acquiring a
+closed partition opens it; listing names does not. A lease keeps the partition open and defers
+retention deletion until it is released.
+
+```csharp
+using ZoneTree.Analytics.Storage;
+
+var raw = analytics.Storage.RawEvents; // null when raw event storage is disabled
+if (raw != null)
+{
+    foreach (var name in raw.GetPartitions())
+    {
+        using var partition = await raw.AcquireAsync(name);
+        if (partition == null) continue; // retention removed it after the list was read
+
+        var tree = partition.ZoneTree; // IZoneTree<Memory<byte>, Memory<byte>>
+        var maintainer = partition.Maintainer; // the engine's existing IMaintainer
+        using var iterator = tree.CreateIterator();
+        while (iterator.Next())
+        {
+            var stored = RawEventCodec.Decode(iterator.CurrentKey.Span, iterator.CurrentValue.Span);
+            if (stored == null) continue; // deletion marker
+            Console.WriteLine($"{stored.Site}: {stored.Timestamp:u} {stored.Name}");
+            if (stored.TryGetDimension("page", out var page)) Console.WriteLine(page);
+        }
+    }
+}
+
+var hourly = analytics.Storage.GetRollups(Granularity.Hour); // null when disabled
+// hourly.Acquire(name).ZoneTree is IZoneTree<Memory<byte>, RollupValue>.
+var sessions = analytics.Storage.Sessions; // IZoneTree<ulong, SessionState>, null when disabled
+var sessionsMaintainer = analytics.Storage.SessionsMaintainer;
+```
+
+`Acquire` and `AcquireAsync` accept a cancellation token and return null for a missing partition;
+they never create partitions. `GetRollups` takes exactly one of `Minute`, `Hour` or `Day`.
+`RollupValue`, `SessionState` and the rollup statistics and sketches are public for typed access;
+public codecs interpret encoded keys and raw event values without requiring a serializer or
+knowledge of byte offsets.
+
+#### Storage codecs
+
+`RawEventCodec.Decode(key, value)` returns a `RawEvent` with its site, UTC timestamp, sequence,
+event name, visitor hash, session information, dimensions and measured values. Use
+`TryGetDimension` and `TryGetValue` for named lookups. An empty value decodes to null (a deletion).
+`RawEventCodec.EncodeKey(record)` and `Encode(record)` convert it back to stored bytes;
+`Encode(null)` produces a deletion marker.
+
+`StorageKeyCodec.DecodeRawEvent(key)` decodes just the raw key, while `DecodeRollup(key)` returns
+the rollup's site, event, bucket and a dictionary of named dimensions. Missing dimensions decode
+to null and explicitly empty values to `""`. `EncodeRawEvent(key)` and `EncodeRollup(key)` convert
+the decoded keys back to bytes, ordering rollup dimensions canonically.
+
+```csharp
+// Inside a rollup iterator loop:
+var key = StorageKeyCodec.DecodeRollup(iterator.CurrentKey.Span);
+var bucketStart = key.GetBucketStart(Granularity.Hour, analytics.TimeZone);
+var dimensions = key.Dimensions;    // e.g. dimensions["country"] == "DE"
+var aggregates = iterator.CurrentValue; // already a typed RollupValue
+```
+
+The rollup key does not contain its granularity: pass the tier's granularity and the engine's
+time zone to `GetBucketStart`. Minute and hour buckets store UTC ticks; daily buckets store a
+local calendar date. Session keys and values are already typed as `ulong` and `SessionState`.
+Codecs preserve stored data without applying ingestion normalization. Malformed encoded keys
+and raw event payloads raise `FormatException`.
+
+Release leases before disposing the engine. The engine owns all trees and maintainers: do not
+dispose or drop them, or create another maintainer. A lease does not stop ingestion, compaction
+or record expiration. Treat stored values, arrays and sketches as immutable, and construct
+replacement values for writes. Direct writes bypass ingestion and aggregation and can make
+raw events, rollups and cached sessions inconsistent. The metadata store uses files rather
+than ZoneTree and is not exposed.
+
+---
+
 ## Extending
 
 Every extension point follows the same model: a single-method interface, a static class of the same name without the `I` that offers the built-in implementation and a `Create` factory for lambdas, and an option to plug it in.

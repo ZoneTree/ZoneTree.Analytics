@@ -43,7 +43,7 @@ readonly struct QuantileBucket
 /// relative-error guarantees", VLDB 2019.
 /// </para>
 /// </remarks>
-sealed class QuantileSketch
+public sealed class QuantileSketch
 {
   /// <summary>
   /// The relative accuracy α of quantiles.
@@ -66,6 +66,7 @@ sealed class QuantileSketch
 
   long zeroCount;
 
+  /// <summary>Creates an empty sketch.</summary>
   public QuantileSketch()
   {
     positive = new Store();
@@ -82,9 +83,10 @@ sealed class QuantileSketch
   /// <summary>The number of values.</summary>
   public long Count => positive.Total + negative.Total + zeroCount;
 
+  /// <summary>Whether no values have been added.</summary>
   public bool IsEmpty => Count == 0;
 
-  public static QuantileBucket BucketOf(double value)
+  internal static QuantileBucket BucketOf(double value)
   {
     if (value >= MinMagnitude)
       return new QuantileBucket(1, IndexOf(value));
@@ -102,9 +104,10 @@ sealed class QuantileSketch
   static double ValueOf(int index) =>
       Math.Min(double.MaxValue, Math.Exp(index * LogGamma + LogRepresentativeScale));
 
+  /// <summary>Adds one measured value.</summary>
   public void Add(double value) => Add(BucketOf(value));
 
-  public void Add(QuantileBucket bucket)
+  internal void Add(QuantileBucket bucket)
   {
     switch (bucket.Store)
     {
@@ -120,6 +123,7 @@ sealed class QuantileSketch
     }
   }
 
+  /// <summary>Merges another sketch into this instance.</summary>
   public void MergeWith(QuantileSketch other)
   {
     positive.MergeWith(other.positive);
@@ -127,6 +131,7 @@ sealed class QuantileSketch
     zeroCount += other.zeroCount;
   }
 
+  /// <summary>Creates a deep copy of the sketch.</summary>
   public QuantileSketch Clone() => new(positive.Clone(), negative.Clone(), zeroCount);
 
   /// <summary>

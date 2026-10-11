@@ -247,7 +247,7 @@ sealed class PartitionedStore<TKey, TValue> : IDisposable
                 partition.CleanupFailure);
           ++partition.Leases;
           partition.LastUsedTicks = Environment.TickCount64;
-          return new PartitionLease<TKey, TValue>(this, name, partition.Tree);
+          return new PartitionLease<TKey, TValue>(this, name, partition.Tree, partition.Maintainer);
         }
         if (Array.IndexOf(map.Names, name) < 0)
           return null;
@@ -285,7 +285,7 @@ sealed class PartitionedStore<TKey, TValue> : IDisposable
         };
         partitions.Add(name, partition);
         closedRecordCounts.Remove(name);
-        return new PartitionLease<TKey, TValue>(this, name, tree);
+        return new PartitionLease<TKey, TValue>(this, name, tree, maintainer);
       }
     }
   }
@@ -487,7 +487,7 @@ sealed class PartitionedStore<TKey, TValue> : IDisposable
         if (partition.State != PartitionState.Open || partition.DropRequested)
           continue;
         ++partition.Leases;
-        open.Add((partition.Maintainer, new PartitionLease<TKey, TValue>(this, partition.Name, partition.Tree)));
+        open.Add((partition.Maintainer, new PartitionLease<TKey, TValue>(this, partition.Name, partition.Tree, partition.Maintainer)));
       }
     }
     try
@@ -638,16 +638,19 @@ sealed class PartitionLease<TKey, TValue> : IDisposable
 
   int released;
 
-  public PartitionLease(PartitionedStore<TKey, TValue> store, string name, IZoneTree<TKey, TValue> tree)
+  public PartitionLease(PartitionedStore<TKey, TValue> store, string name, IZoneTree<TKey, TValue> tree, IMaintainer maintainer)
   {
     this.store = store;
     Name = name;
     Tree = tree;
+    Maintainer = maintainer;
   }
 
   public string Name { get; }
 
   public IZoneTree<TKey, TValue> Tree { get; }
+
+  public IMaintainer Maintainer { get; }
 
   public void Dispose()
   {

@@ -24,7 +24,7 @@ namespace ZoneTree.Analytics.Sketches;
 /// immutable snapshots: merges stored back to ZoneTree always work on a <see cref="Clone"/>.
 /// </para>
 /// </remarks>
-sealed class HyperLogLog
+public sealed class HyperLogLog
 {
   /// <summary>
   /// The default precision. Dense sketches use 2^14 one-byte registers (16 KiB).
