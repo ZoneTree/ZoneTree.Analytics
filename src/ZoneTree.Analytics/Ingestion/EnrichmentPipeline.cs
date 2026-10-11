@@ -336,8 +336,8 @@ sealed class EnrichmentPipeline
   }
 
   /// <summary>
-  /// Runs the configured enrichers, then derives the page, hostname and custom-dimension flag
-  /// from the final dimensions.
+  /// Runs the configured enrichers, enforces custom-dimension privacy, then derives the page,
+  /// hostname and custom-dimension flag from the final dimensions.
   /// </summary>
   void RunEnrichers(
       EventSnapshot e, string name, string site, long ticks, UserAgentInfo userAgent, BotInfo bot, EnrichedEvent result)
@@ -363,13 +363,23 @@ sealed class EnrichmentPipeline
         }
       }
     }
+    var privacy = options.Privacy;
+    var customCount = 0;
+    foreach (var dimension in result.Dimensions.Keys)
+    {
+      if (dimension is StandardDimensions.Page or StandardDimensions.Hostname ||
+          (result.IsBot && dimension is StandardDimensions.Bot or StandardDimensions.BotCategory or StandardDimensions.Event))
+        continue;
+      // Session dimensions live in SessionDimensions, outside the per-event limit.
+      // Removing dictionary entries during enumeration is supported on all target frameworks.
+      if (!privacy.IsCustomDimensionAllowed(dimension) || customCount >= privacy.MaxCustomDimensions)
+        result.Dimensions.Remove(dimension);
+      else
+        ++customCount;
+    }
     result.Page = result.Dimensions.GetValueOrDefault(StandardDimensions.Page);
     result.Hostname = result.Dimensions.GetValueOrDefault(StandardDimensions.Hostname) ?? "";
-    if (!result.IsBot)
-    {
-      result.HasCustomDimensions = result.Dimensions.Keys.Any(
-          x => x is not (StandardDimensions.Page or StandardDimensions.Hostname));
-    }
+    result.HasCustomDimensions = !result.IsBot && customCount > 0;
   }
 
   string GetDimension(EnrichedEvent result, string dimension)

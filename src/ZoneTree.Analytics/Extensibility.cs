@@ -246,7 +246,8 @@ public static class GeoLocator
 /// and session-level dimensions such as source, country or device. A session-level value set
 /// on the first event of a session applies to the whole session; on later events of the session
 /// it has no effect, because session-level dimensions are fixed when the session starts.
-/// Values are sanitized and truncated after enrichment.
+/// Values are sanitized and truncated when set. After all enrichers run, custom event
+/// dimensions are filtered by the privacy allow/deny lists and the per-event count limit.
 /// </remarks>
 public sealed class EnrichmentContext : EventContext
 {
@@ -270,6 +271,13 @@ public sealed class EnrichmentContext : EventContext
   /// Sets a dimension. Null removes it. <see cref="StandardDimensions.EntryPage"/> and the bot
   /// dimensions are maintained by the engine and cannot be set.
   /// </summary>
+  /// <remarks>
+  /// Custom event dimensions remain subject to <see cref="PrivacyOptions.AllowedDimensions"/>,
+  /// <see cref="PrivacyOptions.DeniedDimensions"/> and <see cref="PrivacyOptions.MaxCustomDimensions"/>
+  /// after all enrichers run. Page, hostname and standard session dimensions are exempt from
+  /// these custom-dimension rules; engine-maintained bot dimensions are preserved on bot events.
+  /// Custom session names must be allowed at configuration time and do not consume the event limit.
+  /// </remarks>
   public void SetDimension(string name, string value) => Setter(name, value);
 }
 

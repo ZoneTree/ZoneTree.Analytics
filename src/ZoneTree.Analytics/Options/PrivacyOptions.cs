@@ -42,17 +42,23 @@ public sealed class PrivacyOptions
   public bool IncludeQueryString { get; set; }
 
   /// <summary>
-  /// When set, only these custom dimensions are kept. Null (the default) keeps all.
+  /// When set, only these custom dimensions are kept, including those added by enrichers.
+  /// Null (the default) keeps all. Custom session dimensions must also be allowed.
   /// </summary>
   public ISet<string> AllowedDimensions { get; set; }
 
   /// <summary>
-  /// Custom dimensions that are always discarded. Empty by default.
+  /// Custom dimensions that are always discarded, including those added by enrichers.
+  /// Takes precedence over AllowedDimensions. Custom session dimensions cannot be denied.
+  /// Empty by default.
   /// </summary>
   public ISet<string> DeniedDimensions { get; private set; } = new HashSet<string>(StringComparer.Ordinal);
 
   /// <summary>
-  /// Maximum number of custom dimensions kept per event. Default is 32.
+  /// Maximum number of custom event dimensions kept after enrichment. Default is 32.
+  /// Tracked dimensions and enricher additions share this limit; the first remaining
+  /// dimensions are kept. Page, hostname, engine-maintained bot dimensions and session-level
+  /// dimensions do not count toward it.
   /// </summary>
   public int MaxCustomDimensions { get; set; } = 32;
 
