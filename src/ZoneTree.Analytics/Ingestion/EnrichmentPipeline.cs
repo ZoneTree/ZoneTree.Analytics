@@ -347,15 +347,23 @@ sealed class EnrichmentPipeline
     {
       var context = (EnrichmentContext)FillContext(new EnrichmentContext(), e, name, site, ticks, userAgent);
       context.Bot = bot;
-      context.Getter = dimension => GetDimension(result, dimension);
-      context.Setter = (dimension, value) => SetDimension(result, dimension, value);
+      Dictionary<string, string> changes = null;
+      context.Getter = dimension => dimension != null && changes != null && changes.TryGetValue(dimension, out var value)
+          ? value : GetDimension(result, dimension);
+      context.Setter = (dimension, value) => changes = SetDimension(result, dimension, value, changes);
       foreach (var enricher in enrichers)
       {
         if (enricher == null)
           continue;
+        changes = null;
         try
         {
           enricher.Enrich(context);
+          if (changes != null)
+          {
+            foreach (var (dimension, value) in changes)
+              ApplyDimension(result, dimension, value);
+          }
         }
         catch (Exception exception)
         {
@@ -392,7 +400,8 @@ sealed class EnrichmentPipeline
     return result.Dimensions.GetValueOrDefault(dimension);
   }
 
-  void SetDimension(EnrichedEvent result, string dimension, string value)
+  Dictionary<string, string> SetDimension(
+      EnrichedEvent result, string dimension, string value, Dictionary<string, string> changes)
   {
     var name = Text.Name(dimension);
     if (name.Length == 0 || name.Contains(','))
@@ -402,6 +411,13 @@ sealed class EnrichmentPipeline
     if (result.IsBot && name is StandardDimensions.Bot or StandardDimensions.BotCategory or StandardDimensions.Event)
       throw new ArgumentException($"'{name}' is maintained by the engine on bot events.", nameof(dimension));
     var sanitized = value == null ? null : Text.Value(value, options.Privacy.MaxValueLength);
+    changes ??= new(StringComparer.Ordinal);
+    changes[name] = sanitized;
+    return changes;
+  }
+
+  void ApplyDimension(EnrichedEvent result, string name, string sanitized)
+  {
     var index = result.IsBot ? -1 : Schema.IndexOf(name);
     if (index >= 0)
     {

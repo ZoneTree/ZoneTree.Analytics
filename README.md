@@ -473,6 +473,8 @@ Use one of the two page view options, not both. The tracker follows single-page-
 
 For hash-routed SPAs, add `data-hash-routing="true"` to the script element. Routes such as `/#/pricing` and `/#!/pricing` become the page `/pricing`; ordinary anchors are ignored. Events tracked directly can set `AnalyticsEvent.HashRouting = true`. Query strings in hash routes follow the same privacy rules as other page URLs.
 
+The tracker observes `pushState`, `replaceState` and `popstate`, deduplicates the current URL, and installs once even if the script is loaded twice. Server-side page tracking logs and counts analytics callback failures while preserving the application's response; application errors still propagate normally.
+
 ### Reporting API
 
 | Endpoint | Returns |
@@ -488,6 +490,8 @@ For hash-routed SPAs, add `data-hash-routing="true"` to the script element. Rout
 | `POST funnel` | a funnel, as JSON |
 
 List reports return `{ from, to, totalRows, rows, plan }`. Summary, time series and page rows include `botHits` (null unless bots are tracked separately). `interval` accepts `minute`, `hour`, `day`, `week`, `month`, `year` and widths such as `5m` or `6h`; `POST query` also takes `fill` (`none`, `zero`, `previous`, `linear`), `having` conditions, `orderBy` sort keys and `limitPerBucket`. Common parameters, all in the text forms above: `site`, `range` (default `30d`) or `from` and `to` (days or date-times), `tz`, `filter` (repeatable), `segment` (repeatable; in JSON, `segments` holds texts or objects), `compare` (`previous-period`, `previous-year` or a range), `limit`, `offset`.
+
+The reporting API represents non-finite metric values (overflow or undefined arithmetic) as JSON `null`, adds a warning to `plan.warnings`, and sets `plan.complete` to false. This also applies to totals, series and comparison values. The .NET query result retains its numerical values. Page reports exclude missing pages before counting and pagination; exit-page reports also exclude rows with no exits.
 
 ```json
 POST /_analytics/api/query
@@ -674,6 +678,7 @@ Rules that hold for all of them:
 
 * **Thread safety.** Extensions are called concurrently; implementations must be thread-safe.
 * **Fail open.** An exception thrown by an extension is logged and counted in `GetStatistics().Errors`, and the event is processed as if the extension were not there. Analytics never breaks the host application.
+* **Enricher changes.** Each enricher sees its own pending changes. They are committed when it returns successfully; if it throws, they are discarded before the next enricher runs.
 * **Privacy.** Extensions see the IP address and user agent in memory (`EventContext`); neither is stored.
 * **Enrichers see final values.** `GetDimension` and `SetDimension` work on page, hostname, custom and session-level dimensions after built-in enrichment, for human and bot events (`context.Bot`). A session-level value set on the first event of a session applies to the whole session. The entry page follows the page and cannot be set directly, and the bot dimensions of bot events are fixed.
 

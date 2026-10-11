@@ -17,6 +17,8 @@ public sealed class AspNetCoreTests : DirectoryTest
 
   HttpClient client;
 
+  RecordingLogger logger;
+
   // Owned and disposed by the host.
   AnalyticsEngine Engine => app.Services.GetRequiredService<AnalyticsEngine>();
 
@@ -25,10 +27,14 @@ public sealed class AspNetCoreTests : DirectoryTest
   {
     var builder = WebApplication.CreateBuilder();
     builder.WebHost.UseTestServer();
+    logger = new RecordingLogger();
     builder.Services.AddZoneTreeAnalytics(
         options =>
         {
           options.DataDirectory = directory;
+          options.Storage.Logger = logger;
+          if (TestContext.CurrentContext.Test.MethodName == nameof(MiddlewarePreservesResponseWhenLoggerThrows))
+            options.Storage.Logger = new ThrowingLogger();
           TestEngine.UseTestDefaults(options);
           options.Web.Bots = BotTraffic.TrackSeparately;
           // Options are fixed once the engine exists: the timeout test needs its own value.
@@ -50,6 +56,7 @@ public sealed class AspNetCoreTests : DirectoryTest
     app.MapGet("/docs", () => Results.Content("<html><body>docs</body></html>", "text/html"));
     app.MapGet("/api/data", () => Results.Json(new { ok = true }));
     app.MapGet("/data.json", () => Results.Json(new { ok = true }));
+    app.MapGet("/failure", (RequestDelegate)(_ => throw new InvalidOperationException("application failure")));
     await app.StartAsync();
     client = app.GetTestClient();
     client.DefaultRequestHeaders.UserAgent.ParseAdd(UserAgents.ChromeWindows);
@@ -96,6 +103,65 @@ public sealed class AspNetCoreTests : DirectoryTest
       Assert.That(pages.Select(x => (x[StandardDimensions.Page], x[Metric.Events])), Is.EqualTo(new[] { ("/", 1.0), ("/docs", 1.0) }));
       Assert.That(Count(StandardEvents.Session), Is.EqualTo(1));
     });
+  }
+
+  [TestCase("site")]
+  [TestCase("visitor")]
+  [TestCase("should-track")]
+  public async Task MiddlewarePreservesResponseWhenCallbackThrows(string callback)
+  {
+    var options = app.Services.GetRequiredService<AnalyticsWebOptions>();
+    var failure = new InvalidOperationException("analytics callback failure");
+    if (callback == "site")
+      options.SiteResolver = _ => throw failure;
+    else if (callback == "visitor")
+      options.VisitorIdResolver = _ => throw failure;
+    else
+      options.ShouldTrack = _ => throw failure;
+
+    using var response = await client.GetAsync("/");
+    var body = await response.Content.ReadAsStringAsync();
+    Assert.Multiple(() =>
+    {
+      Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+      Assert.That(body, Is.EqualTo("<html><body>home</body></html>"));
+      Assert.That(Engine.GetStatistics().Errors, Is.EqualTo(1));
+      Assert.That(Engine.GetStatistics().EventsAccepted, Is.Zero);
+      Assert.That(logger.Problems, Has.One.Contains("analytics callback failure"));
+    });
+    // The next successful request can still be tracked.
+    options.SiteResolver = null;
+    options.VisitorIdResolver = null;
+    options.ShouldTrack = null;
+    await client.GetAsync("/docs");
+    await Engine.FlushAsync();
+    Assert.That(Count(StandardEvents.PageView), Is.EqualTo(1));
+  }
+
+  [Test]
+  public async Task MiddlewarePreservesResponseWhenLoggerThrows()
+  {
+    app.Services.GetRequiredService<AnalyticsWebOptions>().ShouldTrack = _ => throw new InvalidOperationException("callback");
+    using var response = await client.GetAsync("/");
+    Assert.That(await response.Content.ReadAsStringAsync(), Is.EqualTo("<html><body>home</body></html>"));
+    Assert.That(Engine.GetStatistics().Errors, Is.EqualTo(1));
+  }
+
+  [Test]
+  public void MiddlewarePropagatesApplicationFailures()
+  {
+    var exception = Assert.ThrowsAsync<InvalidOperationException>(async () => await client.GetAsync("/failure"));
+    Assert.That(exception.Message, Is.EqualTo("application failure"));
+    Assert.That(Engine.GetStatistics().Errors, Is.Zero);
+  }
+
+  sealed class ThrowingLogger : ZoneTree.Logger.ILogger
+  {
+    public ZoneTree.Logger.LogLevel LogLevel { get; set; } = ZoneTree.Logger.LogLevel.Warning;
+    public void LogError(Exception log) => throw new InvalidOperationException("logger failure");
+    public void LogWarning(object log) { }
+    public void LogInfo(object log) { }
+    public void LogTrace(object log) { }
   }
 
   [Test]
@@ -481,6 +547,98 @@ public sealed class AspNetCoreTests : DirectoryTest
     {
       Assert.That(status, Is.EqualTo(HttpStatusCode.ServiceUnavailable));
       Assert.That(error.GetProperty("error").GetString(), Does.Contain("Timeout"));
+    });
+  }
+
+  [TestCase(QuerySource.RawEvents, 1)]
+  [TestCase(QuerySource.Rollups, 1)]
+  [TestCase(QuerySource.RawEvents, -1)]
+  [TestCase(QuerySource.Rollups, -1)]
+  public async Task ReportingApiRepresentsNonFiniteMetricsAsNullWithAWarning(QuerySource source, int sign)
+  {
+    var day = DateTime.UtcNow.Date.AddDays(-2);
+    var value = sign * double.MaxValue;
+    for (var i = 0; i < 2; ++i)
+      Engine.Track(new AnalyticsEvent("measurement")
+      {
+        Url = "/overflow", Timestamp = Utc(day.AddHours(10).AddMinutes(i))
+      }.WithValue("x", value));
+    await Engine.FlushAsync();
+    var body = JsonSerializer.Serialize(new
+    {
+      @event = "measurement", from = Utc(day), to = Utc(day.AddDays(1)),
+      source = source.ToString(), interval = "hour", fill = "none", groupBy = new[] { "page" },
+      metrics = new[] { "sum:x", "cumulative(sum:x)", "rate(sum:x)", "percent(sum:x)", "max:x", "events" }
+    });
+    var (status, result) = await PostJson("/_analytics/api/query", body);
+    Assert.That(status, Is.EqualTo(HttpStatusCode.OK));
+    var values = result.GetProperty("rows")[0].GetProperty("values");
+    Assert.Multiple(() =>
+    {
+      foreach (var key in new[] { "sum:x", "cumulative(sum:x)", "rate(sum:x)", "percent(sum:x)" })
+        Assert.That(values.GetProperty(key).ValueKind, Is.EqualTo(JsonValueKind.Null), key);
+      Assert.That(values.GetProperty("max:x").GetDouble(), Is.EqualTo(value));
+      Assert.That(values.GetProperty("events").GetDouble(), Is.EqualTo(2));
+      Assert.That(result.GetProperty("totals").GetProperty("values").GetProperty("sum:x").ValueKind,
+          Is.EqualTo(JsonValueKind.Null));
+      Assert.That(result.GetProperty("plan").GetProperty("complete").GetBoolean(), Is.False);
+      Assert.That(result.GetProperty("plan").GetProperty("warnings").EnumerateArray().Select(x => x.GetString()),
+          Has.One.Contains("Non-finite metric values"));
+    });
+    // The core result retains the overflowing aggregate rather than changing it to zero.
+    var core = Engine.Query(new AnalyticsQuery
+    {
+      Event = "measurement", Range = Day(day), Source = source, Metrics = { Metric.Sum("x") }
+    });
+    Assert.That(core.Totals[Metric.Sum("x")], Is.EqualTo(sign > 0 ? double.PositiveInfinity : double.NegativeInfinity));
+  }
+
+  [Test]
+  public async Task ReportingApiWarnsWhenOnlyPreviousMetricsOverflow()
+  {
+    var day = DateTime.UtcNow.Date.AddDays(-2);
+    Engine.Track(new AnalyticsEvent("measurement") { Timestamp = Utc(day.AddHours(10)) }.WithValue("x", 3));
+    for (var i = 0; i < 2; ++i)
+      Engine.Track(new AnalyticsEvent("measurement")
+      {
+        Timestamp = Utc(day.AddDays(-1).AddHours(10).AddMinutes(i))
+      }.WithValue("x", double.MaxValue));
+    await Engine.FlushAsync();
+    var body = JsonSerializer.Serialize(new
+    {
+      @event = "measurement", from = Utc(day), to = Utc(day.AddDays(1)),
+      metrics = new[] { "sum:x" }, compare = "previous-period"
+    });
+    var (status, result) = await PostJson("/_analytics/api/query", body);
+    Assert.That(status, Is.EqualTo(HttpStatusCode.OK));
+    var totals = result.GetProperty("totals");
+    Assert.Multiple(() =>
+    {
+      Assert.That(totals.GetProperty("values").GetProperty("sum:x").GetDouble(), Is.EqualTo(3));
+      Assert.That(totals.GetProperty("previous").GetProperty("values").GetProperty("sum:x").ValueKind,
+          Is.EqualTo(JsonValueKind.Null));
+      Assert.That(result.GetProperty("plan").GetProperty("warnings").GetArrayLength(), Is.EqualTo(1));
+    });
+  }
+
+  [Test]
+  public async Task ReportingApiPagesCountEligibleRowsBeforePaging()
+  {
+    Engine.Track(new AnalyticsEvent("pageview") { VisitorId = "missing" });
+    Engine.Track(new AnalyticsEvent("pageview") { VisitorId = "missing" });
+    Engine.Track(new AnalyticsEvent("pageview") { VisitorId = "valid", Url = "/first" });
+    Engine.Track(new AnalyticsEvent("pageview") { VisitorId = "valid", Url = "/last" });
+    await Engine.FlushAsync();
+    var (pageStatus, pages) = await GetJson("/_analytics/api/pages?range=1h&limit=1");
+    var (exitStatus, exits) = await GetJson("/_analytics/api/exit-pages?range=1h&limit=1");
+    Assert.Multiple(() =>
+    {
+      Assert.That(pageStatus, Is.EqualTo(HttpStatusCode.OK));
+      Assert.That(pages.GetProperty("rows")[0].GetProperty("page").GetString(), Is.EqualTo("/first"));
+      Assert.That(pages.GetProperty("totalRows").GetInt32(), Is.EqualTo(2));
+      Assert.That(exitStatus, Is.EqualTo(HttpStatusCode.OK));
+      Assert.That(exits.GetProperty("rows")[0].GetProperty("page").GetString(), Is.EqualTo("/last"));
+      Assert.That(exits.GetProperty("totalRows").GetInt32(), Is.EqualTo(1));
     });
   }
 

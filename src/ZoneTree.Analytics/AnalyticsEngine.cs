@@ -184,19 +184,34 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
       funnelEngine = new FunnelEngine(options, calendar, rawEvents, enricher);
       Web = new WebAnalytics(this);
       visitorHasher.RotateSalts(DateTime.UtcNow);
+
+      // Create the timer disabled, then start background work inside the cleanup boundary.
+      timer = new Timer(OnTimer, null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+      foreach (var worker in workers)
+        worker.Start();
+      lastHousekeepingTicks = DateTime.UtcNow.Ticks;
+      var period = options.Ingestion.FlushInterval;
+      timer.Change(period, period);
     }
     catch
     {
-      DisposeStorage();
+      Volatile.Write(ref disposed, 1);
+      timer?.Dispose();
+      try
+      {
+        if (workers != null)
+        {
+          foreach (var worker in workers)
+            worker?.Stop();
+          Task.WhenAll(workers.Where(x => x != null).Select(x => x.Completion)).GetAwaiter().GetResult();
+        }
+      }
+      finally
+      {
+        DisposeStorage();
+      }
       throw;
     }
-
-    // Background work starts only once the engine is fully constructed.
-    foreach (var worker in workers)
-      worker.Start();
-    lastHousekeepingTicks = DateTime.UtcNow.Ticks;
-    var period = options.Ingestion.FlushInterval;
-    timer = new Timer(OnTimer, null, period, period);
   }
 
   /// <summary>
@@ -218,6 +233,20 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
   internal RawEventStore RawEventStore => rawEvents;
 
   internal RollupStore RollupStore => rollups;
+
+  /// <summary>Counts integration failures without letting a failing logger affect the response.</summary>
+  internal void ReportIntegrationError(Exception exception)
+  {
+    Interlocked.Increment(ref counters.Errors);
+    try
+    {
+      logger.LogError(exception);
+    }
+    catch (Exception)
+    {
+      // Request tracking must preserve a response even when the configured logger fails.
+    }
+  }
 
   /// <summary>
   /// The default reporting time zone.

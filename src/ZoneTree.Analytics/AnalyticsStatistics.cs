@@ -33,7 +33,7 @@ public sealed class AnalyticsStatistics
   public long Flushes { get; init; }
 
   /// <summary>
-  /// Errors raised while processing or flushing, including exceptions thrown by extensions and
+  /// Errors raised while tracking, processing or flushing, including exceptions thrown by extensions and
   /// storage errors such as failed ZoneTree merges or partition cleanups. Details are logged.
   /// </summary>
   public long Errors { get; init; }

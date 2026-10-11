@@ -183,6 +183,10 @@ public sealed class AnalyticsQuery
   /// </summary>
   public QuerySource Source { get; set; }
 
+  // Report eligibility is evaluated after aggregation, before sorting, counting and paging.
+  // Unlike an event filter, it does not change session or page-flow reconstruction.
+  internal Func<AnalyticsRow, bool> RowPredicate { get; set; }
+
   internal AnalyticsQuery CloneForRange(DateRange range)
   {
     var clone = new AnalyticsQuery

@@ -112,9 +112,9 @@ sealed class PageViewTrackingMiddleware
       analyticsEvent.Referrer = request.Headers.Referer;
       engine.Track(analyticsEvent);
     }
-    catch (ObjectDisposedException)
+    catch (Exception exception)
     {
-      // The host is shutting down.
+      engine.ReportIntegrationError(exception);
     }
   }
 

@@ -10,6 +10,7 @@ public sealed class QueryOptions
   /// <see cref="AnalyticsQueryTimeoutException"/>. It protects the host application from
   /// expensive ad-hoc queries, for example long raw event scans requested through a reporting
   /// API. Null means no limit. Default is 30 seconds.
+  /// Must not exceed approximately 49.7 days, the cancellation timer's maximum delay.
   /// </summary>
   public TimeSpan? Timeout { get; set; } = TimeSpan.FromSeconds(30);
 
@@ -45,6 +46,8 @@ public sealed class QueryOptions
   {
     if (Timeout <= TimeSpan.Zero)
       throw new ArgumentException("Queries.Timeout must be positive, or null for no limit.");
+    if (Timeout > TimeSpan.FromMilliseconds(uint.MaxValue - 1))
+      throw new ArgumentException("Queries.Timeout exceeds the cancellation timer's maximum delay (4,294,967,294 milliseconds).");
     if (MaxDegreeOfParallelism < 1)
       throw new ArgumentException("Queries.MaxDegreeOfParallelism must be positive.");
     if (MaxGroupBy < 1)

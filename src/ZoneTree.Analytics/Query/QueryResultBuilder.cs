@@ -74,7 +74,9 @@ static class QueryResultBuilder
       for (var i = 0; i < dimensions.Length; ++i)
         dimensions[i] = KeyCodec.Public(dimensions[i]);
       var label = interval == TimeInterval.None ? (DateTimeOffset?)null : context.Calendar.BucketLabel(key.Bucket, interval);
-      rows.Add((new AnalyticsRow(shape, label, dimensions, values), key.Bucket));
+      var row = new AnalyticsRow(shape, label, dimensions, values);
+      if (query.RowPredicate == null || query.RowPredicate(row))
+        rows.Add((row, key.Bucket));
     }
 
     var orders = query.OrderBy.Where(x => x != null).ToList();

@@ -357,8 +357,8 @@ static class ReportingApi
     writer.WriteStartObject();
     WriteRange(writer, report.From, report.To);
     writer.WritePropertyName("summary");
-    WriteSummary(writer, report.Summary);
-    WritePlan(writer, report.Plan);
+    var nonFinite = WriteSummary(writer, report.Summary);
+    WritePlan(writer, report.Plan, nonFinite);
     writer.WriteEndObject();
   }
 
@@ -371,8 +371,9 @@ static class ReportingApi
       w.WriteStartObject();
       w.WriteString("bucket", point.Bucket);
       w.WritePropertyName("summary");
-      WriteSummary(w, point.Summary);
+      var nonFinite = WriteSummary(w, point.Summary);
       w.WriteEndObject();
+      return nonFinite;
     });
   }
 
@@ -402,8 +403,9 @@ static class ReportingApi
       w.WriteString("name", goal.Name);
       w.WriteNumber("visitors", goal.Visitors);
       w.WriteNumber("events", goal.Events);
-      w.WriteNumber("conversionRate", goal.ConversionRate);
+      var nonFinite = WriteNullable(w, "conversionRate", goal.ConversionRate);
       w.WriteEndObject();
+      return nonFinite;
     });
   }
 
@@ -471,20 +473,20 @@ static class ReportingApi
     var result = await Engine(context).QueryAsync(funnel, cancellationToken);
     writer.WriteStartObject();
     WriteRange(writer, result.From, result.To);
-    writer.WriteNumber("conversionRate", result.ConversionRate);
+    var nonFinite = WriteNullable(writer, "conversionRate", result.ConversionRate);
     writer.WriteStartArray("steps");
     foreach (var step in result.Steps)
     {
       writer.WriteStartObject();
       writer.WriteString("name", step.Name);
       writer.WriteNumber("visitors", step.Visitors);
-      writer.WriteNumber("conversionRate", step.ConversionRate);
-      writer.WriteNumber("stepConversionRate", step.StepConversionRate);
-      writer.WriteNumber("dropOff", step.DropOff);
+      nonFinite |= WriteNullable(writer, "conversionRate", step.ConversionRate);
+      nonFinite |= WriteNullable(writer, "stepConversionRate", step.StepConversionRate);
+      nonFinite |= WriteNullable(writer, "dropOff", step.DropOff);
       writer.WriteEndObject();
     }
     writer.WriteEndArray();
-    WritePlan(writer, result.Plan);
+    WritePlan(writer, result.Plan, nonFinite);
     writer.WriteEndObject();
   }
 
@@ -492,81 +494,86 @@ static class ReportingApi
 
   #region Writers
 
-  static void WriteNullable(Utf8JsonWriter writer, string name, double? value)
+  static bool WriteNullable(Utf8JsonWriter writer, string name, double? value)
   {
-    if (value.HasValue)
+    if (value.HasValue && double.IsFinite(value.Value))
       writer.WriteNumber(name, value.Value);
     else
       writer.WriteNull(name);
+    return value.HasValue && !double.IsFinite(value.Value);
   }
 
-  static void WriteSummary(Utf8JsonWriter writer, WebSummary summary)
+  static bool WriteSummary(Utf8JsonWriter writer, WebSummary summary)
   {
     writer.WriteStartObject();
     writer.WriteNumber("visitors", summary.Visitors);
     writer.WriteNumber("pageViews", summary.PageViews);
-    WriteNullable(writer, "sessions", summary.Sessions);
-    WriteNullable(writer, "bounceRate", summary.BounceRate);
-    WriteNullable(writer, "averageSessionDuration", summary.AverageSessionDuration?.TotalSeconds);
-    WriteNullable(writer, "pageViewsPerSession", summary.PageViewsPerSession);
-    WriteNullable(writer, "botHits", summary.BotHits);
+    var nonFinite = WriteNullable(writer, "sessions", summary.Sessions);
+    nonFinite |= WriteNullable(writer, "bounceRate", summary.BounceRate);
+    nonFinite |= WriteNullable(writer, "averageSessionDuration", summary.AverageSessionDuration?.TotalSeconds);
+    nonFinite |= WriteNullable(writer, "pageViewsPerSession", summary.PageViewsPerSession);
+    nonFinite |= WriteNullable(writer, "botHits", summary.BotHits);
     if (summary.Previous != null)
     {
       writer.WritePropertyName("previous");
-      WriteSummary(writer, summary.Previous);
+      nonFinite |= WriteSummary(writer, summary.Previous);
     }
     writer.WriteEndObject();
+    return nonFinite;
   }
 
-  static void WriteBreakdownRow(Utf8JsonWriter writer, WebBreakdownRow row)
+  static bool WriteBreakdownRow(Utf8JsonWriter writer, WebBreakdownRow row)
   {
     writer.WriteStartObject();
     writer.WriteString("value", row.Value);
     writer.WriteNumber("visitors", row.Visitors);
     writer.WriteNumber("pageViews", row.PageViews);
-    writer.WriteNumber("visitorShare", row.VisitorShare);
-    WriteNullable(writer, "sessions", row.Sessions);
-    WriteNullable(writer, "bounceRate", row.BounceRate);
-    WriteNullable(writer, "averageSessionDuration", row.AverageSessionDuration?.TotalSeconds);
+    var nonFinite = WriteNullable(writer, "visitorShare", row.VisitorShare);
+    nonFinite |= WriteNullable(writer, "sessions", row.Sessions);
+    nonFinite |= WriteNullable(writer, "bounceRate", row.BounceRate);
+    nonFinite |= WriteNullable(writer, "averageSessionDuration", row.AverageSessionDuration?.TotalSeconds);
     if (row.Previous != null)
     {
       writer.WritePropertyName("previous");
-      WriteBreakdownRow(writer, row.Previous);
+      nonFinite |= WriteBreakdownRow(writer, row.Previous);
     }
     writer.WriteEndObject();
+    return nonFinite;
   }
 
-  static void WritePageStats(Utf8JsonWriter writer, PageStats page)
+  static bool WritePageStats(Utf8JsonWriter writer, PageStats page)
   {
     writer.WriteStartObject();
     writer.WriteString("page", page.Page);
     writer.WriteNumber("visitors", page.Visitors);
     writer.WriteNumber("pageViews", page.PageViews);
-    WriteNullable(writer, "entrances", page.Entrances);
-    WriteNullable(writer, "exits", page.Exits);
-    WriteNullable(writer, "exitRate", page.ExitRate);
-    WriteNullable(writer, "botHits", page.BotHits);
+    var nonFinite = WriteNullable(writer, "entrances", page.Entrances);
+    nonFinite |= WriteNullable(writer, "exits", page.Exits);
+    nonFinite |= WriteNullable(writer, "exitRate", page.ExitRate);
+    nonFinite |= WriteNullable(writer, "botHits", page.BotHits);
     if (page.Previous != null)
     {
       writer.WritePropertyName("previous");
-      WritePageStats(writer, page.Previous);
+      nonFinite |= WritePageStats(writer, page.Previous);
     }
     writer.WriteEndObject();
+    return nonFinite;
   }
 
-  static void WriteBotStats(Utf8JsonWriter writer, BotStats bot)
+  static bool WriteBotStats(Utf8JsonWriter writer, BotStats bot)
   {
     writer.WriteStartObject();
     writer.WriteString("name", bot.Name);
     writer.WriteString("category", bot.Category);
     writer.WriteNumber("hits", bot.Hits);
-    writer.WriteNumber("share", bot.Share);
+    var nonFinite = WriteNullable(writer, "share", bot.Share);
     if (bot.Previous != null)
     {
       writer.WritePropertyName("previous");
-      WriteBotStats(writer, bot.Previous);
+      nonFinite |= WriteBotStats(writer, bot.Previous);
     }
     writer.WriteEndObject();
+    return nonFinite;
   }
 
   static void WriteRange(Utf8JsonWriter writer, DateTimeOffset from, DateTimeOffset to)
@@ -575,20 +582,21 @@ static class ReportingApi
     writer.WriteString("to", to);
   }
 
-  static void WriteReport<T>(Utf8JsonWriter writer, WebReport<T> report, Action<Utf8JsonWriter, T> writeRow)
+  static void WriteReport<T>(Utf8JsonWriter writer, WebReport<T> report, Func<Utf8JsonWriter, T, bool> writeRow)
   {
     writer.WriteStartObject();
     WriteRange(writer, report.From, report.To);
     writer.WriteNumber("totalRows", report.TotalRows);
     writer.WriteStartArray("rows");
+    var nonFinite = false;
     foreach (var row in report.Rows)
-      writeRow(writer, row);
+      nonFinite |= writeRow(writer, row);
     writer.WriteEndArray();
-    WritePlan(writer, report.Plan);
+    WritePlan(writer, report.Plan, nonFinite);
     writer.WriteEndObject();
   }
 
-  static void WriteRow(Utf8JsonWriter writer, AnalyticsResult result, AnalyticsRow row)
+  static bool WriteRow(Utf8JsonWriter writer, AnalyticsResult result, AnalyticsRow row)
   {
     writer.WriteStartObject();
     if (row.Bucket.HasValue)
@@ -601,15 +609,17 @@ static class ReportingApi
       writer.WriteEndObject();
     }
     writer.WriteStartObject("values");
+    var nonFinite = false;
     for (var i = 0; i < result.Metrics.Count; ++i)
-      writer.WriteNumber(result.Metrics[i].Key, row.Values[i]);
+      nonFinite |= WriteNullable(writer, result.Metrics[i].Key, row.Values[i]);
     writer.WriteEndObject();
     if (row.Previous != null)
     {
       writer.WritePropertyName("previous");
-      WriteRow(writer, result, row.Previous);
+      nonFinite |= WriteRow(writer, result, row.Previous);
     }
     writer.WriteEndObject();
+    return nonFinite;
   }
 
   static void WriteResult(Utf8JsonWriter writer, AnalyticsResult result)
@@ -628,22 +638,24 @@ static class ReportingApi
     writer.WriteEndArray();
     writer.WriteNumber("totalRows", result.TotalRows);
     writer.WritePropertyName("totals");
-    WriteRow(writer, result, result.Totals);
+    var nonFinite = WriteRow(writer, result, result.Totals);
     writer.WriteStartArray("rows");
     foreach (var row in result.Rows)
-      WriteRow(writer, result, row);
+      nonFinite |= WriteRow(writer, result, row);
     writer.WriteEndArray();
-    WritePlan(writer, result.Plan);
+    WritePlan(writer, result.Plan, nonFinite);
     writer.WriteEndObject();
   }
 
-  static void WritePlan(Utf8JsonWriter writer, QueryPlan plan)
+  static void WritePlan(Utf8JsonWriter writer, QueryPlan plan, bool nonFinite = false)
   {
     writer.WriteStartObject("plan");
-    writer.WriteBoolean("complete", plan.IsComplete);
+    writer.WriteBoolean("complete", plan.IsComplete && !nonFinite);
     writer.WriteStartArray("warnings");
     foreach (var warning in plan.Warnings)
       writer.WriteStringValue(warning);
+    if (nonFinite)
+      writer.WriteStringValue("Non-finite metric values (overflow or undefined arithmetic) are represented as null in this JSON response.");
     writer.WriteEndArray();
     writer.WriteStartArray("steps");
     foreach (var step in plan.Steps)

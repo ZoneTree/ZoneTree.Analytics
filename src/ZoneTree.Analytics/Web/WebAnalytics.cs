@@ -392,6 +392,8 @@ public sealed class WebAnalytics
       query.Metrics.Add(Metric.BotHits);
     query.OrderBy.Add(Order.By(order));
     query.OrderBy.Add(Order.By(Metric.Visitors));
+    query.RowPredicate = row => row.Dimensions[0] != null &&
+        (order != Metric.Exits || row[Metric.Exits] > 0);
     var result = engine.Query(query, cancellationToken);
 
     PageStats ToStats(AnalyticsRow row) => row == null ? null : new PageStats(
@@ -405,10 +407,7 @@ public sealed class WebAnalytics
     {
       Previous = ToStats(row.Previous)
     };
-    var rows = result.Rows.Where(x => x.Dimensions[0] != null);
-    if (order == Metric.Exits)
-      rows = rows.Where(x => x[Metric.Exits] > 0);
-    return new WebReport<PageStats>(rows.Select(ToStats).ToList(), result.TotalRows, result.From, result.To, result.Plan);
+    return new WebReport<PageStats>(result.Rows.Select(ToStats).ToList(), result.TotalRows, result.From, result.To, result.Plan);
   }
 
   /// <summary>

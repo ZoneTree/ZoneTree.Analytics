@@ -79,13 +79,25 @@ static class TestEngine
 
   public static void Delete(string directory)
   {
-    try
+    var path = Path.GetFullPath(directory);
+    var root = Path.GetFullPath(Path.Combine(TestContext.CurrentContext.WorkDirectory, "data")) + Path.DirectorySeparatorChar;
+    var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+    if (!path.StartsWith(root, comparison))
+      throw new InvalidOperationException($"Test cleanup path '{path}' is outside '{root}'.");
+    for (var attempt = 0; ; ++attempt)
     {
-      if (Directory.Exists(directory))
-        Directory.Delete(directory, true);
-    }
-    catch (IOException)
-    {
+      try
+      {
+        if (Directory.Exists(path))
+          Directory.Delete(path, true);
+        return;
+      }
+      catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+      {
+        if (attempt == 4)
+          throw new IOException($"Test cleanup could not delete '{path}' after five attempts.", exception);
+        Thread.Sleep(50);
+      }
     }
   }
 }

@@ -27,6 +27,12 @@ jobs:
             8.0.x
       - name: Display dotnet version
         run: dotnet --version
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Test browser tracker
+        run: node --test tests/tracker.test.cjs
       - name: Restore dependencies
         working-directory: ./src
         run: dotnet restore

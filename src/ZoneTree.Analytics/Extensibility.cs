@@ -248,6 +248,8 @@ public static class GeoLocator
 /// it has no effect, because session-level dimensions are fixed when the session starts.
 /// Values are sanitized and truncated when set. After all enrichers run, custom event
 /// dimensions are filtered by the privacy allow/deny lists and the per-event count limit.
+/// Each enricher reads its own pending changes. They are committed only when it returns
+/// successfully; a throwing enricher's changes are discarded before the next enricher runs.
 /// </remarks>
 public sealed class EnrichmentContext : EventContext
 {

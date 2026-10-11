@@ -1,5 +1,6 @@
 (function () {
   'use strict';
+  if (window.zta && window.zta._zoneTreeInstalled) return;
   var script = document.currentScript;
   var attr = function (name) { return script ? script.getAttribute(name) : null; };
   var endpoint = attr('data-endpoint') ||
@@ -35,12 +36,16 @@
     send('pageview');
   }
 
-  if (window.history && history.pushState) {
-    var pushState = history.pushState;
-    history.pushState = function () {
-      pushState.apply(this, arguments);
-      pageview();
-    };
+  if (window.history) {
+    ['pushState', 'replaceState'].forEach(function (method) {
+      var original = history[method];
+      if (!original) return;
+      history[method] = function () {
+        var result = original.apply(this, arguments);
+        pageview();
+        return result;
+      };
+    });
     window.addEventListener('popstate', pageview);
   }
   if (hashRouting) window.addEventListener('hashchange', pageview);
@@ -48,6 +53,7 @@
   // window.zta('signup', { plan: 'pro' }, { value: 49 }) records a custom event.
   var queued = (window.zta && window.zta.q) || [];
   window.zta = function (name, props, metrics) { send(name, props, metrics); };
+  window.zta._zoneTreeInstalled = true;
   for (var i = 0; i < queued.length; i++) window.zta.apply(null, queued[i]);
 
   if (document.visibilityState === 'prerender') {

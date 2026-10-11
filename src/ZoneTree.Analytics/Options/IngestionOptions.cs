@@ -21,6 +21,7 @@ public sealed class IngestionOptions
   /// How often buffered aggregates and session states are written to storage.
   /// Rollup-based queries lag behind ingestion by at most this interval.
   /// Default is 2 seconds.
+  /// Must not exceed approximately 49.7 days, the timer's maximum period.
   /// </summary>
   public TimeSpan FlushInterval { get; set; } = TimeSpan.FromSeconds(2);
 
@@ -52,6 +53,8 @@ public sealed class IngestionOptions
       throw new ArgumentException("Ingestion.WorkerCount must be between 1 and 64.");
     if (FlushInterval <= TimeSpan.Zero)
       throw new ArgumentException("Ingestion.FlushInterval must be positive.");
+    if (FlushInterval > TimeSpan.FromMilliseconds(uint.MaxValue - 1))
+      throw new ArgumentException("Ingestion.FlushInterval exceeds the timer's maximum period (4,294,967,294 milliseconds).");
     if (MaxBufferedRollupRows < 1)
       throw new ArgumentException("Ingestion.MaxBufferedRollupRows must be positive.");
     if (MaxFutureSkew < TimeSpan.Zero)
