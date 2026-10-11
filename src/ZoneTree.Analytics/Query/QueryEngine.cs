@@ -316,7 +316,7 @@ sealed class QueryEngine
     var onlyEvent = eventSources.Length == 1 && !trackSessions ? eventSources[0] : null;
 
     var needed = context.GroupBy.Concat(sources.SelectMany(x => x.Filters).Select(x => x.Dimension))
-        .Concat(eventSources.SelectMany(x => x.DistinctDimensions));
+        .Concat(sources.SelectMany(x => x.DistinctDimensions));
     if (trackSessions)
       needed = needed.Append(StandardDimensions.Page).Append(StandardDimensions.Hostname);
     var selector = new DimensionSelector(needed);
@@ -366,6 +366,11 @@ sealed class QueryEngine
   {
     var maxDegree = options.Queries.MaxDegreeOfParallelism;
     var joined = sessionReader.Join(slices);
+    var precedingFrom = flowSources.Any(x => x.ReadsSessionActivity)
+        ? sessionReader.ReadPreceding(context.Site, segment.From, segment.To, selector, joined, context.CancellationToken)
+        : null;
+    if (precedingFrom.HasValue)
+      AddWarning(context, context.Cutoffs.RawEventsWarning(precedingFrom.Value));
     sessionReader.ReadContinuation(context.Site, segment.To, context.NowTicks, selector, joined, context.CancellationToken);
 
     // A session can span slices. Its parts are joined in time order, shard by shard, and each
@@ -460,6 +465,11 @@ sealed class QueryEngine
       accumulator.AddValueDelta(StandardValues.Duration, (double)duration / TimeSpan.TicksPerSecond);
     if (session.PageViews > 0)
       accumulator.AddValueDelta(StandardValues.SessionPageViews, session.PageViews);
+    foreach (var dimension in source.DistinctDimensions)
+    {
+      if (session.Dimensions.TryGetValue(dimension, out var value) && value != null)
+        accumulator.AddDistinct(dimension, Text.StableHash(value), context.Precision);
+    }
   }
 
   /// <summary>

@@ -74,6 +74,9 @@ sealed class SourceContext
 
   public bool ReadsVisitors;
 
+  /// <summary>True when session measures include assigned late events before the session start.</summary>
+  public bool ReadsSessionActivity;
+
   public byte[] EventUtf8;
 
   public RollupDefinition Definition;

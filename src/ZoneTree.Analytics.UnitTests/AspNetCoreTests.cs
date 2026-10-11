@@ -426,6 +426,50 @@ public sealed class AspNetCoreTests : DirectoryTest
   }
 
   [Test]
+  public async Task ReportingApiSerializesCorrectedSeriesAndSessionDistinctCounts()
+  {
+    var start = new DateTime(2025, 1, 1);
+    for (var day = 0; day < 3; ++day)
+      Engine.Track(new AnalyticsEvent("steady") { Timestamp = Utc(start.AddDays(day)) }.WithValue("x", 1e308));
+    foreach (var (day, value) in new[] { (0, -1e308), (2, 1e308) })
+      Engine.Track(new AnalyticsEvent("linear") { Timestamp = Utc(start.AddDays(day)) }.WithValue("x", value));
+    foreach (var (day, value) in new[] { (0, 10.0), (2, 20.0) })
+      Engine.Track(new AnalyticsEvent("sparse") { Timestamp = Utc(start.AddDays(day)) }.WithValue("x", value));
+    foreach (var country in new[] { "DE", "US" })
+      Engine.Track(new AnalyticsEvent("pageview")
+      {
+        VisitorId = country, Timestamp = Utc(start), Url = "/", Dimensions = { ["country"] = country }
+      });
+    await Engine.FlushAsync();
+
+    async Task<JsonElement> Query(string eventName, string fill, string metric)
+    {
+      var body = JsonSerializer.Serialize(new
+      {
+        @event = eventName, from = Utc(start).ToString("O", CultureInfo.InvariantCulture),
+        to = Utc(start.AddDays(3)).ToString("O", CultureInfo.InvariantCulture),
+        interval = "day", fill, source = "RawEvents", metrics = new[] { metric }
+      });
+      var (status, result) = await PostJson("/_analytics/api/query", body);
+      Assert.That(status, Is.EqualTo(HttpStatusCode.OK));
+      return result;
+    }
+    var moving = await Query("steady", "none", "moving_avg(last:x,2)");
+    var linear = await Query("linear", "linear", "last:x");
+    var sparse = await Query("sparse", "none", "lag(last:x,1)");
+    var sessions = await Query(StandardEvents.Session, "none", "distinct:country");
+    Assert.Multiple(() =>
+    {
+      Assert.That(moving.GetProperty("rows").EnumerateArray().Select(r =>
+          r.GetProperty("values").GetProperty("moving_avg(last:x,2)").GetDouble()), Is.All.EqualTo(1e308));
+      Assert.That(linear.GetProperty("rows")[1].GetProperty("values").GetProperty("last:x").GetDouble(), Is.Zero);
+      Assert.That(sparse.GetProperty("rows").EnumerateArray().Select(r =>
+          r.GetProperty("values").GetProperty("lag(last:x,1)").GetDouble()), Is.All.Zero);
+      Assert.That(sessions.GetProperty("totals").GetProperty("values").GetProperty("distinct:country").GetDouble(), Is.EqualTo(2));
+    });
+  }
+
+  [Test]
   public async Task ReportingApiReportsTimeouts()
   {
     var now = DateTimeOffset.UtcNow;

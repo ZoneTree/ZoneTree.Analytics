@@ -64,6 +64,8 @@ sealed class QueryPreparation(
     foreach (var metric in aggregates)
     {
       ValidateScope(metric, baseEvent, [.. dimensions.Union(metric.Conditions.Select(x => x.Dimension), StringComparer.Ordinal)]);
+      if (metric.MetricKind == Metric.Kind.Distinct && metric.ScopeFor(baseEvent) == DimensionScope.Session)
+        ValidateScope(metric, baseEvent, [metric.Argument]);
       if (segments.Length > 0 && metric.ScopeFor(baseEvent) == DimensionScope.Bot)
         throw new AnalyticsQueryException(
             $"The metric '{metric.Key}' cannot be combined with segments: bot events carry no visitor.");
@@ -117,6 +119,9 @@ sealed class QueryPreparation(
         }
         source.ReadsPageFlow |= metric.ReadsPageFlow;
         source.ReadsVisitors |= metric.MetricKind is Metric.Kind.Visitors or Metric.Kind.ConversionRate;
+        source.ReadsSessionActivity |= eventName == StandardEvents.Session &&
+            (metric.MetricKind is Metric.Kind.Bounces or Metric.Kind.BounceRate or Metric.Kind.PageViewsPerSession ||
+             metric.MetricKind == Metric.Kind.Sum && metric.Argument is StandardValues.Bounces or StandardValues.SessionPageViews);
       }
     }
     if (query.OnlyRowsWithBaseEvent && !context.Sources.ContainsKey(baseEvent))

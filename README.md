@@ -232,6 +232,8 @@ Metrics combine with `+`, `-`, `*` and `/`, with each other and with numbers; di
 
 Series functions run along each group's buckets in time order and need an `Interval`, except `Rate`. The first bucket of a group has no change.
 
+`Lag`, `Lead` and moving-average windows count interval positions. With `FillMode.None`, a missing target bucket gives zero for lag and lead, and omitted buckets contribute zero to moving averages. Initial moving-average windows are clipped to the query's first bucket. `Difference` and `Increase` compare consecutive returned observations when gaps are omitted.
+
 **Intervals.** `Minute`, `Hour`, `Day`, `Week`, `Month` and `Year`, or fixed widths `TimeInterval.Minutes(n)` and `TimeInterval.Hours(n)` that divide a day (5, 15 or 30 minutes; 2, 3, 4, 6, 8 or 12 hours), aligned to UTC midnight. Minute and hour buckets are UTC; day and longer buckets follow the query's time zone. Widths are answered from the finest rollups that fit: minute rollups for minutes, hourly rollups for hours.
 
 **Fill.** `Fill` decides what a time series does with buckets without data, for every group with data in the range: `FillMode.Zero` (the default) adds them with zero values, `None` leaves them out, `Previous` repeats the previous values with data (for gauges), and `Linear` interpolates between the buckets with data around them. Filling applies to aggregates; formulas and series functions are computed from the filled values. A fill that would create more than `Queries.MaxFilledRows` rows (1,000,000 by default) is rejected.

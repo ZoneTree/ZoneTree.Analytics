@@ -133,6 +133,24 @@ sealed class ReportingCalendar
       interval.IsFixedWidth ? bucket : UtcStartOfLocalDay(bucket);
 
   /// <summary>
+  /// The position of a bucket on its interval's axis. Calendar units use local bucket keys,
+  /// so consecutive days stay one step apart through DST and months need no fixed duration.
+  /// </summary>
+  public static long BucketIndex(long bucket, TimeInterval interval)
+  {
+    if (interval.IsFixedWidth)
+      return bucket / interval.WidthTicks;
+    return interval.Unit switch
+    {
+      TimeIntervalUnit.Day => bucket / TimeSpan.TicksPerDay,
+      TimeIntervalUnit.Week => bucket / (7 * TimeSpan.TicksPerDay),
+      TimeIntervalUnit.Month => (new DateTime(bucket).Year - 1) * 12L + new DateTime(bucket).Month - 1,
+      TimeIntervalUnit.Year => new DateTime(bucket).Year - 1,
+      _ => 0
+    };
+  }
+
+  /// <summary>
   /// The first local-day boundary (as UTC ticks) at or after the UTC instant.
   /// </summary>
   public long CeilToDayBoundary(long utcTicks)

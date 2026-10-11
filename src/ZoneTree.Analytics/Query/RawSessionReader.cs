@@ -83,6 +83,52 @@ sealed class RawSessionReader(RawEventStore events, SessionSchema schema, Analyt
   }
 
   /// <summary>
+  /// Completes sessions starting in the requested range with earlier assigned late events.
+  /// Ingestion admits timestamps down to Start - Timeout, so the extra scan is bounded.
+  /// Only already discovered session IDs are collected; ordinary event counts stay in range.
+  /// Returns the earliest time read, or null when no lookback is needed.
+  /// </summary>
+  public long? ReadPreceding(
+      string site, long from, long to, DimensionSelector selector,
+      Dictionary<ulong, RawSession>[] sessions, CancellationToken cancellationToken)
+  {
+    var earliest = from;
+    foreach (var shard in sessions)
+    {
+      foreach (var session in shard.Values)
+      {
+        if (session.Start >= from && session.Start < to)
+          earliest = Math.Min(earliest, session.Start - Math.Min(timeout, session.Start));
+      }
+    }
+    if (earliest == from)
+      return null;
+
+    var slices = events.Scan(site, earliest, from, parallelism, () => new RawScanSlice(parallelism),
+        (slice, ticks, value) =>
+        {
+          var id = RawEventCodec.ReadSessionId(value);
+          if (id == 0)
+            return;
+          var shard = Shards.Of(id, parallelism);
+          if (!sessions[shard].TryGetValue(id, out var session) || session.Start < from || session.Start >= to)
+            return;
+          if (RawEventCodec.TryDecode(value, ticks, null, default, slice.RawEvent, selector))
+            Collect(slice.Sessions[shard], slice.RawEvent, session.Allowed);
+        }, cancellationToken);
+    var preceding = Join(slices);
+    ParallelWork.For(parallelism, parallelism, shard =>
+    {
+      foreach (var (id, part) in preceding[shard])
+      {
+        part.Append(sessions[shard][id]);
+        sessions[shard][id] = part;
+      }
+    });
+    return earliest;
+  }
+
+  /// <summary>
   /// Completes only sessions found in the requested range. A timeout limits inactivity,
   /// not total duration: each scan reaches the latest active session's next deadline.
   /// </summary>

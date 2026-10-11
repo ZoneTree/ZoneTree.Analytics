@@ -1,4 +1,5 @@
 using ZoneTree.Analytics.Storage;
+using ZoneTree.Analytics.Internal;
 
 namespace ZoneTree.Analytics.Query;
 
@@ -36,9 +37,15 @@ sealed class MetricEvaluator
 
   readonly double rangeSeconds;
 
+  readonly TimeInterval interval;
+
+  readonly long firstBucketIndex;
+
   readonly Dictionary<string, Column> columns = new(StringComparer.Ordinal);
 
   double[] cachedRowSeconds;
+
+  long[] cachedBucketIndexes;
 
   /// <param name="rows">The group keys of data rows, followed by rows added by filling.</param>
   /// <param name="dataRows">The number of rows with data, before filling.</param>
@@ -49,6 +56,8 @@ sealed class MetricEvaluator
   /// <param name="fill">How filled rows get their aggregate values.</param>
   /// <param name="rowSeconds">Computes the length of each row's bucket within the range, for rates.</param>
   /// <param name="rangeSeconds">The length of the range, for the rate of the totals.</param>
+  /// <param name="interval">The interval of the bucket keys.</param>
+  /// <param name="firstBucket">The first bucket of the requested range.</param>
   public MetricEvaluator(
       IReadOnlyList<GroupKey> rows,
       int dataRows,
@@ -58,7 +67,9 @@ sealed class MetricEvaluator
       int[][] series,
       FillMode fill,
       Func<double[]> rowSeconds,
-      double rangeSeconds)
+      double rangeSeconds,
+      TimeInterval interval,
+      long firstBucket)
   {
     this.rows = rows;
     this.dataRows = dataRows;
@@ -69,6 +80,8 @@ sealed class MetricEvaluator
     this.fill = fill;
     this.rowSeconds = rowSeconds;
     this.rangeSeconds = rangeSeconds;
+    this.interval = interval;
+    firstBucketIndex = ReportingCalendar.BucketIndex(firstBucket, interval);
   }
 
   public Column Evaluate(Metric metric)
@@ -156,7 +169,7 @@ sealed class MetricEvaluator
           {
             var from = values[rowsOfGroup[previous]];
             var to = values[rowsOfGroup[next]];
-            value = from + (to - from) * (gap - previous) / (next - previous);
+            value = Interpolate(from, to, (double)(gap - previous) / (next - previous));
           }
           values[rowsOfGroup[gap]] = value;
         }
@@ -177,6 +190,19 @@ sealed class MetricEvaluator
   /// Results stay finite: a formula that overflows gives zero, like a division by zero.
   /// </summary>
   static double Finite(double value) => double.IsFinite(value) ? value : 0;
+
+  static double Interpolate(double from, double to, double weight)
+  {
+    if (from == to)
+      return from;
+    // Opposite signs can overflow the difference, while their convex sum stays finite.
+    return from < 0 && to > 0 || from > 0 && to < 0
+        ? from * (1 - weight) + to * weight
+        : from + (to - from) * weight;
+  }
+
+  long[] BucketIndexes => cachedBucketIndexes ??=
+      rows.Select(row => ReportingCalendar.BucketIndex(row.Bucket, interval)).ToArray();
 
   static Column PercentOfTotal(Column inner)
   {
@@ -216,18 +242,85 @@ sealed class MetricEvaluator
   Column MovingAverage(Column inner, int window)
   {
     var values = new double[inner.Rows.Length];
+    var indexes = BucketIndexes;
     foreach (var rowsOfGroup in series)
     {
-      double sum = 0;
+      var capacity = 1;
+      while (capacity < Math.Min(window, rowsOfGroup.Length))
+        capacity *= 2;
+      var tree = new WindowSum[capacity * 2];
+      var first = Math.Min(firstBucketIndex, indexes[rowsOfGroup[0]]);
+      var left = 0;
       for (var position = 0; position < rowsOfGroup.Length; ++position)
       {
-        sum += inner.Rows[rowsOfGroup[position]];
-        if (position >= window)
-          sum -= inner.Rows[rowsOfGroup[position - window]];
-        values[rowsOfGroup[position]] = sum / Math.Min(position + 1, window);
+        var row = rowsOfGroup[position];
+        var start = indexes[row] - window + 1;
+        while (left < position && indexes[rowsOfGroup[left]] < start)
+          SetWindowValue(tree, capacity, left++, default);
+        SetWindowValue(tree, capacity, position, WindowSum.Of(inner.Rows[row]));
+        var buckets = (int)Math.Min(window, indexes[row] - first + 1);
+        values[row] = tree[1].Average(buckets);
       }
     }
     return new Column(values, inner.Total);
+  }
+
+  /// <summary>
+  /// A scaled, compensated sum of the current leaves. Updating a leaf recomputes its path,
+  /// so removed outliers leave no cancellation error behind. Scaling prevents a finite
+  /// window mean from overflowing just because its unscaled sum does.
+  /// </summary>
+  readonly record struct WindowSum(double Scale, double Sum, double Correction)
+  {
+    public static WindowSum Of(double value)
+    {
+      if (!double.IsFinite(value))
+        return new(double.PositiveInfinity, value, 0);
+      if (value == 0)
+        return default;
+      // Powers of two make rescaling exact, avoiding new rounding in ordinary sums.
+      var scale = Math.ScaleB(1, Math.ILogB(Math.Abs(value)));
+      return new(scale, value / scale, 0);
+    }
+
+    public double Average(int count) => double.IsFinite(Scale)
+        ? Math.Clamp((Sum / count + Correction / count) * Scale, -double.MaxValue, double.MaxValue)
+        : Sum;
+
+    public static WindowSum Combine(WindowSum a, WindowSum b)
+    {
+      if (a.Scale == 0)
+        return b;
+      if (b.Scale == 0)
+        return a;
+      if (!double.IsFinite(a.Scale) || !double.IsFinite(b.Scale))
+        return new(double.PositiveInfinity,
+            (double.IsFinite(a.Scale) ? 0 : a.Sum) + (double.IsFinite(b.Scale) ? 0 : b.Sum), 0);
+      var scale = Math.Max(a.Scale, b.Scale);
+      var left = a.Scale / scale;
+      var right = b.Scale / scale;
+      double sum = 0, correction = 0;
+      Add(ref sum, ref correction, a.Sum * left);
+      Add(ref sum, ref correction, a.Correction * left);
+      Add(ref sum, ref correction, b.Sum * right);
+      Add(ref sum, ref correction, b.Correction * right);
+      return new(scale, sum, correction);
+    }
+
+    static void Add(ref double sum, ref double correction, double value)
+    {
+      var next = sum + value;
+      correction += Math.Abs(sum) >= Math.Abs(value) ? (sum - next) + value : (value - next) + sum;
+      sum = next;
+    }
+  }
+
+  static void SetWindowValue(WindowSum[] tree, int capacity, int position, WindowSum value)
+  {
+    var index = capacity + (position & (capacity - 1));
+    tree[index] = value;
+    while ((index /= 2) > 0)
+      tree[index] = WindowSum.Combine(tree[index * 2], tree[index * 2 + 1]);
   }
 
   /// <summary>
@@ -237,12 +330,16 @@ sealed class MetricEvaluator
   Column Shift(Column inner, int offset)
   {
     var values = new double[inner.Rows.Length];
+    var indexes = BucketIndexes;
     foreach (var rowsOfGroup in series)
     {
+      var source = 0;
       for (var position = 0; position < rowsOfGroup.Length; ++position)
       {
-        var source = position + offset;
-        if (source >= 0 && source < rowsOfGroup.Length)
+        var target = indexes[rowsOfGroup[position]] + offset;
+        while (source < rowsOfGroup.Length && indexes[rowsOfGroup[source]] < target)
+          ++source;
+        if (source < rowsOfGroup.Length && indexes[rowsOfGroup[source]] == target)
           values[rowsOfGroup[position]] = inner.Rows[rowsOfGroup[source]];
       }
     }

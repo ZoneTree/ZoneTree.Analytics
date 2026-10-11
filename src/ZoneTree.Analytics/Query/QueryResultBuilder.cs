@@ -56,7 +56,8 @@ static class QueryResultBuilder
         series,
         context.Fill,
         () => RowSeconds(context, rowKeys, effectiveTo),
-        (effectiveTo - context.From) / (double)TimeSpan.TicksPerSecond);
+        (effectiveTo - context.From) / (double)TimeSpan.TicksPerSecond,
+        context.Interval, context.Calendar.Bucket(context.From, context.Interval));
     var columns = metrics.Select(evaluator.Evaluate).ToArray();
     var having = context.Having.Select(x => (Filter: x, Values: evaluator.Evaluate(x.Metric).Rows)).ToArray();
 

@@ -283,6 +283,7 @@ public sealed class Metric : IEquatable<Metric>
   /// <remarks>
   /// Rollups answer it when <see cref="RollupOptions.DistinctDimensions"/> includes the
   /// dimension; otherwise raw events do.
+  /// On <see cref="StandardEvents.Session"/>, the dimension must be session-level or the entry page.
   /// </remarks>
   /// <param name="dimension">The dimension.</param>
   /// <param name="eventName">The event; null means the query's base event.</param>
@@ -530,6 +531,10 @@ public sealed class Metric : IEquatable<Metric>
   /// 7-day moving average of visitors. The first buckets average the buckets available. The
   /// totals row holds the metric's total. Requires an interval.
   /// </summary>
+  /// <remarks>
+  /// The window counts interval positions. With <see cref="FillMode.None"/>, omitted buckets
+  /// contribute zero; initial windows are clipped to the beginning of the query range.
+  /// </remarks>
   /// <param name="metric">The metric.</param>
   /// <param name="buckets">The window, in buckets including the current one: 2 or more.</param>
   public static Metric MovingAverage(Metric metric, int buckets)
@@ -559,12 +564,14 @@ public sealed class Metric : IEquatable<Metric>
   /// <c>Metric.Visitors / Metric.Lag(Metric.Visitors, 7) - 1</c>. Zero when there is no such
   /// bucket. The totals row holds the metric's total. Requires an interval.
   /// </summary>
+  /// <remarks>Counts interval positions even with <see cref="FillMode.None"/>; omitted target buckets give zero.</remarks>
   public static Metric Lag(Metric metric, int buckets = 1) => Shift(Kind.Lag, "lag", metric, buckets);
 
   /// <summary>
   /// The value of a metric <paramref name="buckets"/> buckets later in the same group. Zero when
   /// there is no such bucket. The totals row holds the metric's total. Requires an interval.
   /// </summary>
+  /// <remarks>Counts interval positions even with <see cref="FillMode.None"/>; omitted target buckets give zero.</remarks>
   public static Metric Lead(Metric metric, int buckets = 1) => Shift(Kind.Lead, "lead", metric, buckets);
 
   static Metric Shift(Kind kind, string name, Metric metric, int buckets)
@@ -848,7 +855,7 @@ public sealed class Metric : IEquatable<Metric>
   /// </summary>
   internal DimensionScope ScopeFor(string baseEvent) =>
       Sources(baseEvent).Contains(StandardEvents.Bot) ? DimensionScope.Bot :
-      IsSessionMetric ? DimensionScope.Session :
+      Sources(baseEvent).Contains(StandardEvents.Session) ? DimensionScope.Session :
       IsPageFlowMetric ? DimensionScope.PageView :
       DimensionScope.All;
 
