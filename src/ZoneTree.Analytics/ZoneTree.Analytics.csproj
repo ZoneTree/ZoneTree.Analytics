@@ -35,20 +35,8 @@
     </None>
   </ItemGroup>
 
-  <!--
-    ZoneTree is the only dependency. During development it is referenced from a local checkout
-    next to this repository (it needs ZoneTreeFactory.Validate, which is not published yet).
-    Another checkout:      dotnet build -p:ZoneTreeProjectPath=path/to/ZoneTree.csproj
-    The NuGet package:     dotnet build -p:UseZoneTreePackage=true
-  -->
-  <PropertyGroup Condition="'$(ZoneTreeProjectPath)' == '' and '$(UseZoneTreePackage)' != 'true'">
-    <ZoneTreeProjectPath>$(MSBuildThisFileDirectory)..\..\..\ZoneTree\src\ZoneTree\ZoneTree.csproj</ZoneTreeProjectPath>
-  </PropertyGroup>
-  <ItemGroup Condition="'$(ZoneTreeProjectPath)' == ''">
-    <PackageReference Include="ZoneTree" Version="1.9.8" />
-  </ItemGroup>
-  <ItemGroup Condition="'$(ZoneTreeProjectPath)' != ''">
-    <ProjectReference Include="$(ZoneTreeProjectPath)" />
+  <ItemGroup>
+    <PackageReference Include="ZoneTree" Version="2.0.1" />
   </ItemGroup>
 
   <ItemGroup>
