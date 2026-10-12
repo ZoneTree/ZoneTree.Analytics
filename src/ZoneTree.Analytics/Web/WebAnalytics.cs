@@ -1,4 +1,5 @@
 using ZoneTree.Analytics.Ingestion;
+using ZoneTree.Analytics.Internal;
 
 namespace ZoneTree.Analytics.Web;
 
@@ -198,17 +199,17 @@ public sealed class WebAnalytics
     if (!engine.Options.Sessions.Enabled)
       return false;
     var schema = engine.Schema;
-    return (dimension == null || schema.Contains(DimensionScope.Session, dimension)) &&
-        request.Filters.All(x => x == null || schema.Contains(DimensionScope.Session, x.Dimension));
+    return (dimension == null || TimeDimension.IsDerived(dimension) || schema.Contains(DimensionScope.Session, dimension)) &&
+        request.Filters.All(x => x == null || x.Dimensions.All(d => TimeDimension.IsDerived(d) || schema.Contains(DimensionScope.Session, d)));
   }
 
   bool BotMetricsAvailable(WebReportRequest request) =>
       engine.Options.Web.Bots == BotTraffic.TrackSeparately &&
       request.Segments.Count == 0 &&
-      request.Filters.All(x => x == null || x.Dimension is StandardDimensions.Page or StandardDimensions.Hostname);
+      request.Filters.All(x => x == null || x.Dimensions.All(d => TimeDimension.IsDerived(d) || d is StandardDimensions.Page or StandardDimensions.Hostname));
 
   bool PageMetricsAvailable(WebReportRequest request) =>
-      request.Filters.All(x => x == null || engine.Schema.Contains(DimensionScope.PageView, x.Dimension));
+      request.Filters.All(x => x == null || x.Dimensions.All(d => TimeDimension.IsDerived(d) || engine.Schema.Contains(DimensionScope.PageView, d)));
 
   static AnalyticsQuery NewQuery(WebReportRequest request, bool paged)
   {

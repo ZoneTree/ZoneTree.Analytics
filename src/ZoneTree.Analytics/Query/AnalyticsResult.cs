@@ -216,19 +216,34 @@ public enum PlanSource
 /// <param name="To">The exclusive end (UTC).</param>
 public sealed record QueryPlanStep(string Event, PlanSource Source, DateTimeOffset From, DateTimeOffset To);
 
+/// <summary>A missing definition that would make this event eligible for rollup execution.</summary>
+/// <remarks>
+/// Add <see cref="Definition"/> to <see cref="RollupOptions.Definitions"/> before tracking new data.
+/// Existing raw events are not backfilled. Retention, active granularities and range boundaries
+/// can still require raw reads. Suggestions do not affect plan completeness.
+/// </remarks>
+/// <param name="Event">The event whose dimensions have no matching rollup.</param>
+/// <param name="Definition">The exact stored dimensions required, restricted to this event.</param>
+public sealed record RollupSuggestion(string Event, RollupDefinition Definition);
+
 /// <summary>
 /// How a query was answered.
 /// </summary>
 public sealed class QueryPlan
 {
-  internal QueryPlan(IReadOnlyList<QueryPlanStep> steps, IReadOnlyList<string> warnings)
+  internal QueryPlan(IReadOnlyList<QueryPlanStep> steps, IReadOnlyList<string> warnings,
+      IReadOnlyList<RollupSuggestion> rollupSuggestions = null)
   {
     Steps = steps;
     Warnings = warnings;
+    RollupSuggestions = rollupSuggestions ?? Array.Empty<RollupSuggestion>();
   }
 
   /// <summary>The plan steps.</summary>
   public IReadOnlyList<QueryPlanStep> Steps { get; }
+
+  /// <summary>Missing rollup definitions for automatic raw fallbacks; empty for other causes.</summary>
+  public IReadOnlyList<RollupSuggestion> RollupSuggestions { get; }
 
   /// <summary>
   /// Conditions that may make the result incomplete or approximate, for example a range outside

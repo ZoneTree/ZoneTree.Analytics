@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Text.Json;
 using ZoneTree.Analytics.Internal;
 
 namespace ZoneTree.Analytics;
@@ -51,10 +52,16 @@ public enum FilterOperator
 
   /// <summary>Numerically less than or equal to the value. Values that are not numbers do not match.</summary>
   LessThanOrEqual,
+
+  /// <summary>At least one child filter matches.</summary>
+  AnyOf,
+
+  /// <summary>Every child filter matches.</summary>
+  AllOf,
 }
 
 /// <summary>
-/// A condition on one dimension.
+/// A condition on one dimension, or a group of conditions.
 /// </summary>
 /// <remarks>
 /// A dimension that an event does not carry is "missing": positive operators never match it,
@@ -87,6 +94,14 @@ public sealed class Filter
 
   readonly double number;
 
+  readonly IReadOnlyList<Filter> children = Array.Empty<Filter>();
+
+  readonly IReadOnlyList<string> dimensions;
+
+  readonly int depth = 1;
+
+  readonly int leafCount = 1;
+
   /// <summary>
   /// Creates a filter.
   /// </summary>
@@ -100,15 +115,21 @@ public sealed class Filter
   /// </summary>
   public Filter(string dimension, FilterOperator op, bool ignoreCase, params string[] values)
   {
+    if (!Enum.IsDefined(op) || op is FilterOperator.AnyOf or FilterOperator.AllOf)
+      throw new ArgumentException("Use AnyOf or AllOf to create filter groups.", nameof(op));
     if (string.IsNullOrWhiteSpace(dimension))
       throw new ArgumentException("The filter dimension is required.", nameof(dimension));
+    Text.ValidateUnicode(dimension, nameof(dimension));
     values ??= [];
     var needsValues = op is not (FilterOperator.IsSet or FilterOperator.IsNotSet);
     if (needsValues && values.Length == 0)
       throw new ArgumentException("At least one filter value is required.", nameof(values));
     if (values.Any(x => x == null))
       throw new ArgumentException("Filter values cannot be null; use IsNotSet for missing values.", nameof(values));
+    foreach (var value in values)
+      Text.ValidateUnicode(value, nameof(values));
     Dimension = dimension.Trim();
+    dimensions = Array.AsReadOnly(new[] { Dimension });
     Operator = op;
     IgnoreCase = ignoreCase;
     this.values = needsValues ? [.. values] : [];
@@ -130,7 +151,34 @@ public sealed class Filter
     }
   }
 
-  /// <summary>The dimension.</summary>
+  Filter(FilterOperator op, Filter[] filters)
+  {
+    ArgumentNullException.ThrowIfNull(filters);
+    if (filters.Length == 0 || filters.Length > 1024 || filters.Any(x => x == null))
+      throw new ArgumentException("A filter group needs at least one non-null filter.", nameof(filters));
+    depth = 1 + filters.Max(x => x.depth);
+    leafCount = filters.Sum(x => x.leafCount);
+    if (depth > 32 || leafCount > 1024)
+      throw new ArgumentException("A filter group supports at most 32 levels and 1,024 conditions.", nameof(filters));
+    Operator = op;
+    children = Array.AsReadOnly((Filter[])filters.Clone());
+    dimensions = Array.AsReadOnly(filters.SelectMany(x => x.Dimensions).Distinct(StringComparer.Ordinal).ToArray());
+    values = [];
+  }
+
+  /// <summary>Matches when at least one child matches. Groups can be nested.</summary>
+  public static Filter AnyOf(params Filter[] filters) => new(FilterOperator.AnyOf, filters);
+
+  /// <summary>Matches when every child matches. Groups can be nested.</summary>
+  public static Filter AllOf(params Filter[] filters) => new(FilterOperator.AllOf, filters);
+
+  /// <summary>The child conditions of a group; empty for a single condition.</summary>
+  public IReadOnlyList<Filter> Children => children;
+
+  /// <summary>All dimensions referenced by this condition, including nested groups.</summary>
+  public IReadOnlyList<string> Dimensions => dimensions;
+
+  /// <summary>The dimension of a single condition; null for a group.</summary>
   public string Dimension { get; }
 
   /// <summary>The operator.</summary>
@@ -198,6 +246,8 @@ public sealed class Filter
   /// </summary>
   public bool IsMatch(string value)
   {
+    if (children.Count > 0)
+      throw new InvalidOperationException("Evaluate a filter group with Matches(dimensions).");
     // Called for every row a query tests: plain loops, no delegates or enumerators.
     switch (Operator)
     {
@@ -215,6 +265,26 @@ public sealed class Filter
         ? MatchesAnyPattern(value)
         : MatchesAnyValue(value);
     return matched != negated;
+  }
+
+  /// <summary>Evaluates a condition or group against dimension values. Missing keys are null.</summary>
+  public bool Matches(IReadOnlyDictionary<string, string> dimensions)
+  {
+    ArgumentNullException.ThrowIfNull(dimensions);
+    return IsMatch(new FilterValues(dimensions));
+  }
+
+  internal bool IsMatch(in FilterValues dimensions)
+  {
+    if (children.Count == 0)
+      return IsMatch(dimensions.Get(Dimension));
+    var any = Operator == FilterOperator.AnyOf;
+    foreach (var child in children)
+    {
+      if (child.IsMatch(dimensions) == any)
+        return any;
+    }
+    return !any;
   }
 
   bool MatchesAnyValue(string value)
@@ -269,18 +339,50 @@ public sealed class Filter
   /// <c>\\</c> (other backslashes, for example in regular expressions, are kept as is). A leading
   /// <c>/i</c> after the operator, for example <c>page=~/i^/blog</c>, makes the comparison
   /// case-insensitive.
+  /// Groups use <c>any("country==DE","page==/pricing")</c> or
+  /// <c>all("country==DE",any("page==/","page==/pricing"))</c>. Single conditions in groups
+  /// are JSON-quoted strings; nested groups can be written directly. Groups are limited to
+  /// 32 levels and 1,024 single conditions. <see cref="ToString"/> produces this text form.
   /// </summary>
   /// <exception cref="ArgumentNullException"><paramref name="expression"/> is null.</exception>
   /// <exception cref="FormatException">The text is not a filter.</exception>
-  public static Filter Parse(string expression) => Parsing.Parse(expression, "filter", ParseCore);
+  public static Filter Parse(string expression) => Parsing.Parse(expression, "filter", text => ParseCore(text, 1));
 
   /// <summary>
   /// Tries to parse a filter expression. See <see cref="Parse"/>.
   /// </summary>
   public static bool TryParse(string expression, out Filter filter) => Parsing.TryParse(expression, Parse, out filter);
 
-  static Filter ParseCore(string expression)
+  static Filter ParseCore(string expression, int depth)
   {
+    if (depth > 32)
+      throw new FormatException("Filter groups support at most 32 levels.");
+    if (expression.StartsWith("any(", StringComparison.Ordinal) || expression.StartsWith("all(", StringComparison.Ordinal))
+    {
+      if (!expression.EndsWith(')'))
+        throw new FormatException("The filter group is not closed.");
+      try
+      {
+        var items = SplitGroupItems(expression[4..^1]).ToArray();
+        if (items.Length > 1024)
+          throw new FormatException("A filter group contains at most 1,024 quoted filter expressions.");
+        var filters = items.Select(x =>
+        {
+          var text = x.Trim();
+          if (text.StartsWith("any(", StringComparison.Ordinal) || text.StartsWith("all(", StringComparison.Ordinal))
+            return ParseCore(text, depth + 1);
+          using var document = JsonDocument.Parse(text);
+          if (document.RootElement.ValueKind != JsonValueKind.String)
+            throw new FormatException("A filter group contains quoted conditions or nested groups.");
+          return ParseCore(document.RootElement.GetString().Trim(), depth + 1);
+        }).ToArray();
+        return expression.StartsWith("any(", StringComparison.Ordinal) ? AnyOf(filters) : AllOf(filters);
+      }
+      catch (Exception exception) when (exception is JsonException or InvalidOperationException)
+      {
+        throw new FormatException("Filter groups contain valid Unicode JSON-quoted filter expressions.", exception);
+      }
+    }
     // The operator is the earliest token in the expression; at the same position, the longest.
     var best = -1;
     var bestToken = default((string Token, FilterOperator Operator));
@@ -311,6 +413,42 @@ public sealed class Filter
     return new Filter(dimension, bestToken.Operator, ignoreCase, SplitValues(rest));
   }
 
+  static IEnumerable<string> SplitGroupItems(string text)
+  {
+    if (string.IsNullOrWhiteSpace(text))
+      yield break;
+    var start = 0;
+    var depth = 0;
+    var quoted = false;
+    for (var i = 0; i < text.Length; ++i)
+    {
+      var c = text[i];
+      if (quoted && c == '\\' && i + 1 < text.Length)
+      {
+        ++i;
+        continue;
+      }
+      if (c == '"')
+        quoted = !quoted;
+      if (quoted)
+        continue;
+      if (c == '(')
+        ++depth;
+      else if (c == ')')
+        --depth;
+      else if (c == ',' && depth == 0)
+      {
+        yield return text[start..i];
+        start = i + 1;
+      }
+      if (depth < 0)
+        throw new FormatException("Unbalanced filter group.");
+    }
+    if (quoted || depth != 0)
+      throw new FormatException("Unbalanced filter group.");
+    yield return text[start..];
+  }
+
   static string[] SplitValues(string text)
   {
     var values = new List<string>();
@@ -339,6 +477,9 @@ public sealed class Filter
   /// <inheritdoc/>
   public override string ToString()
   {
+    if (children.Count > 0)
+      return (Operator == FilterOperator.AnyOf ? "any(" : "all(") +
+          string.Join(",", children.Select(x => x.Children.Count > 0 ? x.ToString() : "\"" + JsonEncodedText.Encode(x.ToString()) + "\"")) + ")";
     switch (Operator)
     {
       case FilterOperator.IsSet:

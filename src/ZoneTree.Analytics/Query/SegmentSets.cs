@@ -37,11 +37,12 @@ sealed class SegmentSets
       long from,
       long to,
       Segment[] segments,
+      ReportingCalendar calendar,
       int maxDegreeOfParallelism,
       CancellationToken cancellationToken)
   {
     var shardCount = maxDegreeOfParallelism;
-    var selector = new DimensionSelector(segments.SelectMany(x => x.Filters).Select(x => x.Dimension));
+    var selector = new DimensionSelector(segments.SelectMany(x => x.Filters).Where(x => x != null).SelectMany(x => x.Dimensions));
     var slices = rawEvents.Scan(
         site, from, to, maxDegreeOfParallelism, () => new SliceState(segments.Length, shardCount),
         (state, ticks, value) =>
@@ -52,7 +53,7 @@ sealed class SegmentSets
           for (var i = 0; i < segments.Length; ++i)
           {
             var id = IdOf(segments[i], rawEvent.Visitor, rawEvent.SessionId);
-            if (id != 0 && segments[i].Matches(rawEvent))
+            if (id != 0 && segments[i].Matches(rawEvent, calendar))
               state.Members[i][Shards.Of(id, shardCount)].Add(id);
           }
         },

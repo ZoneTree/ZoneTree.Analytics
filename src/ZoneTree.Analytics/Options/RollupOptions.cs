@@ -135,6 +135,8 @@ public sealed class RollupDefinition
       throw new ArgumentException("Rollup dimensions must be distinct and non-empty.");
     foreach (var dimension in sorted)
     {
+      if (Internal.TimeDimension.IsDerived(dimension))
+        throw new ArgumentException($"'{dimension}' is computed at query time; omit it from RollupDefinition dimensions.");
       if (dimension.Any(c => char.IsControl(c) || c == ','))
         throw new ArgumentException($"Invalid dimension name '{dimension}'.");
     }

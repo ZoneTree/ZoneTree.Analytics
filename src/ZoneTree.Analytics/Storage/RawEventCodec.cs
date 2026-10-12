@@ -88,14 +88,14 @@ public sealed class RawEvent
   /// <summary>
   /// True when the event has the name and matches every filter.
   /// </summary>
-  internal bool Matches(string eventName, Filter[] filters)
+  internal bool Matches(string eventName, Filter[] filters, ReportingCalendar calendar)
   {
     if (Name != eventName)
       return false;
+    var dimensions = new FilterValues(this, calendar);
     foreach (var filter in filters)
     {
-      TryGetDimension(filter.Dimension, out var value);
-      if (!filter.IsMatch(value))
+      if (filter != null && !filter.IsMatch(dimensions))
         return false;
     }
     return true;
@@ -125,7 +125,7 @@ sealed class DimensionSelector
 
   public DimensionSelector(IEnumerable<string> names)
   {
-    Names = names.Distinct(StringComparer.Ordinal).ToArray();
+    Names = names.Where(x => !TimeDimension.IsDerived(x)).Distinct(StringComparer.Ordinal).ToArray();
     utf8Names = Names.Select(Encoding.UTF8.GetBytes).ToArray();
   }
 

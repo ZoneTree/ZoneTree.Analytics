@@ -5,8 +5,6 @@ namespace ZoneTree.Analytics.Query;
 
 readonly record struct GroupKey(long Bucket, string Values);
 
-readonly record struct RollupFilter(Filter Filter, int DimensionIndex);
-
 /// <summary>State owned by one query execution, from preparation through result construction.</summary>
 sealed class QueryContext
 {
@@ -43,6 +41,8 @@ sealed class QueryContext
   public readonly List<QueryPlanStep> Steps = [];
 
   public readonly HashSet<string> Warnings = new(StringComparer.Ordinal);
+
+  public readonly List<RollupSuggestion> RollupSuggestions = [];
 
   public SegmentSets SegmentSets;
 
@@ -102,7 +102,9 @@ sealed class SourceContext
 
   public int[] GroupByIndexes;
 
-  public RollupFilter[] RollupFilters = [];
+  public string[] RequiredDimensions = [];
+
+  public string[] TimeDimensions = [];
 
   public readonly Dictionary<GroupKey, RollupAccumulator> Groups = [];
 
@@ -114,7 +116,10 @@ sealed class SourceContext
   /// <summary>The dimensions whose distinct values the query counts.</summary>
   public string[] DistinctDimensions = [];
 
-  public RollupReadRequirements ReadRequirements => new(ReadsVisitors, ValueDetails, DistinctDimensions);
+  /// <summary>Derived dimensions are synthesized from time, never merged from stored sketches.</summary>
+  public string[] StoredDistinctDimensions = [];
+
+  public RollupReadRequirements ReadRequirements => new(ReadsVisitors, ValueDetails, StoredDistinctDimensions);
 
   /// <summary>Since when rollups hold the opt-in aggregates the query reads.</summary>
   public long AggregatesSince;

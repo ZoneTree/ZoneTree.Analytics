@@ -18,19 +18,14 @@ It's capable for an embedded engine, with a few real gaps. Here is what the code
    - That scales with the number of events: ~16–60 ms per 30 days at about 860k events/month, so seconds at hundreds of millions.
    - It is only possible within raw event retention (90 days by default).
    - Beyond that, the query fails or returns a partial result with a warning.
-2. **No cap on group count in raw scans.** Grouping raw events by a high-cardinality dimension (full URLs with query strings, user ids) builds every group in memory, each with a visitor sketch, before sorting and applying `Limit`. That could use a lot of memory; nothing currently stops it except the timeout.
-3. **Filters combine with AND only.** One filter can match several values (`country==DE|AT`), but there is no OR across dimensions, such as "country is DE or source is Google".
-4. **No grouping by derived time.** There's no hour-of-day or day-of-week grouping, so a "traffic by weekday" heatmap isn't possible.
-5. **Session metrics are restricted.** Bounce rate, duration and sessions can only be grouped or filtered by session-level dimensions (source, country, device, entry page and similar). "Bounce rate by page" is rejected with an error.
-6. **Segments and funnels need raw events.** They only work within raw event retention.
-7. **Counts are approximate in places.** Visitor and distinct counts are HyperLogLog sketches: exact up to 4,096 per row, about 0.8% error beyond. Percentiles are within 1%.
-8. **No cohort or retention analysis.** That needs visitor identity across days, which the default daily-rotating hash rules out by design.
-9. **No query result cache.** Repeated dashboard queries rely on the storage block cache.
+2. **Session metrics are restricted.** Bounce rate, duration and sessions can only be grouped or filtered by session-level dimensions (source, country, device, entry page and similar), plus derived time dimensions. "Bounce rate by page" is rejected with an error.
+3. **Segments and funnels need raw events.** They only work within raw event retention.
+4. **Counts are approximate in places.** Visitor and distinct counts are HyperLogLog sketches: exact up to 4,096 per row, about 0.8% error beyond. Percentiles are within 1%.
+5. **No cohort or retention analysis.** That needs visitor identity across days, which the default daily-rotating hash rules out by design.
+6. **No query result cache.** Repeated dashboard queries rely on the storage block cache.
 
-### What I'd add, in order
-1. **A cap on raw-scan groups** (for example 100k, configurable), failing with a clear message. This is a protection gap, not a missing feature.
-2. **OR filter groups** (`AnyOf(filter, filter)`): small, and commonly needed.
-3. **Derived time dimensions** (`$hour_of_day`, `$day_of_week`): these can be computed from the bucket on both rollups and raw events, so no new storage is needed.
-4. **Rollup suggestions:** when a query falls back to raw events, the plan could name the `RollupDefinition` that would have answered it from rollups.
-
-Should I implement any of these?
+### Completed improvements
+1. **Group cap:** `Queries.MaxGroups` defaults to 100,000 and rejects queries before allocating excess aggregate groups, across raw scans and rollups.
+2. **OR filter groups:** `Filter.AnyOf` and `Filter.AllOf` support nested conditions across queries, conditional metrics, segments, funnels and the reporting API.
+3. **Derived time dimensions:** `$hour_of_day` and `$day_of_week` support grouping and filtering in the query's time zone without new storage. The planner selects compatible rollup granularities or raw events.
+4. **Rollup suggestions:** `QueryPlan.RollupSuggestions` identifies exact missing definitions for automatic raw fallbacks, also exposed by the reporting API. Suggestions apply to newly tracked data; existing events are not backfilled.

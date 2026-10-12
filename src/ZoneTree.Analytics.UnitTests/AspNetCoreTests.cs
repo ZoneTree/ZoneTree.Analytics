@@ -406,6 +406,81 @@ public sealed class AspNetCoreTests : DirectoryTest
   }
 
   [Test]
+  public async Task ReportingApiExposesNestedFiltersTimeDimensionsAndRollupSuggestions()
+  {
+    await TrackVisitsAsync();
+    var (status, result) = await PostJson("/_analytics/api/query", """
+      {
+        "range": "today", "groupBy": ["page", "hostname", "$hour_of_day", "$day_of_week"],
+        "metrics": ["events"],
+        "filters": ["any(\"page==/pricing\",all(\"page==/\",\"hostname==example.com\"))"]
+      }
+      """);
+    Assert.That(status, Is.EqualTo(HttpStatusCode.OK));
+    Assert.That(result.GetProperty("totals").GetProperty("values").GetProperty("events").GetInt32(), Is.EqualTo(3));
+    var row = result.GetProperty("rows")[0].GetProperty("dimensions");
+    Assert.That(row.GetProperty("$hour_of_day").GetString(), Is.Not.Empty);
+    Assert.That(row.GetProperty("$day_of_week").GetString(), Is.Not.Empty);
+    var suggestion = result.GetProperty("plan").GetProperty("rollupSuggestions")[0];
+    Assert.That(suggestion.GetProperty("event").GetString(), Is.EqualTo("pageview"));
+    Assert.That(suggestion.GetProperty("dimensions").EnumerateArray().Select(x => x.GetString()),
+        Is.EqualTo(new[] { "hostname", "page" }));
+    Assert.That(suggestion.GetProperty("events")[0].GetString(), Is.EqualTo("pageview"));
+
+    var filter = Uri.EscapeDataString("any(\"page==/pricing\",all(\"page==/\",\"hostname==example.com\"))");
+    var (getStatus, summary) = await GetJson("/_analytics/api/summary?range=today&filter=" + filter);
+    Assert.That(getStatus, Is.EqualTo(HttpStatusCode.OK));
+    Assert.That(summary.GetProperty("summary").GetProperty("pageViews").GetInt32(), Is.EqualTo(3));
+    Assert.That(summary.GetProperty("plan").GetProperty("rollupSuggestions").GetArrayLength(), Is.GreaterThan(0));
+
+    var (breakdownStatus, breakdown) = await GetJson("/_analytics/api/breakdown?range=today&dimension=$hour_of_day&filter=" +
+        Uri.EscapeDataString("any(\"source==Google\",\"source==Direct\")"));
+    Assert.That(breakdownStatus, Is.EqualTo(HttpStatusCode.OK));
+    Assert.That(breakdown.GetProperty("rows")[0].GetProperty("sessions").ValueKind, Is.EqualTo(JsonValueKind.Number));
+  }
+
+  [Test]
+  public async Task ReportingApiRejectsMalformedFilterGroupsAndAcceptsThemInFunnelSteps()
+  {
+    await TrackVisitsAsync();
+    var (badStatus, _) = await PostJson("/_analytics/api/query", """
+      { "range": "today", "filters": ["any()"] }
+      """);
+    Assert.That(badStatus, Is.EqualTo(HttpStatusCode.BadRequest));
+    var (status, result) = await PostJson("/_analytics/api/funnel", """
+      {
+        "range": "today", "filters": ["any(\"source==Google\",\"source==Direct\")"],
+        "steps": [
+          { "event": "pageview", "filters": ["any(\"page==/\",\"page==/pricing\")"] },
+          { "event": "signup", "filters": ["$hour_of_day>=0"] }
+        ]
+      }
+      """);
+    Assert.That(status, Is.EqualTo(HttpStatusCode.OK));
+    Assert.That(result.GetProperty("steps")[1].GetProperty("visitors").GetInt32(), Is.EqualTo(1));
+    Assert.That(result.GetProperty("plan").GetProperty("rollupSuggestions").GetArrayLength(), Is.Zero);
+  }
+
+  [TestCase("page!=(,hostname==missing.example")]
+  [TestCase(@"page!=~\(,hostname==missing.example")]
+  public async Task ReportingApiPreservesCommaSeparatedLeafFiltersWithLiteralParentheses(string filters)
+  {
+    await TrackVisitsAsync();
+    var (status, report) = await GetJson("/_analytics/api/summary?range=today&filter=" + Uri.EscapeDataString(filters));
+    Assert.That(status, Is.EqualTo(HttpStatusCode.OK));
+    Assert.That(report.GetProperty("summary").GetProperty("pageViews").GetInt32(), Is.Zero);
+  }
+
+  [Test]
+  public async Task ReportingApiReturnsBadRequestForMalformedUnicodeInAFilterGroup()
+  {
+    var expression = """any("page==\uD800")""";
+    var (status, result) = await GetJson("/_analytics/api/summary?range=today&filter=" + Uri.EscapeDataString(expression));
+    Assert.That(status, Is.EqualTo(HttpStatusCode.BadRequest));
+    Assert.That(result.GetProperty("error").GetString(), Does.Contain("Unicode"));
+  }
+
+  [Test]
   public async Task ReportingApiServesBotsSideBySide()
   {
     await TrackVisitsAsync();

@@ -318,6 +318,52 @@ Filter.Parse("country==DE|AT");             // also !=, ~=, !~=, ^=, $=, =~, !=~
 
 Positive operators never match a missing dimension; negative operators always do. Numeric operators compare values as numbers; values that are not numbers do not match.
 
+Entries in a filter list combine with AND. Use `AnyOf` for OR across dimensions, and
+`AllOf` to nest an AND branch inside it. Query and `Metric.Where` filters support both raw
+events and rollups. Segments, funnel filters and funnel steps use the same group semantics
+over raw events. An event matching several OR branches is counted once.
+
+```csharp
+query.Filters.Add(Filter.AnyOf(
+    Filter.Equal("country", "DE"),
+    Filter.AllOf(Filter.Equal("source", "Google"), Filter.StartsWith("page", "/pricing"))));
+Filter.Parse("""any("country==DE",all("source==Google","page^=/pricing"))""");
+```
+
+The text form uses JSON-quoted single conditions and directly nested `any(...)` / `all(...)`
+groups. `ToString()` produces a round-trippable expression, including escaping. Groups must
+be non-empty, with at most 32 levels and 1,024 single conditions. `filter.Matches(dimensions)`
+evaluates a group against a dictionary; `IsMatch(value)` evaluates a single condition.
+
+### Derived time dimensions
+
+`StandardDimensions.HourOfDay` (`$hour_of_day`) and `StandardDimensions.DayOfWeek`
+(`$day_of_week`) are computed from each event or storage bucket in the query's time zone.
+Their string values are `"0"`–`"23"` for hours and `"1"` (Monday)–`"7"` (Sunday) for weekdays;
+weekday numbering is independent of `FirstDayOfWeek`. They support grouping, filters,
+conditional metrics, distinct counts, segments and funnels, including session and bot metrics.
+Sessions use the session start; entrances and exits use their own event times. Values are
+computed before the output interval is applied, so a daily series can still group by hour.
+
+```csharp
+var byHour = new AnalyticsQuery
+{
+    Range = DateRange.LastDays(30),
+    TimeZone = TimeZoneInfo.FindSystemTimeZoneById("Europe/Berlin"),
+    GroupBy = { StandardDimensions.DayOfWeek, StandardDimensions.HourOfDay },
+    Filters = { Filter.LessThanOrEqual(StandardDimensions.DayOfWeek, 5) },
+    Metrics = { Metric.Events, Metric.Visitors },
+};
+```
+
+These dimensions need no additional storage and must be omitted from `RollupDefinition`.
+Daily rollups can answer weekdays in the storage time zone, but cannot answer hour-of-day.
+The planner uses finer rollups when an offset or DST transition could split a local hour or
+date inside a stored bucket. It falls back to raw events when no compatible rollup is
+available; forcing rollups then gives a clear error. Distinct counts for these dimensions
+need no `Rollups.DistinctDimensions` opt-in. Time-series filling follows the usual observed
+groups × output buckets rule; use `FillMode.None` to return only combinations with data.
+
 ### Segments
 
 ```csharp
@@ -364,6 +410,20 @@ options.Rollups.Definitions.Add(new RollupDefinition("plan") { Events = ["purcha
 ```
 
 A rollup added to an existing data directory, re-added after being removed, or given different `Events` covers data from that moment on; earlier ranges are answered from raw events.
+
+When automatic execution scans raw events because an exact dimension set has no configured
+rollup, `result.Plan.RollupSuggestions` names the event and a ready-to-add `RollupDefinition`.
+It includes every dimension referenced by nested filters and conditional metrics, excludes
+computed time dimensions, and de-duplicates identical suggestions for the same event.
+Suggestions are advisory and do not affect `Plan.IsComplete`. They are absent for forced raw
+execution, segments, missing opt-in aggregates, incompatible granularities, and boundary
+reads of an existing definition. Adding a suggested definition accelerates newly tracked
+data; existing raw events are not backfilled, and retention or range edges may still need raw reads.
+
+```csharp
+foreach (var suggestion in result.Plan.RollupSuggestions)
+    options.Rollups.Definitions.Add(suggestion.Definition); // apply before creating the next engine
+```
 
 Rollup granularities also record when they became active. Enabling or re-enabling a tier uses retained finer tiers or raw events for its earlier ranges. Older data directories without tier activation metadata preserve historical coverage for tiers that already contain partitions; newly added tiers start their coverage when enabled.
 
@@ -499,6 +559,13 @@ The tracker observes `pushState`, `replaceState` and `popstate`, deduplicates th
 List reports return `{ from, to, totalRows, rows, plan }`. Summary, time series and page rows include `botHits` (null unless bots are tracked separately). `interval` accepts `minute`, `hour`, `day`, `week`, `month`, `year` and widths such as `5m` or `6h`; `POST query` also takes `fill` (`none`, `zero`, `previous`, `linear`), `having` conditions, `orderBy` sort keys and `limitPerBucket`. Common parameters, all in the text forms above: `site`, `range` (default `30d`) or `from` and `to` (days or date-times), `tz`, `filter` (repeatable), `segment` (repeatable; in JSON, `segments` holds texts or objects), `compare` (`previous-period`, `previous-year` or a range), `limit`, `offset`.
 
 The reporting API represents non-finite metric values (overflow or undefined arithmetic) as JSON `null`, adds a warning to `plan.warnings`, and sets `plan.complete` to false. This also applies to totals, series and comparison values. The .NET query result retains its numerical values. Page reports exclude missing pages before counting and pagination; exit-page reports also exclude rows with no exits.
+
+The HTTP API accepts the same nested filter expressions in repeatable GET `filter` parameters
+and POST `filters` strings. URL-encode GET expressions; JSON bodies escape their inner quotes,
+for example `"filters": ["any(\"country==DE\",\"source==Google\")"]`. Use `$hour_of_day` or
+`$day_of_week` in `groupBy`, `dimension`, filters and conditional metrics. Every `plan` includes
+`rollupSuggestions`, an array of `{ event, id, dimensions, events }` objects, empty when no
+definition is suggested.
 
 ```json
 POST /_analytics/api/query

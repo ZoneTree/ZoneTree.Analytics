@@ -71,7 +71,7 @@ public sealed class Segment
   /// </summary>
   public Segment Exclude() => new(Scope, Event, filters, !IsExcluded);
 
-  internal bool Matches(RawEvent rawEvent) => rawEvent.Matches(Event, filters);
+  internal bool Matches(RawEvent rawEvent, ReportingCalendar calendar) => rawEvent.Matches(Event, filters, calendar);
 
   /// <summary>
   /// The text form, which <see cref="Parse"/> reads back, for example
@@ -178,15 +178,29 @@ public sealed class Segment
   static IEnumerable<string> SplitFilters(string text)
   {
     var current = new StringBuilder();
+    var quoted = false;
+    var group = false;
     for (var i = 0; i < text.Length; ++i)
     {
       var c = text[i];
+      if (current.Length == 0)
+      {
+        var remaining = text[i..].TrimStart();
+        group = remaining.StartsWith("any(", StringComparison.Ordinal) || remaining.StartsWith("all(", StringComparison.Ordinal);
+      }
+      if (group && c == '\\' && quoted && i + 1 < text.Length)
+      {
+        current.Append(c).Append(text[++i]);
+        continue;
+      }
+      if (group && c == '"')
+        quoted = !quoted;
       if (c == '\\' && i + 1 < text.Length && text[i + 1] is '|' or ';' or '\\')
       {
         current.Append(c).Append(text[++i]);
         continue;
       }
-      if (c == ';')
+      if (c == ';' && !quoted)
       {
         yield return current.ToString();
         current.Clear();

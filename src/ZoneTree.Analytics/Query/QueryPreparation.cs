@@ -60,10 +60,10 @@ sealed class QueryPreparation(
         metrics.Concat(having.Select(x => x.Metric)).FirstOrDefault(x => x.NeedsSeries) is { } seriesMetric)
       throw new AnalyticsQueryException($"The metric '{seriesMetric.Key}' needs a time series: set an Interval.");
 
-    var dimensions = groupBy.Concat(filters.Select(x => x.Dimension)).Distinct(StringComparer.Ordinal).ToArray();
+    var dimensions = groupBy.Concat(filters.SelectMany(x => x.Dimensions)).Distinct(StringComparer.Ordinal).ToArray();
     foreach (var metric in aggregates)
     {
-      ValidateScope(metric, baseEvent, [.. dimensions.Union(metric.Conditions.Select(x => x.Dimension), StringComparer.Ordinal)]);
+      ValidateScope(metric, baseEvent, [.. dimensions.Union(metric.Conditions.SelectMany(x => x.Dimensions), StringComparer.Ordinal)]);
       if (metric.MetricKind == Metric.Kind.Distinct && metric.ScopeFor(baseEvent) == DimensionScope.Session)
         ValidateScope(metric, baseEvent, [metric.Argument]);
       if (segments.Length > 0 && metric.ScopeFor(baseEvent) == DimensionScope.Bot)
@@ -141,9 +141,9 @@ sealed class QueryPreparation(
   SourceContext CreateSource(
       string eventName, string key, Filter[] conditions, string[] dimensions, string[] groupBy, Filter[] filters)
   {
-    var dimensionSetId = string.Join(",", dimensions
-        .Union(conditions.Select(x => x.Dimension), StringComparer.Ordinal)
-        .Order(StringComparer.Ordinal));
+    var required = dimensions.Union(conditions.SelectMany(x => x.Dimensions), StringComparer.Ordinal).ToArray();
+    var stored = required.Where(x => !TimeDimension.IsDerived(x)).Order(StringComparer.Ordinal).ToArray();
+    var dimensionSetId = string.Join(",", stored);
     var definition = definitions.FirstOrDefault(x =>
         x.Id == dimensionSetId && (x.Events == null || x.Events.Contains(eventName)));
     var source = new SourceContext
@@ -153,12 +153,13 @@ sealed class QueryPreparation(
       Conditions = conditions,
       Filters = conditions.Length == 0 ? filters : filters.Length == 0 ? conditions : [.. filters, .. conditions],
       EventUtf8 = RawEventCodec.Utf8(eventName),
+      RequiredDimensions = stored,
+      TimeDimensions = required.Where(TimeDimension.IsDerived).ToArray(),
       Definition = definition
     };
     if (definition != null)
     {
       source.GroupByIndexes = groupBy.Select(x => IndexOf(definition.Dimensions, x)).ToArray();
-      source.RollupFilters = source.Filters.Select(x => new RollupFilter(x, IndexOf(definition.Dimensions, x.Dimension))).ToArray();
     }
     return source;
   }
@@ -179,6 +180,8 @@ sealed class QueryPreparation(
       {
         if (!source.DistinctDimensions.Contains(metric.Argument))
           source.DistinctDimensions = [.. source.DistinctDimensions, metric.Argument];
+        if (TimeDimension.IsDerived(metric.Argument) && !source.TimeDimensions.Contains(metric.Argument))
+          source.TimeDimensions = [.. source.TimeDimensions, metric.Argument];
         continue;
       }
       source.ValueDetails ??= new(StringComparer.Ordinal);
@@ -186,6 +189,7 @@ sealed class QueryPreparation(
     }
     foreach (var source in context.Sources.Values)
     {
+      source.StoredDistinctDimensions = source.DistinctDimensions.Where(x => !TimeDimension.IsDerived(x)).ToArray();
       long since = 0;
       var missing = new List<string>();
       foreach (var (metric, required) in source.ValueDetails ?? [])
@@ -197,6 +201,8 @@ sealed class QueryPreparation(
       }
       foreach (var dimension in source.DistinctDimensions)
       {
+        if (TimeDimension.IsDerived(dimension))
+          continue;
         var at = activations.DistinctSince(dimension);
         if (at == long.MaxValue)
           missing.Add($"distinct values of '{dimension}'");
@@ -214,7 +220,7 @@ sealed class QueryPreparation(
       return;
     foreach (var dimension in dimensions)
     {
-      if (enricher.Schema.Contains(scope, dimension))
+      if (TimeDimension.IsDerived(dimension) || enricher.Schema.Contains(scope, dimension))
         continue;
       var (allowed, hint) = scope switch
       {

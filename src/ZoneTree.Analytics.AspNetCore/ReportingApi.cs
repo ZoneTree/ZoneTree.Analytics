@@ -95,7 +95,8 @@ sealed class ApiParameters
   public IEnumerable<string> GetAll(string name)
   {
     if (!hasBody)
-      return query[name].Where(x => !string.IsNullOrEmpty(x)).SelectMany(x => x.Split(',')).ToList();
+      return query[name].Where(x => !string.IsNullOrEmpty(x))
+          .SelectMany(x => SplitList(x, name is "filter" or "filters")).ToList();
     if (Element(name) is not { } element)
       return [];
     if (element.ValueKind == JsonValueKind.String)
@@ -105,6 +106,39 @@ sealed class ApiParameters
     return element.EnumerateArray().Select(x => x.ValueKind == JsonValueKind.String
         ? x.GetString()
         : throw new FormatException($"'{name}' must be an array of strings.")).ToList();
+  }
+
+  // Commas inside a filter group or metric formula belong to that expression.
+  static IEnumerable<string> SplitList(string text, bool filters)
+  {
+    var start = 0;
+    var depth = 0;
+    var quoted = false;
+    for (var i = 0; i < text.Length; ++i)
+    {
+      var c = text[i];
+      if (quoted && c == '\\' && i + 1 < text.Length)
+      {
+        ++i;
+        continue;
+      }
+      if (c == '"' && depth > 0)
+        quoted = !quoted;
+      if (quoted)
+        continue;
+      // In a single filter, parentheses can be literal values or escaped regex tokens.
+      // Only a leading any(...) or all(...) introduces a filter group's parentheses.
+      if (c == '(' && (!filters || depth > 0 || text[start..i].Trim() is "any" or "all"))
+        ++depth;
+      else if (c == ')' && depth > 0)
+        --depth;
+      else if (c == ',' && depth == 0)
+      {
+        yield return text[start..i];
+        start = i + 1;
+      }
+    }
+    yield return text[start..];
   }
 
   public int? GetInt(string name)
@@ -665,6 +699,23 @@ static class ReportingApi
       writer.WriteString("source", step.Source.ToString());
       writer.WriteString("from", step.From);
       writer.WriteString("to", step.To);
+      writer.WriteEndObject();
+    }
+    writer.WriteEndArray();
+    writer.WriteStartArray("rollupSuggestions");
+    foreach (var suggestion in plan.RollupSuggestions)
+    {
+      writer.WriteStartObject();
+      writer.WriteString("event", suggestion.Event);
+      writer.WriteString("id", suggestion.Definition.Id);
+      writer.WriteStartArray("dimensions");
+      foreach (var dimension in suggestion.Definition.Dimensions)
+        writer.WriteStringValue(dimension);
+      writer.WriteEndArray();
+      writer.WriteStartArray("events");
+      foreach (var eventName in suggestion.Definition.Events)
+        writer.WriteStringValue(eventName);
+      writer.WriteEndArray();
       writer.WriteEndObject();
     }
     writer.WriteEndArray();

@@ -1,4 +1,5 @@
 using ZoneTree.Analytics.Storage;
+using ZoneTree.Analytics.Internal;
 
 namespace ZoneTree.Analytics;
 
@@ -44,7 +45,7 @@ public sealed class FunnelStep
   /// </summary>
   public static FunnelStep Goal(string eventName, params Filter[] filters) => new(eventName, eventName, filters);
 
-  internal bool Matches(RawEvent rawEvent) => rawEvent.Matches(Event, filters);
+  internal bool Matches(RawEvent rawEvent, ReportingCalendar calendar) => rawEvent.Matches(Event, filters, calendar);
 }
 
 /// <summary>

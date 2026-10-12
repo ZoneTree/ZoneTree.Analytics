@@ -73,9 +73,9 @@ sealed class FunnelEngine
     var segmentSets = segments.Length == 0
         ? null
         : SegmentSets.Evaluate(
-            rawEvents, site, from, to, segments, options.Queries.MaxDegreeOfParallelism, cancellationToken);
+            rawEvents, site, from, to, segments, calendar, options.Queries.MaxDegreeOfParallelism, cancellationToken);
 
-    var progress = Scan(site, from, to, steps, filters, segmentSets, funnel.Window, cancellationToken);
+    var progress = Scan(site, from, to, steps, filters, segmentSets, calendar, funnel.Window, cancellationToken);
     var results = Summarize(steps, progress);
     var plan = new QueryPlan(
         steps.Select(x => x.Event).Distinct().Select(x => new QueryPlanStep(
@@ -118,11 +118,12 @@ sealed class FunnelEngine
       FunnelStep[] steps,
       Filter[] filters,
       SegmentSets segmentSets,
+      ReportingCalendar calendar,
       TimeSpan? window,
       CancellationToken cancellationToken)
   {
     var selector = new DimensionSelector(
-        filters.Select(x => x.Dimension).Concat(steps.SelectMany(x => x.Filters).Select(x => x.Dimension)));
+        filters.SelectMany(x => x.Dimensions).Concat(steps.SelectMany(x => x.Filters).Where(x => x != null).SelectMany(x => x.Dimensions)));
     var bySession = window == null;
     var windowTicks = window?.Ticks ?? 0;
     var maxDegree = options.Queries.MaxDegreeOfParallelism;
@@ -139,16 +140,16 @@ sealed class FunnelEngine
           var key = bySession ? rawEvent.SessionId : rawEvent.Visitor;
           if (key == 0 || (segmentSets != null && !segmentSets.Allows(rawEvent.Visitor, rawEvent.SessionId)))
             return;
+          var dimensions = new FilterValues(rawEvent, calendar);
           foreach (var filter in filters)
           {
-            rawEvent.TryGetDimension(filter.Dimension, out var dimension);
-            if (!filter.IsMatch(dimension))
+            if (!filter.IsMatch(dimensions))
               return;
           }
           ulong matched = 0;
           for (var i = 0; i < steps.Length; ++i)
           {
-            if (steps[i].Matches(rawEvent))
+            if (steps[i].Matches(rawEvent, calendar))
               matched |= 1UL << i;
           }
           if (matched != 0)

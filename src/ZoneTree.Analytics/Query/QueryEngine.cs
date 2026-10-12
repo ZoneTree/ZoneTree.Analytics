@@ -98,7 +98,7 @@ sealed class QueryEngine
         throw new AnalyticsQueryException("Segments require raw events (StorageOptions.StoreRawEvents).");
       AddWarning(context, context.Cutoffs.RawEventsWarning(context.From));
       context.SegmentSets = SegmentSets.Evaluate(
-          rawEvents, context.Site, context.From, context.To, context.Segments,
+          rawEvents, context.Site, context.From, context.To, context.Segments, context.Calendar,
           options.Queries.MaxDegreeOfParallelism, context.CancellationToken);
     }
     foreach (var source in context.Sources.Values)
@@ -118,6 +118,7 @@ sealed class QueryEngine
         ? AvailableRollups(context.Calendar, context.Interval, context.Cutoffs,
             Math.Max(activations.DefinitionSince(source.Definition.Id), source.AggregatesSince))
         : [];
+    tiers.RemoveAll(x => !TimeDimension.CanRead(x.Granularity, context.Calendar, source.TimeDimensions, context.From, context.To));
     if (context.Segments.Length > 0)
     {
       if (!readRaw)
@@ -134,22 +135,22 @@ sealed class QueryEngine
             "not available. Add them to Rollups.ValueAggregates or Rollups.DistinctDimensions.");
       if (source.Definition == null)
       {
-        var dimensions = context.GroupBy
-            .Concat(context.Filters.Select(x => x.Dimension))
-            .Concat(source.Conditions.Select(x => x.Dimension))
-            .Distinct();
+        var dimensions = source.RequiredDimensions;
         var conditions = source.Conditions.Length == 0 ? "" : $" where {string.Join(" and ", source.Conditions.Select(x => x.ToString()))}";
         throw new AnalyticsQueryException(
             $"No rollup covers the dimensions [{string.Join(", ", dimensions)}] for the event '{source.Event}'{conditions}, " +
             "and raw events are not available. Add a RollupDefinition with exactly these dimensions.");
       }
+      var timeDimensions = source.TimeDimensions.Length == 0 ? "" :
+          $" with time dimensions [{string.Join(", ", source.TimeDimensions)}] in '{context.Calendar.TimeZone.Id}'";
       throw new AnalyticsQueryException(
-          $"No rollup granularity can answer the {context.Interval} interval. Enable a finer granularity.");
+          $"No rollup granularity can answer the {context.Interval} interval{timeDimensions}. Enable a finer granularity.");
     }
 
     var plan = QueryRangePlanner.Build(context.Calendar, context.From, context.To, tiers, readRaw,
         context.CancellationToken, context.Interval);
     source.Plan = plan.Segments;
+    SuggestRollup(context, source, selection);
     foreach (var segment in plan.Segments.Where(x => x.Source == PlanSource.RawEvents))
       AddWarning(context, context.Cutoffs.RawEventsWarning(segment.From));
     foreach (var granularity in CoarseToFine)
@@ -162,6 +163,27 @@ sealed class QueryEngine
     }
     if (plan.HasMissingRanges)
       context.Warnings.Add($"Part of the range of '{source.Event}' could not be answered.");
+  }
+
+  void SuggestRollup(QueryContext context, SourceContext source, QuerySource selection)
+  {
+    if (selection != QuerySource.Auto || source.Definition != null || source.MissingAggregates != null ||
+        context.Segments.Length > 0 || !source.Plan.Any(x => x.Source == PlanSource.RawEvents))
+      return;
+    // An unknown or invalid stored dimension can still be queried as missing. An advisory
+    // suggestion must not turn a valid raw query into a definition-validation failure.
+    if (source.RequiredDimensions.Any(x => x.Any(c => char.IsControl(c) || c == ',')))
+      return;
+    var definitionId = string.Join(",", source.RequiredDimensions);
+    if (context.RollupSuggestions.Any(x => x.Event == source.Event && x.Definition.Id == definitionId))
+      return;
+    var tiers = AvailableRollups(context.Calendar, context.Interval, context.Cutoffs, source.AggregatesSince);
+    tiers.RemoveAll(x => !TimeDimension.CanRead(x.Granularity, context.Calendar, source.TimeDimensions, context.From, context.To));
+    var candidate = QueryRangePlanner.Build(context.Calendar, context.From, context.To, tiers, true,
+        context.CancellationToken, context.Interval);
+    if (candidate.Segments.Any(x => x.Source != PlanSource.RawEvents))
+      context.RollupSuggestions.Add(new RollupSuggestion(source.Event,
+          new RollupDefinition(source.RequiredDimensions) { Events = [source.Event] }));
   }
 
   List<RollupCoverage> AvailableRollups(
@@ -241,9 +263,10 @@ sealed class QueryEngine
           if (++counter % CancellationCheckInterval == 0)
             context.CancellationToken.ThrowIfCancellationRequested();
           var parts = KeyCodec.SplitValues(combined, dimensionCount);
-          foreach (var binding in source.RollupFilters)
+          var dimensions = new FilterValues(definition.Dimensions, parts, bucket, calendar, isDay);
+          foreach (var filter in source.Filters)
           {
-            if (!binding.Filter.IsMatch(KeyCodec.Public(parts[binding.DimensionIndex])))
+            if (!filter.IsMatch(dimensions))
               return;
           }
           long outputBucket;
@@ -254,8 +277,17 @@ sealed class QueryEngine
           else
             outputBucket = calendar.Bucket(bucket, interval);
           for (var i = 0; i < groupValues.Length; ++i)
-            groupValues[i] = parts[source.GroupByIndexes[i]];
-          GetGroup(context, source.Groups, outputBucket, groupValues).MergeForQuery(value, requirements);
+            groupValues[i] = source.GroupByIndexes[i] >= 0 ? parts[source.GroupByIndexes[i]] : KeyCodec.Stored(dimensions.Get(context.GroupBy[i]));
+          var accumulator = GetGroup(context, source.Groups, outputBucket, groupValues);
+          accumulator.MergeForQuery(value, requirements);
+          if (value.Count > 0)
+          {
+            foreach (var dimension in source.DistinctDimensions)
+            {
+              if (TimeDimension.IsDerived(dimension))
+                accumulator.AddDistinct(dimension, Text.StableHash(dimensions.Get(dimension)), context.Precision);
+            }
+          }
         });
   }
 
@@ -320,7 +352,7 @@ sealed class QueryEngine
     var trackSessions = options.Sessions.Enabled && flowSources.Length > 0;
     var onlyEvent = eventSources.Length == 1 && !trackSessions ? eventSources[0] : null;
 
-    var needed = context.GroupBy.Concat(sources.SelectMany(x => x.Filters).Select(x => x.Dimension))
+    var needed = context.GroupBy.Concat(sources.SelectMany(x => x.Filters).SelectMany(x => x.Dimensions))
         .Concat(sources.SelectMany(x => x.DistinctDimensions));
     if (trackSessions)
       needed = needed.Append(StandardDimensions.Page).Append(StandardDimensions.Hostname);
@@ -420,16 +452,15 @@ sealed class QueryEngine
       RawEvent rawEvent,
       string[] groupValues)
   {
+    var dimensions = new FilterValues(rawEvent, context.Calendar);
     foreach (var filter in source.Filters)
     {
-      rawEvent.TryGetDimension(filter.Dimension, out var value);
-      if (!filter.IsMatch(value))
+      if (!filter.IsMatch(dimensions))
         return;
     }
     for (var i = 0; i < groupValues.Length; ++i)
     {
-      rawEvent.TryGetDimension(context.GroupBy[i], out var value);
-      groupValues[i] = KeyCodec.Stored(value);
+      groupValues[i] = KeyCodec.Stored(dimensions.Get(context.GroupBy[i]));
     }
     var accumulator = GetGroup(context, groups, context.Calendar.Bucket(rawEvent.Ticks, context.Interval), groupValues);
     ++accumulator.Count;
@@ -446,7 +477,8 @@ sealed class QueryEngine
     }
     foreach (var dimension in source.DistinctDimensions)
     {
-      if (rawEvent.TryGetDimension(dimension, out var value) && value != null)
+      var value = dimensions.Get(dimension);
+      if (value != null)
         accumulator.AddDistinct(dimension, Text.StableHash(value), context.Precision);
     }
   }
@@ -458,7 +490,7 @@ sealed class QueryEngine
       RawSession session,
       string[] groupValues)
   {
-    if (!MatchAndGroup(context, source, session.Dimensions, groupValues))
+    if (!MatchAndGroup(context, source, session.Dimensions, session.Start, groupValues))
       return;
     var accumulator = GetGroup(context, groups, context.Calendar.Bucket(session.Start, context.Interval), groupValues);
     ++accumulator.Count;
@@ -472,7 +504,8 @@ sealed class QueryEngine
       accumulator.AddValueDelta(StandardValues.SessionPageViews, session.PageViews);
     foreach (var dimension in source.DistinctDimensions)
     {
-      if (session.Dimensions.TryGetValue(dimension, out var value) && value != null)
+      var value = new FilterValues(session.Dimensions, session.Start, context.Calendar).Get(dimension);
+      if (value != null)
         accumulator.AddDistinct(dimension, Text.StableHash(value), context.Precision);
     }
   }
@@ -493,7 +526,7 @@ sealed class QueryEngine
     if (session.FirstIsPageView && session.Start >= segment.From && session.Start < segment.To)
     {
       var dimensions = pageDimensions.Of(session.Dimensions, session.FirstPage, session.FirstHostname);
-      if (MatchAndGroup(context, source, dimensions, groupValues))
+      if (MatchAndGroup(context, source, dimensions, session.Start, groupValues))
       {
         GetGroup(context, groups, context.Calendar.Bucket(session.Start, context.Interval), groupValues)
             .AddValueDelta(StandardValues.Entrances, 1);
@@ -502,7 +535,7 @@ sealed class QueryEngine
     if (session.LastPage != null && session.LastPageTicks >= segment.From && session.LastPageTicks < segment.To)
     {
       var dimensions = pageDimensions.Of(session.Dimensions, session.LastPage, session.LastHostname);
-      if (MatchAndGroup(context, source, dimensions, groupValues))
+      if (MatchAndGroup(context, source, dimensions, session.LastPageTicks, groupValues))
       {
         GetGroup(context, groups, context.Calendar.Bucket(session.LastPageTicks, context.Interval), groupValues)
             .AddValueDelta(StandardValues.Exits, 1);
@@ -511,15 +544,16 @@ sealed class QueryEngine
   }
 
   static bool MatchAndGroup(
-      QueryContext context, SourceContext source, IReadOnlyDictionary<string, string> dimensions, string[] groupValues)
+      QueryContext context, SourceContext source, IReadOnlyDictionary<string, string> dimensions, long ticks, string[] groupValues)
   {
+    var values = new FilterValues(dimensions, ticks, context.Calendar);
     foreach (var filter in source.Filters)
     {
-      if (!filter.IsMatch(dimensions.GetValueOrDefault(filter.Dimension)))
+      if (!filter.IsMatch(values))
         return false;
     }
     for (var i = 0; i < groupValues.Length; ++i)
-      groupValues[i] = KeyCodec.Stored(dimensions.GetValueOrDefault(context.GroupBy[i]));
+      groupValues[i] = KeyCodec.Stored(values.Get(context.GroupBy[i]));
     return true;
   }
 

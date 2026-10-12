@@ -103,7 +103,8 @@ public sealed class AnalyticsQuery
   public TimeInterval Interval { get; set; }
 
   /// <summary>
-  /// Dimensions to group by.
+  /// Dimensions to group by. <see cref="StandardDimensions.HourOfDay"/> and
+  /// <see cref="StandardDimensions.DayOfWeek"/> are computed in the query's time zone.
   /// </summary>
   public List<string> GroupBy { get; } = [];
 
