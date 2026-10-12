@@ -332,16 +332,18 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
     return latest == long.MinValue ? latest : latest + options.Sessions.Timeout.Ticks;
   }
 
-  bool TryCreateWorkItem(AnalyticsEvent analyticsEvent, out WorkItem item)
+  bool TryCreateWorkItem(AnalyticsEvent analyticsEvent, out WorkItem item, out bool filtered)
   {
     ArgumentNullException.ThrowIfNull(analyticsEvent);
     analyticsEvent.Validate();
     item = default;
+    filtered = false;
     if (IsDisposed)
       return false;
     if (!PassesFilters(analyticsEvent))
     {
       Interlocked.Increment(ref counters.EventsFiltered);
+      filtered = true;
       return false;
     }
     item = new WorkItem(analyticsEvent.Snapshot(DateTime.UtcNow.Ticks));
@@ -390,7 +392,7 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
   /// <inheritdoc/>
   public bool Track(AnalyticsEvent analyticsEvent)
   {
-    if (!TryCreateWorkItem(analyticsEvent, out var item))
+    if (!TryCreateWorkItem(analyticsEvent, out var item, out _))
       return false;
     var writer = Route(item.Event).Writer;
     if (writer.TryWrite(item))
@@ -417,18 +419,38 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
 
   /// <inheritdoc/>
   public async ValueTask<bool> TrackAsync(AnalyticsEvent analyticsEvent, CancellationToken cancellationToken = default)
+      => await TrackCoreAsync(analyticsEvent, wait: true, cancellationToken).ConfigureAwait(false) == IngestionResult.Accepted;
+
+  internal ValueTask<IngestionResult> TrackRequestAsync(AnalyticsEvent analyticsEvent, CancellationToken cancellationToken)
   {
-    if (!TryCreateWorkItem(analyticsEvent, out var item))
-      return false;
+    cancellationToken.ThrowIfCancellationRequested();
+    return TrackCoreAsync(analyticsEvent, options.Ingestion.QueueFullBehavior == QueueFullBehavior.Wait, cancellationToken);
+  }
+
+  async ValueTask<IngestionResult> TrackCoreAsync(AnalyticsEvent analyticsEvent, bool wait, CancellationToken cancellationToken)
+  {
+    if (!TryCreateWorkItem(analyticsEvent, out var item, out var filtered))
+      return filtered ? IngestionResult.Filtered : IngestionResult.Unavailable;
+    var writer = Route(item.Event).Writer;
+    if (!wait)
+    {
+      if (writer.TryWrite(item))
+      {
+        Interlocked.Increment(ref counters.EventsAccepted);
+        return IngestionResult.Accepted;
+      }
+      Interlocked.Increment(ref counters.EventsDropped);
+      return IngestionResult.Unavailable;
+    }
     try
     {
-      await Route(item.Event).Writer.WriteAsync(item, cancellationToken).ConfigureAwait(false);
+      await writer.WriteAsync(item, cancellationToken).ConfigureAwait(false);
       Interlocked.Increment(ref counters.EventsAccepted);
-      return true;
+      return IngestionResult.Accepted;
     }
     catch (ChannelClosedException)
     {
-      return false;
+      return IngestionResult.Unavailable;
     }
   }
 

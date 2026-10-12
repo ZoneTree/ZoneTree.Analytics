@@ -538,6 +538,15 @@ app.MapZoneTreeAnalyticsApi()            // JSON reporting API under /_analytics
 
 Use one of the two page view options, not both. The tracker follows single-page-app navigation, uses `sendBeacon`, sets no cookies and ignores localhost unless `data-allow-localhost="true"` is set. The engine is a DI singleton, also registered as `IAnalyticsTracker`, that is flushed and disposed on shutdown, and its logs go to `Microsoft.Extensions.Logging`.
 
+Beacon bodies are limited to `AnalyticsWebOptions.MaxPayloadBytes` (8 KiB by default), even
+without `Content-Length`. Invalid JSON, malformed Unicode and non-object bodies return 400;
+oversized bodies return 413. A beacon returns 202 only when its event was queued; this does not
+promise that it has reached disk. Events rejected by an `EventFilter` return 204. A full queue
+with `QueueFullBehavior.Drop`, or a stopped engine, returns 503 with `Retry-After: 1`.
+With `QueueFullBehavior.Wait`, beacon and middleware tracking wait asynchronously for queue
+space and honor request cancellation. The browser tracker is best effort and does not retry
+HTTP failures; custom clients can use the status and retry header.
+
 For hash-routed SPAs, add `data-hash-routing="true"` to the script element. Routes such as `/#/pricing` and `/#!/pricing` become the page `/pricing`; ordinary anchors are ignored. Events tracked directly can set `AnalyticsEvent.HashRouting = true`. Query strings in hash routes follow the same privacy rules as other page URLs.
 
 The tracker observes `pushState`, `replaceState` and `popstate`, deduplicates the current URL, and installs once even if the script is loaded twice. Server-side page tracking logs and counts analytics callback failures while preserving the application's response; application errors still propagate normally.
@@ -583,6 +592,25 @@ POST /_analytics/api/query
 ```
 
 Invalid requests return 400 with an `error` message; queries that exceed `Queries.Timeout` return 503. The API exposes analytics data: protect it with authorization, and restrict sites with `AuthorizeSite`.
+
+Reporting POST bodies must be JSON objects with valid Unicode. Their separate
+`AnalyticsWebOptions.MaxReportingPayloadBytes` limit defaults to 64 KiB and applies to streamed
+bodies too; exceeding it returns 413. `MaxConcurrentReportingRequests` defaults to 4 and covers
+body reading, query execution, serialization and response delivery. When all slots are busy,
+requests return 503 with `Retry-After: 1` without running a query.
+`MaxReportingResponseBytes` defaults to 16 MiB and bounds each successful serialized response
+buffer. Larger results return a complete 503 error before any success body is sent; reduce the
+range or use pagination. Engine query limits still govern the memory used to compute and map
+results; the serialized response budget is not a total process memory limit. Configure these
+positive limits in `configureWeb` before startup.
+
+Authentication, authorization and rate limiting are configured by the host. Apply
+`.RequireAuthorization()` to the reporting route group, restrict tenant access with
+`AuthorizeSite`, and apply `.RequireRateLimiting("policy")` to the reporting and beacon groups
+after registering the chosen policies and middleware. Concurrency admission limits expensive
+active reporting work; rate limiting controls request frequency. Configure forwarded-header
+trust and shutdown timeouts for your deployment, monitor `EventsDropped` and `Errors`, and
+exercise the expected traffic and graceful shutdown against the real hosting configuration.
 
 `AuthorizeSite` receives the normalized site that the query executes against, including `AnalyticsOptions.DefaultSite` when the request omits a site or supplies an empty one.
 

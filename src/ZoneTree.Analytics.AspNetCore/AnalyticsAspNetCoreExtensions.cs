@@ -32,7 +32,9 @@ public static class AnalyticsServiceCollectionExtensions
     configure?.Invoke(options);
     var webOptions = new AnalyticsWebOptions();
     configureWeb?.Invoke(webOptions);
+    webOptions.Validate();
     services.AddSingleton(webOptions);
+    services.AddSingleton<ReportingRequestLimiter>();
     services.AddSingleton(provider =>
     {
       var environment = provider.GetService<IHostEnvironment>();
@@ -110,7 +112,11 @@ sealed class PageViewTrackingMiddleware
       var analyticsEvent = RequestEvents.Create(context, options, StandardEvents.PageView);
       analyticsEvent.Url = request.GetDisplayUrl();
       analyticsEvent.Referrer = request.Headers.Referer;
-      engine.Track(analyticsEvent);
+      await engine.TrackRequestAsync(analyticsEvent, context.RequestAborted);
+    }
+    catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested)
+    {
+      // A disconnected client can cancel queue waiting after the application's response.
     }
     catch (Exception exception)
     {
@@ -186,23 +192,17 @@ static class TrackerEndpoints
   {
     var options = context.RequestServices.GetRequiredService<AnalyticsWebOptions>();
     var engine = context.RequestServices.GetRequiredService<AnalyticsEngine>();
-    var request = context.Request;
-    if (request.ContentLength > options.MaxPayloadBytes)
-    {
-      context.Response.StatusCode = StatusCodes.Status413PayloadTooLarge;
-      return;
-    }
-    var body = await ReadBodyAsync(request, options.MaxPayloadBytes, context.RequestAborted);
-    if (body == null)
-    {
-      context.Response.StatusCode = StatusCodes.Status413PayloadTooLarge;
-      return;
-    }
     AnalyticsEvent analyticsEvent;
     try
     {
-      analyticsEvent = Parse(body, context, options);
+      using var document = await JsonRequestBody.ReadAsync(context.Request, options.MaxPayloadBytes, context.RequestAborted);
+      analyticsEvent = Parse(document.RootElement, context, options);
       analyticsEvent?.Validate();
+    }
+    catch (BadHttpRequestException exception) when (exception.StatusCode == StatusCodes.Status413PayloadTooLarge)
+    {
+      context.Response.StatusCode = StatusCodes.Status413PayloadTooLarge;
+      return;
     }
     catch (Exception exception) when (exception is JsonException or ArgumentException)
     {
@@ -213,29 +213,19 @@ static class TrackerEndpoints
       context.Response.StatusCode = StatusCodes.Status400BadRequest;
       return;
     }
-    engine.Track(analyticsEvent);
-    context.Response.StatusCode = StatusCodes.Status202Accepted;
-  }
-
-  static async Task<byte[]> ReadBodyAsync(HttpRequest request, int limit, CancellationToken cancellationToken)
-  {
-    using var memory = new MemoryStream();
-    var buffer = new byte[4096];
-    while (true)
+    var result = await engine.TrackRequestAsync(analyticsEvent, context.RequestAborted);
+    context.Response.StatusCode = result switch
     {
-      var read = await request.Body.ReadAsync(buffer, cancellationToken);
-      if (read == 0)
-        return memory.ToArray();
-      if (memory.Length + read > limit)
-        return null;
-      memory.Write(buffer, 0, read);
-    }
+      IngestionResult.Accepted => StatusCodes.Status202Accepted,
+      IngestionResult.Filtered => StatusCodes.Status204NoContent,
+      _ => StatusCodes.Status503ServiceUnavailable
+    };
+    if (result == IngestionResult.Unavailable)
+      context.Response.Headers.RetryAfter = "1";
   }
 
-  static AnalyticsEvent Parse(byte[] body, HttpContext context, AnalyticsWebOptions options)
+  static AnalyticsEvent Parse(JsonElement root, HttpContext context, AnalyticsWebOptions options)
   {
-    using var document = JsonDocument.Parse(body);
-    var root = document.RootElement;
     if (root.ValueKind != JsonValueKind.Object)
       return null;
     if (!root.TryGetProperty("n", out var nameElement) || nameElement.ValueKind != JsonValueKind.String)

@@ -47,6 +47,6 @@ jobs:
           dotnet test ZoneTree.Analytics.UnitTests/ZoneTree.Analytics.UnitTests.csproj
           --configuration Release --no-restore
           -p:JsonSerializerIsReflectionEnabledByDefault=false
-          --filter "FullyQualifiedName~ReportingSerializationTests|FullyQualifiedName~ReportingApiServesWebReports|FullyQualifiedName~ReportingApiRunsQueriesAndFunnels|FullyQualifiedName~ReportingApiSerializationFailure|FullyQualifiedName~ReportingApiCancelledSerialization"
+          --filter "FullyQualifiedName~ReportingSerializationTests|FullyQualifiedName~ReportingApiServesWebReports|FullyQualifiedName~ReportingApiRunsQueriesAndFunnels|FullyQualifiedName~ReportingApiSerializationFailure|FullyQualifiedName~ReportingApiCancelledSerialization|FullyQualifiedName~AspNetCoreHardeningTests|FullyQualifiedName~AspNetCoreHostingTests|FullyQualifiedName~AnalyticsWebOptionValidationTests"
           --verbosity minimal
         working-directory: ./src

@@ -49,10 +49,36 @@ public sealed class AnalyticsWebOptions
   public int MaxPayloadBytes { get; set; } = 8 * 1024;
 
   /// <summary>
+  /// Maximum reporting POST body size in bytes, including requests without Content-Length.
+  /// Default is 64 KiB.
+  /// </summary>
+  public int MaxReportingPayloadBytes { get; set; } = 64 * 1024;
+
+  /// <summary>
+  /// Maximum number of reporting requests being parsed, executed or sent at once.
+  /// Excess requests receive 503 without waiting. Default is 4; configure before startup.
+  /// </summary>
+  public int MaxConcurrentReportingRequests { get; set; } = 4;
+
+  /// <summary>
+  /// Maximum serialized successful reporting response size in bytes. Larger reports receive
+  /// 503 before any success body is sent. Default is 16 MiB.
+  /// </summary>
+  public int MaxReportingResponseBytes { get; set; } = 16 * 1024 * 1024;
+
+  /// <summary>
   /// Authorizes access to the normalized site executed by the reporting API. Omitted and empty
   /// sites resolve to <see cref="AnalyticsOptions.DefaultSite"/>. Default is null: every site is
   /// allowed, so protect the API itself, for example
   /// with <c>RequireAuthorization()</c>.
   /// </summary>
   public Func<HttpContext, string, bool> AuthorizeSite { get; set; }
+
+  internal void Validate()
+  {
+    ArgumentOutOfRangeException.ThrowIfNegativeOrZero(MaxPayloadBytes);
+    ArgumentOutOfRangeException.ThrowIfNegativeOrZero(MaxReportingPayloadBytes);
+    ArgumentOutOfRangeException.ThrowIfNegativeOrZero(MaxConcurrentReportingRequests);
+    ArgumentOutOfRangeException.ThrowIfNegativeOrZero(MaxReportingResponseBytes);
+  }
 }

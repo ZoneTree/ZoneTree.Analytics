@@ -67,7 +67,9 @@ sealed class ApiParameters
   public ApiParameters(IQueryCollection query, JsonElement? body)
   {
     this.query = query;
-    hasBody = body.HasValue && body.Value.ValueKind == JsonValueKind.Object;
+    hasBody = body.HasValue;
+    if (hasBody && body.Value.ValueKind != JsonValueKind.Object)
+      throw new FormatException("Parameters must be a JSON object.");
     if (hasBody)
       this.body = body.Value;
   }
@@ -164,23 +166,23 @@ static class ReportingApi
   public static async Task Run<T>(HttpContext context, Handler<T> handler, JsonTypeInfo<T> jsonTypeInfo)
   {
     var cancellationToken = context.RequestAborted;
+    var limiter = context.RequestServices.GetRequiredService<ReportingRequestLimiter>();
+    var entered = false;
     JsonDocument document = null;
     try
     {
-      if (HttpMethods.IsPost(context.Request.Method))
+      cancellationToken.ThrowIfCancellationRequested();
+      if (!limiter.TryEnter())
       {
-        try
-        {
-          document = await JsonDocument.ParseAsync(context.Request.Body, cancellationToken: cancellationToken);
-        }
-        catch (JsonException e)
-        {
-          await WriteError(context, StatusCodes.Status400BadRequest, "The body is not valid JSON: " + e.Message);
-          return;
-        }
+        context.Response.Headers.RetryAfter = "1";
+        await WriteError(context, StatusCodes.Status503ServiceUnavailable, "The reporting API is busy. Try again later.");
+        return;
       }
-      var parameters = new ApiParameters(context.Request.Query, document?.RootElement);
+      entered = true;
       var options = context.RequestServices.GetRequiredService<AnalyticsWebOptions>();
+      if (HttpMethods.IsPost(context.Request.Method))
+        document = await JsonRequestBody.ReadAsync(context.Request, options.MaxReportingPayloadBytes, cancellationToken);
+      var parameters = new ApiParameters(context.Request.Query, document?.RootElement);
       var site = Engine(context).NormalizeSite(parameters.Get("site"));
       if (options.AuthorizeSite != null && !options.AuthorizeSite(context, site))
       {
@@ -188,7 +190,20 @@ static class ReportingApi
         return;
       }
       var response = await handler(context, parameters, cancellationToken);
-      await WriteResponse(context, StatusCodes.Status200OK, response, jsonTypeInfo);
+      await WriteResponse(context, StatusCodes.Status200OK, response, jsonTypeInfo, options.MaxReportingResponseBytes);
+    }
+    catch (BadHttpRequestException e) when (!context.Response.HasStarted && e.StatusCode == StatusCodes.Status413PayloadTooLarge)
+    {
+      await WriteError(context, StatusCodes.Status413PayloadTooLarge, e.Message);
+    }
+    catch (ReportingResponseTooLargeException) when (!context.Response.HasStarted)
+    {
+      await WriteError(context, StatusCodes.Status503ServiceUnavailable,
+          "The reporting response exceeds the configured size limit. Reduce the range or request fewer rows.");
+    }
+    catch (JsonException e) when (!context.Response.HasStarted)
+    {
+      await WriteError(context, StatusCodes.Status400BadRequest, "The body is not valid JSON: " + e.Message);
     }
     catch (AnalyticsQueryTimeoutException e) when (!context.Response.HasStarted)
     {
@@ -202,17 +217,19 @@ static class ReportingApi
     finally
     {
       document?.Dispose();
+      if (entered)
+        limiter.Release();
     }
   }
 
   static Task WriteError(HttpContext context, int status, string message) =>
       WriteResponse(context, status, new ErrorResponse(message), ReportingJsonContext.Default.ErrorResponse);
 
-  static async Task WriteResponse<T>(HttpContext context, int status, T response, JsonTypeInfo<T> jsonTypeInfo)
+  static async Task WriteResponse<T>(HttpContext context, int status, T response, JsonTypeInfo<T> jsonTypeInfo, int? limit = null)
   {
     // Finish serialization before committing headers so a failed report can still return
     // a complete error response. Explicit generated metadata keeps this path AOT compatible.
-    using var buffer = new MemoryStream();
+    using MemoryStream buffer = limit.HasValue ? new ReportingResponseBuffer(limit.Value) : new MemoryStream();
     await JsonSerializer.SerializeAsync(buffer, response, jsonTypeInfo, context.RequestAborted);
     context.Response.StatusCode = status;
     context.Response.ContentType = "application/json; charset=utf-8";
