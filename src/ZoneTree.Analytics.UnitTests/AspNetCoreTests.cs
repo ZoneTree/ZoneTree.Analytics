@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using ZoneTree.Analytics.AspNetCore;
 
 namespace ZoneTree.Analytics.UnitTests;
@@ -26,6 +27,7 @@ public sealed class AspNetCoreTests : DirectoryTest
   public async Task SetUp()
   {
     var builder = WebApplication.CreateBuilder();
+    builder.Logging.AddFilter("Microsoft.AspNetCore", LogLevel.Warning);
     builder.WebHost.UseTestServer();
     logger = new RecordingLogger();
     builder.Services.AddZoneTreeAnalytics(
@@ -309,9 +311,14 @@ public sealed class AspNetCoreTests : DirectoryTest
     });
   }
 
-  async Task TrackVisitsAsync()
+  async Task TrackVisitsAsync(DateTimeOffset? observedNow = null)
   {
-    var now = DateTimeOffset.UtcNow;
+    var now = observedNow ?? DateTimeOffset.UtcNow;
+    var dayStart = new DateTimeOffset(now.UtcDateTime.Date, TimeSpan.Zero);
+    // Calendar reports read today, while rolling reports need recent events. Keep both true
+    // during the first ten minutes after UTC midnight, when subtracting ten crosses the date.
+    var pageTime = now.AddMinutes(-10) < dayStart ? dayStart : now.AddMinutes(-10);
+    var signupTime = now.AddMinutes(-9) < pageTime ? pageTime : now.AddMinutes(-9);
     foreach (var (user, page, referrer) in new[]
     {
       ("u1", "/", "https://www.google.com/"),
@@ -324,10 +331,10 @@ public sealed class AspNetCoreTests : DirectoryTest
         VisitorId = user,
         Url = "https://example.com" + page,
         Referrer = referrer,
-        Timestamp = now.AddMinutes(-10)
+        Timestamp = pageTime
       });
     }
-    Engine.Track(new AnalyticsEvent("signup") { VisitorId = "u1", Timestamp = now.AddMinutes(-9) });
+    Engine.Track(new AnalyticsEvent("signup") { VisitorId = "u1", Timestamp = signupTime });
     await Engine.FlushAsync();
   }
 
@@ -379,6 +386,23 @@ public sealed class AspNetCoreTests : DirectoryTest
       Assert.That(series.GetProperty("totalRows").GetInt32(), Is.EqualTo(24));
       Assert.That(realtime.GetProperty("visitors").GetInt32(), Is.EqualTo(2));
     });
+  }
+
+  [TestCase(0)]
+  [TestCase(5)]
+  [TestCase(9)]
+  public async Task ReportingFixtureIncludesVisitsAndFunnelsNearUtcMidnight(int minutes)
+  {
+    await TrackVisitsAsync(new DateTimeOffset(DateTime.UtcNow.Date, TimeSpan.Zero).AddMinutes(minutes));
+    var (status, report) = await GetJson("/_analytics/api/summary?range=today");
+    Assert.That(status, Is.EqualTo(HttpStatusCode.OK));
+    Assert.That(report.GetProperty("summary").GetProperty("pageViews").GetInt32(), Is.EqualTo(3));
+    Assert.That(report.GetProperty("summary").GetProperty("visitors").GetInt32(), Is.EqualTo(2));
+    var (funnelStatus, funnel) = await PostJson("/_analytics/api/funnel", """
+      { "range": "today", "steps": [{ "event": "pageview" }, { "event": "signup" }] }
+      """);
+    Assert.That(funnelStatus, Is.EqualTo(HttpStatusCode.OK));
+    Assert.That(funnel.GetProperty("steps")[1].GetProperty("visitors").GetInt32(), Is.EqualTo(1));
   }
 
   [Test]

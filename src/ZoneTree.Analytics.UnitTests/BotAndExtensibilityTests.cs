@@ -407,8 +407,10 @@ public sealed class BotAndExtensibilityTests : DirectoryTest
   public async Task FailingExtensionsAreLoggedAndIgnored()
   {
     static T Fail<T>() => throw new InvalidOperationException("extension failure");
+    var logger = new RecordingLogger();
     Recreate(o =>
     {
+      o.Storage.Logger = logger;
       o.EventFilters.Add(EventFilter.Create(_ => Fail<bool>()));
       o.Enrichers.Add(EventEnricher.Create(_ => Fail<bool>()));
       o.Web.UserAgentParser = UserAgentParser.Create(_ => Fail<UserAgentInfo>());
@@ -429,6 +431,10 @@ public sealed class BotAndExtensibilityTests : DirectoryTest
       Assert.That(statistics.BotsExcluded, Is.EqualTo(1));
       // Per event: filter, parser and detector; per human event: enricher; per session: geolocator.
       Assert.That(statistics.Errors, Is.GreaterThanOrEqualTo(3 * 3 + 2 + 1));
+      Assert.That(logger.Problems, Has.Count.EqualTo(statistics.Errors));
+      Assert.That(logger.Problems.All(message => message.Contains("extension failure", StringComparison.Ordinal)), Is.True);
+      foreach (var extension in new[] { "event filter", "enricher", "user agent parser", "bot detector", "geolocator" })
+        Assert.That(logger.Problems.Any(message => message.Contains(extension, StringComparison.Ordinal)), Is.True, extension);
     });
   }
 

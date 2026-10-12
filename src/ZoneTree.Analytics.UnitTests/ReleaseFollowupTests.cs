@@ -45,11 +45,13 @@ public sealed class ReleaseFollowupTests : DirectoryTest
   [TestCase(QuerySource.Rollups)]
   public void FailedEnricherDiscardsAllChangesBeforeTheNextEnricher(QuerySource source)
   {
+    var logger = new RecordingLogger();
     var names = new[] { "page", "hostname", "country", "variant", "section", "partial" };
     var ownChangesVisible = false;
     string[] laterValues = null;
     using var engine = TestEngine.Create(directory, o =>
     {
+      o.Storage.Logger = logger;
       o.Sessions.Dimensions.Add("variant");
       o.Rollups.Definitions.Add(new RollupDefinition(names));
       o.Enrichers.Add(EventEnricher.Create(context =>
@@ -88,6 +90,8 @@ public sealed class ReleaseFollowupTests : DirectoryTest
       Assert.That(laterValues, Is.EqualTo(expected));
       Assert.That(result.Rows.Single().Dimensions, Is.EqualTo(expected));
       Assert.That(engine.GetStatistics().Errors, Is.EqualTo(1));
+      Assert.That(logger.Problems, Has.Count.EqualTo(1));
+      Assert.That(logger.Problems, Has.One.Contains("enricher failure after mutation"));
     });
   }
 
@@ -95,8 +99,10 @@ public sealed class ReleaseFollowupTests : DirectoryTest
   [TestCase(true)]
   public void FailedEnricherPreservesThePageOnHumanAndBotEvents(bool bot)
   {
+    var logger = new RecordingLogger();
     using var engine = TestEngine.Create(directory, o =>
     {
+      o.Storage.Logger = logger;
       o.Web.Bots = BotTraffic.TrackSeparately;
       o.Enrichers.Add(EventEnricher.Create(context =>
       {
@@ -118,6 +124,8 @@ public sealed class ReleaseFollowupTests : DirectoryTest
       Assert.That(result.Rows.Single()[StandardDimensions.Page], Is.EqualTo("/original"));
     }
     Assert.That(engine.GetStatistics().Errors, Is.EqualTo(1));
+    Assert.That(logger.Problems, Has.Count.EqualTo(1));
+    Assert.That(logger.Problems, Has.One.Contains("page mutation failure"));
   }
 
   [TestCase(false)]

@@ -334,7 +334,8 @@ public sealed class PartitionLifecycleTests : DirectoryTest
   [Test]
   public async Task FailedEngineCleanupKeepsTheDirectoryLockedUntilRetrySucceeds()
   {
-    var engine = TestEngine.Create(directory);
+    var logger = new RecordingLogger();
+    var engine = TestEngine.Create(directory, o => o.Storage.Logger = logger);
     engine.Track(new AnalyticsEvent("pageview") { VisitorId = "alice", Url = "/", Timestamp = Utc(Day0) });
     await engine.FlushAsync();
     IZoneTree<Memory<byte>, Memory<byte>> tree;
@@ -350,6 +351,8 @@ public sealed class PartitionLifecycleTests : DirectoryTest
       {
         Assert.That(engine.RawEventStore.Store.OpenPartitionCount, Is.EqualTo(1));
         Assert.That(engine.RollupStore.AllStores.Sum(x => x.OpenPartitionCount), Is.Zero);
+        Assert.That(logger.Problems, Has.Count.EqualTo(1));
+        Assert.That(logger.Problems, Has.One.Contains("Injected engine cleanup failure"));
       });
     }
     finally
@@ -398,7 +401,8 @@ public sealed class PartitionLifecycleTests : DirectoryTest
   [Test]
   public async Task CleanupRetriesAreAsynchronousAndSharedByConcurrentCallers()
   {
-    var engine = TestEngine.Create(directory);
+    var logger = new RecordingLogger();
+    var engine = TestEngine.Create(directory, o => o.Storage.Logger = logger);
     engine.Track(new AnalyticsEvent("purchase") { Timestamp = Utc(Day0) });
     await engine.FlushAsync();
     IZoneTree<Memory<byte>, Memory<byte>> tree;
@@ -407,6 +411,8 @@ public sealed class PartitionLifecycleTests : DirectoryTest
     ZoneTreeIsDisposing<Memory<byte>, Memory<byte>> fail = _ => throw new IOException("Injected first cleanup failure");
     tree.Maintenance.OnZoneTreeIsDisposing += fail;
     Assert.ThrowsAsync<IOException>(() => engine.DisposeAsync().AsTask());
+    Assert.That(logger.Problems, Has.Count.EqualTo(1));
+    Assert.That(logger.Problems, Has.One.Contains("Injected first cleanup failure"));
     tree.Maintenance.OnZoneTreeIsDisposing -= fail;
     var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
     var returned = new TaskCompletionSource<Task>(TaskCreationOptions.RunContinuationsAsynchronously);
