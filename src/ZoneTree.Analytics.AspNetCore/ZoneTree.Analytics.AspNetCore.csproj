@@ -34,6 +34,7 @@
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <ProjectReference Include="..\ZoneTree.Analytics\ZoneTree.Analytics.csproj" />
+    <InternalsVisibleTo Include="ZoneTree.Analytics.UnitTests" />
   </ItemGroup>
 
   <ItemGroup>

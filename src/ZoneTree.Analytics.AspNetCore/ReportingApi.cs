@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
@@ -37,16 +38,17 @@ public static class AnalyticsReportingApiExtensions
     ArgumentNullException.ThrowIfNull(endpoints);
     var options = endpoints.ServiceProvider.GetRequiredService<AnalyticsWebOptions>();
     var group = endpoints.MapGroup(prefix ?? options.PathPrefix.TrimEnd('/') + "/api");
-    group.MapGet("/summary", (RequestDelegate)(context => ReportingApi.Run(context, ReportingApi.SummaryAsync)));
-    group.MapGet("/timeseries", (RequestDelegate)(context => ReportingApi.Run(context, ReportingApi.TimeseriesAsync)));
-    group.MapGet("/breakdown", (RequestDelegate)(context => ReportingApi.Run(context, ReportingApi.BreakdownAsync)));
-    group.MapGet("/pages", (RequestDelegate)(context => ReportingApi.Run(context, (c, r, w, t) => ReportingApi.PagesAsync(c, r, w, false, t))));
-    group.MapGet("/exit-pages", (RequestDelegate)(context => ReportingApi.Run(context, (c, r, w, t) => ReportingApi.PagesAsync(c, r, w, true, t))));
-    group.MapGet("/goals", (RequestDelegate)(context => ReportingApi.Run(context, ReportingApi.GoalsAsync)));
-    group.MapGet("/bots", (RequestDelegate)(context => ReportingApi.Run(context, ReportingApi.BotsAsync)));
-    group.MapGet("/realtime", (RequestDelegate)(context => ReportingApi.Run(context, ReportingApi.RealtimeAsync)));
-    group.MapPost("/query", (RequestDelegate)(context => ReportingApi.Run(context, ReportingApi.QueryAsync)));
-    group.MapPost("/funnel", (RequestDelegate)(context => ReportingApi.Run(context, ReportingApi.FunnelAsync)));
+    var json = ReportingJsonContext.Default;
+    group.MapGet("/summary", (RequestDelegate)(context => ReportingApi.Run(context, ReportingApi.SummaryAsync, json.SummaryResponse)));
+    group.MapGet("/timeseries", (RequestDelegate)(context => ReportingApi.Run(context, ReportingApi.TimeseriesAsync, json.TimeseriesResponse)));
+    group.MapGet("/breakdown", (RequestDelegate)(context => ReportingApi.Run(context, ReportingApi.BreakdownAsync, json.BreakdownResponse)));
+    group.MapGet("/pages", (RequestDelegate)(context => ReportingApi.Run(context, ReportingApi.PagesAsync, json.PagesResponse)));
+    group.MapGet("/exit-pages", (RequestDelegate)(context => ReportingApi.Run(context, ReportingApi.ExitPagesAsync, json.PagesResponse)));
+    group.MapGet("/goals", (RequestDelegate)(context => ReportingApi.Run(context, ReportingApi.GoalsAsync, json.GoalsResponse)));
+    group.MapGet("/bots", (RequestDelegate)(context => ReportingApi.Run(context, ReportingApi.BotsAsync, json.BotsResponse)));
+    group.MapGet("/realtime", (RequestDelegate)(context => ReportingApi.Run(context, ReportingApi.RealtimeAsync, json.RealtimeResponse)));
+    group.MapPost("/query", (RequestDelegate)(context => ReportingApi.Run(context, ReportingApi.QueryAsync, json.QueryResponse)));
+    group.MapPost("/funnel", (RequestDelegate)(context => ReportingApi.Run(context, ReportingApi.FunnelAsync, json.FunnelResponse)));
     return group;
   }
 }
@@ -157,9 +159,9 @@ sealed class ApiParameters
 /// </summary>
 static class ReportingApi
 {
-  public delegate Task Handler(HttpContext context, ApiParameters parameters, Utf8JsonWriter writer, CancellationToken cancellationToken);
+  public delegate Task<T> Handler<T>(HttpContext context, ApiParameters parameters, CancellationToken cancellationToken);
 
-  public static async Task Run(HttpContext context, Handler handler)
+  public static async Task Run<T>(HttpContext context, Handler<T> handler, JsonTypeInfo<T> jsonTypeInfo)
   {
     var cancellationToken = context.RequestAborted;
     JsonDocument document = null;
@@ -185,21 +187,15 @@ static class ReportingApi
         await WriteError(context, StatusCodes.Status403Forbidden, "Access to this site is not allowed.");
         return;
       }
-      using var buffer = new MemoryStream();
-      await using (var writer = new Utf8JsonWriter(buffer))
-      {
-        await handler(context, parameters, writer, cancellationToken);
-      }
-      context.Response.ContentType = "application/json; charset=utf-8";
-      context.Response.Headers.CacheControl = "no-store";
-      buffer.Position = 0;
-      await buffer.CopyToAsync(context.Response.Body, cancellationToken);
+      var response = await handler(context, parameters, cancellationToken);
+      await WriteResponse(context, StatusCodes.Status200OK, response, jsonTypeInfo);
     }
-    catch (AnalyticsQueryTimeoutException e)
+    catch (AnalyticsQueryTimeoutException e) when (!context.Response.HasStarted)
     {
       await WriteError(context, StatusCodes.Status503ServiceUnavailable, e.Message);
     }
-    catch (Exception e) when (e is AnalyticsQueryException or FormatException or ArgumentException or TimeZoneNotFoundException or InvalidTimeZoneException)
+    catch (Exception e) when (!context.Response.HasStarted &&
+        e is AnalyticsQueryException or FormatException or ArgumentException or TimeZoneNotFoundException or InvalidTimeZoneException)
     {
       await WriteError(context, StatusCodes.Status400BadRequest, e.Message);
     }
@@ -209,19 +205,20 @@ static class ReportingApi
     }
   }
 
-  static async Task WriteError(HttpContext context, int status, string message)
+  static Task WriteError(HttpContext context, int status, string message) =>
+      WriteResponse(context, status, new ErrorResponse(message), ReportingJsonContext.Default.ErrorResponse);
+
+  static async Task WriteResponse<T>(HttpContext context, int status, T response, JsonTypeInfo<T> jsonTypeInfo)
   {
+    // Finish serialization before committing headers so a failed report can still return
+    // a complete error response. Explicit generated metadata keeps this path AOT compatible.
+    using var buffer = new MemoryStream();
+    await JsonSerializer.SerializeAsync(buffer, response, jsonTypeInfo, context.RequestAborted);
     context.Response.StatusCode = status;
     context.Response.ContentType = "application/json; charset=utf-8";
-    using var buffer = new MemoryStream();
-    await using (var writer = new Utf8JsonWriter(buffer))
-    {
-      writer.WriteStartObject();
-      writer.WriteString("error", message);
-      writer.WriteEndObject();
-    }
+    context.Response.Headers.CacheControl = "no-store";
     buffer.Position = 0;
-    await buffer.CopyToAsync(context.Response.Body);
+    await buffer.CopyToAsync(context.Response.Body, context.RequestAborted);
   }
 
   static AnalyticsEngine Engine(HttpContext context) => context.RequestServices.GetRequiredService<AnalyticsEngine>();
@@ -385,85 +382,63 @@ static class ReportingApi
 
   #region Handlers
 
-  public static async Task SummaryAsync(HttpContext context, ApiParameters parameters, Utf8JsonWriter writer, CancellationToken cancellationToken)
+  public static async Task<SummaryResponse> SummaryAsync(HttpContext context, ApiParameters parameters, CancellationToken cancellationToken)
   {
     var report = await Engine(context).Web.GetSummaryAsync(Scope.Parse(parameters).ToRequest(), cancellationToken);
-    writer.WriteStartObject();
-    WriteRange(writer, report.From, report.To);
-    writer.WritePropertyName("summary");
-    var nonFinite = WriteSummary(writer, report.Summary);
-    WritePlan(writer, report.Plan, nonFinite);
-    writer.WriteEndObject();
+    return new ReportingResponseMapper().Summary(report);
   }
 
-  public static async Task TimeseriesAsync(HttpContext context, ApiParameters parameters, Utf8JsonWriter writer, CancellationToken cancellationToken)
+  public static async Task<ReportResponse<TimeseriesRow>> TimeseriesAsync(HttpContext context, ApiParameters parameters, CancellationToken cancellationToken)
   {
     var interval = ParseInterval(parameters, TimeInterval.Day);
     var report = await Engine(context).Web.GetTimeseriesAsync(Scope.Parse(parameters).ToRequest(), interval, cancellationToken);
-    WriteReport(writer, report, (w, point) =>
-    {
-      w.WriteStartObject();
-      w.WriteString("bucket", point.Bucket);
-      w.WritePropertyName("summary");
-      var nonFinite = WriteSummary(w, point.Summary);
-      w.WriteEndObject();
-      return nonFinite;
-    });
+    return new ReportingResponseMapper().Timeseries(report);
   }
 
-  public static async Task BreakdownAsync(HttpContext context, ApiParameters parameters, Utf8JsonWriter writer, CancellationToken cancellationToken)
+  public static async Task<ReportResponse<BreakdownRow>> BreakdownAsync(HttpContext context, ApiParameters parameters, CancellationToken cancellationToken)
   {
     var dimension = parameters.Get("dimension") ?? throw new FormatException("'dimension' is required.");
     var report = await Engine(context).Web.GetBreakdownAsync(Scope.Parse(parameters).ToRequest(), dimension, cancellationToken);
-    WriteReport(writer, report, WriteBreakdownRow);
+    return new ReportingResponseMapper().Breakdown(report);
   }
 
-  public static async Task PagesAsync(HttpContext context, ApiParameters parameters, Utf8JsonWriter writer, bool exits, CancellationToken cancellationToken)
+  public static Task<ReportResponse<PageRow>> PagesAsync(HttpContext context, ApiParameters parameters, CancellationToken cancellationToken) =>
+      GetPagesAsync(context, parameters, false, cancellationToken);
+
+  public static Task<ReportResponse<PageRow>> ExitPagesAsync(HttpContext context, ApiParameters parameters, CancellationToken cancellationToken) =>
+      GetPagesAsync(context, parameters, true, cancellationToken);
+
+  static async Task<ReportResponse<PageRow>> GetPagesAsync(HttpContext context, ApiParameters parameters, bool exits, CancellationToken cancellationToken)
   {
     var request = Scope.Parse(parameters).ToRequest();
     var web = Engine(context).Web;
     var report = exits
         ? await web.GetExitPagesAsync(request, cancellationToken)
         : await web.GetPagesAsync(request, cancellationToken);
-    WriteReport(writer, report, WritePageStats);
+    return new ReportingResponseMapper().Pages(report);
   }
 
-  public static async Task GoalsAsync(HttpContext context, ApiParameters parameters, Utf8JsonWriter writer, CancellationToken cancellationToken)
+  public static async Task<ReportResponse<GoalRow>> GoalsAsync(HttpContext context, ApiParameters parameters, CancellationToken cancellationToken)
   {
     var report = await Engine(context).Web.GetGoalsAsync(Scope.Parse(parameters).ToRequest(), cancellationToken);
-    WriteReport(writer, report, (w, goal) =>
-    {
-      w.WriteStartObject();
-      w.WriteString("name", goal.Name);
-      w.WriteNumber("visitors", goal.Visitors);
-      w.WriteNumber("events", goal.Events);
-      var nonFinite = WriteNullable(w, "conversionRate", goal.ConversionRate);
-      w.WriteEndObject();
-      return nonFinite;
-    });
+    return new ReportingResponseMapper().Goals(report);
   }
 
-  public static async Task BotsAsync(HttpContext context, ApiParameters parameters, Utf8JsonWriter writer, CancellationToken cancellationToken)
+  public static async Task<ReportResponse<BotRow>> BotsAsync(HttpContext context, ApiParameters parameters, CancellationToken cancellationToken)
   {
     var report = await Engine(context).Web.GetBotsAsync(Scope.Parse(parameters).ToRequest(), cancellationToken);
-    WriteReport(writer, report, WriteBotStats);
+    return new ReportingResponseMapper().Bots(report);
   }
 
-  public static async Task RealtimeAsync(HttpContext context, ApiParameters parameters, Utf8JsonWriter writer, CancellationToken cancellationToken)
+  public static async Task<RealtimeResponse> RealtimeAsync(HttpContext context, ApiParameters parameters, CancellationToken cancellationToken)
   {
     var minutes = parameters.GetInt("minutes") ?? 5;
     var visitors = await Engine(context).Web.GetCurrentVisitorsAsync(
         parameters.Get("site"), TimeSpan.FromMinutes(Math.Max(1, minutes)), cancellationToken);
-    writer.WriteStartObject();
-    if (visitors.HasValue)
-      writer.WriteNumber("visitors", visitors.Value);
-    else
-      writer.WriteNull("visitors");
-    writer.WriteNumber("minutes", Math.Max(1, minutes));
-    writer.WriteEndObject();
+    return new(visitors, Math.Max(1, minutes));
   }
 
-  public static async Task QueryAsync(HttpContext context, ApiParameters parameters, Utf8JsonWriter writer, CancellationToken cancellationToken)
+  public static async Task<QueryResponse> QueryAsync(HttpContext context, ApiParameters parameters, CancellationToken cancellationToken)
   {
     var query = Scope.Parse(parameters).ToQuery();
     query.Event = parameters.Get("event") ?? StandardEvents.PageView;
@@ -480,10 +455,10 @@ static class ReportingApi
     query.Having.AddRange(parameters.GetAll("having").Select(MetricFilter.Parse));
     query.OrderBy.AddRange(parameters.GetAll("orderBy").Select(key => Order.Parse(key, query.GroupBy)));
     var result = await Engine(context).QueryAsync(query, cancellationToken);
-    WriteResult(writer, result);
+    return new ReportingResponseMapper().Query(result);
   }
 
-  public static async Task FunnelAsync(HttpContext context, ApiParameters parameters, Utf8JsonWriter writer, CancellationToken cancellationToken)
+  public static async Task<FunnelResponse> FunnelAsync(HttpContext context, ApiParameters parameters, CancellationToken cancellationToken)
   {
     var funnel = Scope.Parse(parameters).ToFunnel();
     var window = parameters.Get("windowMinutes");
@@ -505,221 +480,7 @@ static class ReportingApi
           step.GetAll("filters").Select(Filter.Parse).ToArray()));
     }
     var result = await Engine(context).QueryAsync(funnel, cancellationToken);
-    writer.WriteStartObject();
-    WriteRange(writer, result.From, result.To);
-    var nonFinite = WriteNullable(writer, "conversionRate", result.ConversionRate);
-    writer.WriteStartArray("steps");
-    foreach (var step in result.Steps)
-    {
-      writer.WriteStartObject();
-      writer.WriteString("name", step.Name);
-      writer.WriteNumber("visitors", step.Visitors);
-      nonFinite |= WriteNullable(writer, "conversionRate", step.ConversionRate);
-      nonFinite |= WriteNullable(writer, "stepConversionRate", step.StepConversionRate);
-      nonFinite |= WriteNullable(writer, "dropOff", step.DropOff);
-      writer.WriteEndObject();
-    }
-    writer.WriteEndArray();
-    WritePlan(writer, result.Plan, nonFinite);
-    writer.WriteEndObject();
-  }
-
-  #endregion
-
-  #region Writers
-
-  static bool WriteNullable(Utf8JsonWriter writer, string name, double? value)
-  {
-    if (value.HasValue && double.IsFinite(value.Value))
-      writer.WriteNumber(name, value.Value);
-    else
-      writer.WriteNull(name);
-    return value.HasValue && !double.IsFinite(value.Value);
-  }
-
-  static bool WriteSummary(Utf8JsonWriter writer, WebSummary summary)
-  {
-    writer.WriteStartObject();
-    writer.WriteNumber("visitors", summary.Visitors);
-    writer.WriteNumber("pageViews", summary.PageViews);
-    var nonFinite = WriteNullable(writer, "sessions", summary.Sessions);
-    nonFinite |= WriteNullable(writer, "bounceRate", summary.BounceRate);
-    nonFinite |= WriteNullable(writer, "averageSessionDuration", summary.AverageSessionDuration?.TotalSeconds);
-    nonFinite |= WriteNullable(writer, "pageViewsPerSession", summary.PageViewsPerSession);
-    nonFinite |= WriteNullable(writer, "botHits", summary.BotHits);
-    if (summary.Previous != null)
-    {
-      writer.WritePropertyName("previous");
-      nonFinite |= WriteSummary(writer, summary.Previous);
-    }
-    writer.WriteEndObject();
-    return nonFinite;
-  }
-
-  static bool WriteBreakdownRow(Utf8JsonWriter writer, WebBreakdownRow row)
-  {
-    writer.WriteStartObject();
-    writer.WriteString("value", row.Value);
-    writer.WriteNumber("visitors", row.Visitors);
-    writer.WriteNumber("pageViews", row.PageViews);
-    var nonFinite = WriteNullable(writer, "visitorShare", row.VisitorShare);
-    nonFinite |= WriteNullable(writer, "sessions", row.Sessions);
-    nonFinite |= WriteNullable(writer, "bounceRate", row.BounceRate);
-    nonFinite |= WriteNullable(writer, "averageSessionDuration", row.AverageSessionDuration?.TotalSeconds);
-    if (row.Previous != null)
-    {
-      writer.WritePropertyName("previous");
-      nonFinite |= WriteBreakdownRow(writer, row.Previous);
-    }
-    writer.WriteEndObject();
-    return nonFinite;
-  }
-
-  static bool WritePageStats(Utf8JsonWriter writer, PageStats page)
-  {
-    writer.WriteStartObject();
-    writer.WriteString("page", page.Page);
-    writer.WriteNumber("visitors", page.Visitors);
-    writer.WriteNumber("pageViews", page.PageViews);
-    var nonFinite = WriteNullable(writer, "entrances", page.Entrances);
-    nonFinite |= WriteNullable(writer, "exits", page.Exits);
-    nonFinite |= WriteNullable(writer, "exitRate", page.ExitRate);
-    nonFinite |= WriteNullable(writer, "botHits", page.BotHits);
-    if (page.Previous != null)
-    {
-      writer.WritePropertyName("previous");
-      nonFinite |= WritePageStats(writer, page.Previous);
-    }
-    writer.WriteEndObject();
-    return nonFinite;
-  }
-
-  static bool WriteBotStats(Utf8JsonWriter writer, BotStats bot)
-  {
-    writer.WriteStartObject();
-    writer.WriteString("name", bot.Name);
-    writer.WriteString("category", bot.Category);
-    writer.WriteNumber("hits", bot.Hits);
-    var nonFinite = WriteNullable(writer, "share", bot.Share);
-    if (bot.Previous != null)
-    {
-      writer.WritePropertyName("previous");
-      nonFinite |= WriteBotStats(writer, bot.Previous);
-    }
-    writer.WriteEndObject();
-    return nonFinite;
-  }
-
-  static void WriteRange(Utf8JsonWriter writer, DateTimeOffset from, DateTimeOffset to)
-  {
-    writer.WriteString("from", from);
-    writer.WriteString("to", to);
-  }
-
-  static void WriteReport<T>(Utf8JsonWriter writer, WebReport<T> report, Func<Utf8JsonWriter, T, bool> writeRow)
-  {
-    writer.WriteStartObject();
-    WriteRange(writer, report.From, report.To);
-    writer.WriteNumber("totalRows", report.TotalRows);
-    writer.WriteStartArray("rows");
-    var nonFinite = false;
-    foreach (var row in report.Rows)
-      nonFinite |= writeRow(writer, row);
-    writer.WriteEndArray();
-    WritePlan(writer, report.Plan, nonFinite);
-    writer.WriteEndObject();
-  }
-
-  static bool WriteRow(Utf8JsonWriter writer, AnalyticsResult result, AnalyticsRow row)
-  {
-    writer.WriteStartObject();
-    if (row.Bucket.HasValue)
-      writer.WriteString("bucket", row.Bucket.Value);
-    if (result.GroupBy.Count > 0)
-    {
-      writer.WriteStartObject("dimensions");
-      for (var i = 0; i < result.GroupBy.Count; ++i)
-        writer.WriteString(result.GroupBy[i], row.Dimensions[i]);
-      writer.WriteEndObject();
-    }
-    writer.WriteStartObject("values");
-    var nonFinite = false;
-    for (var i = 0; i < result.Metrics.Count; ++i)
-      nonFinite |= WriteNullable(writer, result.Metrics[i].Key, row.Values[i]);
-    writer.WriteEndObject();
-    if (row.Previous != null)
-    {
-      writer.WritePropertyName("previous");
-      nonFinite |= WriteRow(writer, result, row.Previous);
-    }
-    writer.WriteEndObject();
-    return nonFinite;
-  }
-
-  static void WriteResult(Utf8JsonWriter writer, AnalyticsResult result)
-  {
-    writer.WriteStartObject();
-    WriteRange(writer, result.From, result.To);
-    writer.WriteString("timeZone", result.TimeZone.Id);
-    writer.WriteString("interval", result.Interval.ToString());
-    writer.WriteStartArray("groupBy");
-    foreach (var dimension in result.GroupBy)
-      writer.WriteStringValue(dimension);
-    writer.WriteEndArray();
-    writer.WriteStartArray("metrics");
-    foreach (var metric in result.Metrics)
-      writer.WriteStringValue(metric.Key);
-    writer.WriteEndArray();
-    writer.WriteNumber("totalRows", result.TotalRows);
-    writer.WritePropertyName("totals");
-    var nonFinite = WriteRow(writer, result, result.Totals);
-    writer.WriteStartArray("rows");
-    foreach (var row in result.Rows)
-      nonFinite |= WriteRow(writer, result, row);
-    writer.WriteEndArray();
-    WritePlan(writer, result.Plan, nonFinite);
-    writer.WriteEndObject();
-  }
-
-  static void WritePlan(Utf8JsonWriter writer, QueryPlan plan, bool nonFinite = false)
-  {
-    writer.WriteStartObject("plan");
-    writer.WriteBoolean("complete", plan.IsComplete && !nonFinite);
-    writer.WriteStartArray("warnings");
-    foreach (var warning in plan.Warnings)
-      writer.WriteStringValue(warning);
-    if (nonFinite)
-      writer.WriteStringValue("Non-finite metric values (overflow or undefined arithmetic) are represented as null in this JSON response.");
-    writer.WriteEndArray();
-    writer.WriteStartArray("steps");
-    foreach (var step in plan.Steps)
-    {
-      writer.WriteStartObject();
-      writer.WriteString("event", step.Event);
-      writer.WriteString("source", step.Source.ToString());
-      writer.WriteString("from", step.From);
-      writer.WriteString("to", step.To);
-      writer.WriteEndObject();
-    }
-    writer.WriteEndArray();
-    writer.WriteStartArray("rollupSuggestions");
-    foreach (var suggestion in plan.RollupSuggestions)
-    {
-      writer.WriteStartObject();
-      writer.WriteString("event", suggestion.Event);
-      writer.WriteString("id", suggestion.Definition.Id);
-      writer.WriteStartArray("dimensions");
-      foreach (var dimension in suggestion.Definition.Dimensions)
-        writer.WriteStringValue(dimension);
-      writer.WriteEndArray();
-      writer.WriteStartArray("events");
-      foreach (var eventName in suggestion.Definition.Events)
-        writer.WriteStringValue(eventName);
-      writer.WriteEndArray();
-      writer.WriteEndObject();
-    }
-    writer.WriteEndArray();
-    writer.WriteEndObject();
+    return new ReportingResponseMapper().Funnel(result);
   }
 
   #endregion

@@ -388,6 +388,62 @@ public sealed class AspNetCoreTests : DirectoryTest
     });
   }
 
+  [TestCase("/_analytics/api/summary?range=1h", HttpStatusCode.OK)]
+  [TestCase("/_analytics/api/summary?range=forever", HttpStatusCode.BadRequest)]
+  [TestCase("/_analytics/api/summary?site=forbidden.com", HttpStatusCode.Forbidden)]
+  public async Task ReportingApiUsesJsonAndDisablesCachingForSuccessAndErrors(string url, HttpStatusCode status)
+  {
+    using var response = await client.GetAsync(url);
+    using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+    Assert.Multiple(() =>
+    {
+      Assert.That(response.StatusCode, Is.EqualTo(status));
+      Assert.That(response.Content.Headers.ContentType.MediaType, Is.EqualTo("application/json"));
+      Assert.That(response.Content.Headers.ContentType.CharSet, Is.EqualTo("utf-8"));
+      Assert.That(response.Headers.CacheControl.NoStore, Is.True);
+      Assert.That(document.RootElement.ValueKind, Is.EqualTo(JsonValueKind.Object));
+    });
+  }
+
+  [Test]
+  public async Task ReportingApiSerializationFailureReturnsACompleteErrorResponse()
+  {
+    using var body = new MemoryStream();
+    var context = new DefaultHttpContext { RequestServices = app.Services };
+    context.Request.Method = HttpMethods.Get;
+    context.Response.Body = body;
+    // Exercise the response boundary with an invalid DTO: serialization must fail before
+    // any part of the success body reaches the client.
+    var metrics = new SummaryMetrics(1, 1, 1, double.NaN, null, 1, null, null);
+    var response = new SummaryResponse(DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, metrics,
+        new PlanResponse(true, [], [], []));
+    await ReportingApi.Run(context, (_, _, _) => Task.FromResult(response), ReportingJsonContext.Default.SummaryResponse);
+    body.Position = 0;
+    using var document = await JsonDocument.ParseAsync(body);
+    Assert.Multiple(() =>
+    {
+      Assert.That(context.Response.StatusCode, Is.EqualTo(StatusCodes.Status400BadRequest));
+      Assert.That(context.Response.Headers.CacheControl.ToString(), Is.EqualTo("no-store"));
+      Assert.That(document.RootElement.EnumerateObject().Select(p => p.Name), Is.EqualTo(new[] { "error" }));
+      Assert.That(document.RootElement.GetProperty("error").GetString(), Is.Not.Empty);
+    });
+  }
+
+  [Test]
+  public void ReportingApiCancelledSerializationDoesNotWriteAnErrorBody()
+  {
+    using var body = new MemoryStream();
+    using var cancellation = new CancellationTokenSource();
+    cancellation.Cancel();
+    var context = new DefaultHttpContext { RequestServices = app.Services, RequestAborted = cancellation.Token };
+    context.Request.Method = HttpMethods.Get;
+    context.Response.Body = body;
+    Assert.That(async () => await ReportingApi.Run(context,
+        (_, _, _) => Task.FromResult(new RealtimeResponse(1, 5)), ReportingJsonContext.Default.RealtimeResponse),
+        Throws.InstanceOf<OperationCanceledException>());
+    Assert.That(body.Length, Is.Zero);
+  }
+
   [TestCase(0)]
   [TestCase(5)]
   [TestCase(9)]
