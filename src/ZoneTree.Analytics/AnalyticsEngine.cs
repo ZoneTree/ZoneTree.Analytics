@@ -890,6 +890,7 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
   /// <remarks>
   /// A final flush or cleanup failure is reported. If cleanup fails, the directory lock stays
   /// held and a later disposal retries the remaining resources. Concurrent disposals share the attempt.
+  /// <see cref="DisposeAsync"/> schedules cleanup off the calling thread, including retry attempts.
   /// </remarks>
   public void Dispose() => DisposeAsync().AsTask().GetAwaiter().GetResult();
 
@@ -901,13 +902,13 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
       if (disposalTask == null)
       {
         Volatile.Write(ref disposed, 1);
-        disposalTask = DisposeCoreAsync(stopWorkers: true);
+        disposalTask = Task.Run(() => DisposeCoreAsync(stopWorkers: true));
       }
       else if (disposalTask.IsCompleted)
       {
         if (storageReleased)
           return ValueTask.CompletedTask;
-        disposalTask = DisposeCoreAsync(stopWorkers: false);
+        disposalTask = Task.Run(() => DisposeCoreAsync(stopWorkers: false));
       }
       return new ValueTask(disposalTask);
     }

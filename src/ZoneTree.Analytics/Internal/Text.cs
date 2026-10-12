@@ -1,3 +1,5 @@
+using System.Text;
+
 namespace ZoneTree.Analytics.Internal;
 
 /// <summary>
@@ -5,6 +7,31 @@ namespace ZoneTree.Analytics.Internal;
 /// </summary>
 static class Text
 {
+  static readonly UTF8Encoding StrictUtf8 = new(false, true);
+
+  /// <summary>Rejects names that cannot be represented unambiguously in storage keys.</summary>
+  public static void ValidateStoredName(string value, string parameter)
+  {
+    if (string.IsNullOrWhiteSpace(value) || value.Any(char.IsControl))
+      throw new ArgumentException("Stored names must be non-empty and contain no control characters.", parameter);
+    ValidateUnicode(value, parameter);
+  }
+
+  /// <summary>Rejects malformed UTF-16 before UTF-8 encoding can replace it.</summary>
+  public static void ValidateUnicode(string value, string parameter)
+  {
+    if (value == null)
+      return;
+    try
+    {
+      StrictUtf8.GetByteCount(value);
+    }
+    catch (EncoderFallbackException exception)
+    {
+      throw new ArgumentException("Text must contain valid Unicode.", parameter, exception);
+    }
+  }
+
   /// <summary>
   /// The maximum length of event, site, dimension and value names.
   /// </summary>

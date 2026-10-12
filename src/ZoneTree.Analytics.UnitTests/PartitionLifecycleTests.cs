@@ -395,6 +395,48 @@ public sealed class PartitionLifecycleTests : DirectoryTest
     using var reopened = TestEngine.Create(directory);
   }
 
+  [Test]
+  public async Task CleanupRetriesAreAsynchronousAndSharedByConcurrentCallers()
+  {
+    var engine = TestEngine.Create(directory);
+    engine.Track(new AnalyticsEvent("purchase") { Timestamp = Utc(Day0) });
+    await engine.FlushAsync();
+    IZoneTree<Memory<byte>, Memory<byte>> tree;
+    using (var lease = engine.RawEventStore.Store.Acquire(engine.RawEventStore.Store.ListPartitions().Single()))
+      tree = lease.Tree;
+    ZoneTreeIsDisposing<Memory<byte>, Memory<byte>> fail = _ => throw new IOException("Injected first cleanup failure");
+    tree.Maintenance.OnZoneTreeIsDisposing += fail;
+    Assert.ThrowsAsync<IOException>(() => engine.DisposeAsync().AsTask());
+    tree.Maintenance.OnZoneTreeIsDisposing -= fail;
+    var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    var returned = new TaskCompletionSource<Task>(TaskCreationOptions.RunContinuationsAsynchronously);
+    using var resume = new ManualResetEventSlim();
+    ZoneTreeIsDisposing<Memory<byte>, Memory<byte>> block = _ =>
+    {
+      entered.TrySetResult();
+      if (!resume.Wait(TimeSpan.FromSeconds(10)))
+        throw new TimeoutException("Test did not release cleanup retry.");
+    };
+    tree.Maintenance.OnZoneTreeIsDisposing += block;
+    var invocation = Task.Run(() => returned.TrySetResult(engine.DisposeAsync().AsTask()));
+    try
+    {
+      await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+      var retry = await returned.Task.WaitAsync(TimeSpan.FromSeconds(5));
+      var concurrent = engine.DisposeAsync().AsTask();
+      Assert.That(concurrent, Is.SameAs(retry));
+      Assert.That(retry.IsCompleted, Is.False);
+    }
+    finally
+    {
+      resume.Set();
+      await invocation;
+      tree.Maintenance.OnZoneTreeIsDisposing -= block;
+      await engine.DisposeAsync();
+    }
+    using var reopened = TestEngine.Create(directory);
+  }
+
   sealed class StoreHarness : IDisposable
   {
     public readonly StoreFactory Factory;

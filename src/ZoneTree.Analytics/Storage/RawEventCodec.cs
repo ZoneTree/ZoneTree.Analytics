@@ -51,7 +51,9 @@ public sealed class RawEvent
   /// <summary>
   /// Decoded strings, reused across the rows of a scan.
   /// </summary>
-  internal readonly Utf8StringCache Strings = new();
+  Utf8StringCache strings;
+
+  internal Utf8StringCache Strings => strings ??= new();
 
   /// <summary>Looks up a dimension by name.</summary>
   public bool TryGetDimension(string name, out string value)
@@ -167,20 +169,36 @@ public static class RawEventCodec
 
   /// <summary>Encodes a raw event value in the engine's storage format. Null encodes a deletion.</summary>
   /// <remarks>The site, timestamp and sequence belong to the key returned by <see cref="EncodeKey"/>.</remarks>
+  /// <exception cref="ArgumentException">A stored name or string is invalid.</exception>
+  /// <exception cref="ArgumentOutOfRangeException">An event or session timestamp is outside the supported date range.</exception>
   public static Memory<byte> Encode(RawEvent rawEvent)
   {
     if (rawEvent == null)
       return Memory<byte>.Empty;
-    ArgumentException.ThrowIfNullOrWhiteSpace(rawEvent.Name);
+    Text.ValidateStoredName(rawEvent.Name, nameof(rawEvent));
+    ArgumentOutOfRangeException.ThrowIfNegative(rawEvent.Ticks, nameof(rawEvent));
+    ArgumentOutOfRangeException.ThrowIfGreaterThan(rawEvent.Ticks, DateTime.MaxValue.Ticks, nameof(rawEvent));
+    if (rawEvent.SessionId != 0)
+    {
+      ArgumentOutOfRangeException.ThrowIfNegative(rawEvent.SessionStartTicks, nameof(rawEvent));
+      ArgumentOutOfRangeException.ThrowIfGreaterThan(rawEvent.SessionStartTicks, DateTime.MaxValue.Ticks, nameof(rawEvent));
+    }
+    foreach (var (name, value) in rawEvent.Dimensions)
+    {
+      Text.ValidateStoredName(name, nameof(rawEvent));
+      Text.ValidateUnicode(value, nameof(rawEvent));
+    }
+    foreach (var (name, _) in rawEvent.Values)
+      Text.ValidateStoredName(name, nameof(rawEvent));
     return Encode(rawEvent.Name, rawEvent.Ticks, rawEvent.Visitor, rawEvent.SessionId,
         rawEvent.SessionStartTicks, rawEvent.Interactive,
-        rawEvent.Dimensions.ToDictionary(x => x.Key, x => x.Value, StringComparer.Ordinal), rawEvent.Values);
+        rawEvent.Dimensions, rawEvent.Values);
   }
 
   /// <summary>
   /// Decodes an iterator's raw key and value into a complete event, including its site,
   /// timestamp, sequence, visitor hash, session, dimensions and measured values.
-  /// Returns null for an empty value (a deletion marker).
+  /// Returns an independent data record without a scan cache, or null for an empty value (a deletion marker).
   /// </summary>
   /// <exception cref="FormatException">The key or value is malformed.</exception>
   public static RawEvent Decode(ReadOnlySpan<byte> key, ReadOnlySpan<byte> value)
@@ -209,7 +227,7 @@ public static class RawEventCodec
       ulong sessionId,
       long sessionStartTicks,
       bool interactive,
-      IReadOnlyDictionary<string, string> dimensions,
+      IReadOnlyCollection<KeyValuePair<string, string>> dimensions,
       IReadOnlyList<KeyValuePair<string, double>> values)
   {
     var writer = ByteWriter.Reuse(ref threadWriter, 512);
@@ -257,6 +275,8 @@ public static class RawEventCodec
   {
     target.Clear();
     var reader = new ByteReader(bytes, strict: requireEnd);
+    // Public results keep only decoded data. Query scans reuse a cache with their target.
+    var strings = requireEnd ? null : target.Strings;
     if (expectedName != null)
     {
       if (!reader.ReadStringEquals(expectedNameUtf8))
@@ -265,7 +285,7 @@ public static class RawEventCodec
     }
     else
     {
-      target.Name = reader.ReadString(target.Strings);
+      target.Name = reader.ReadString(strings);
     }
     target.Ticks = ticks;
     target.Visitor = BinaryPrimitives.ReadUInt64LittleEndian(reader.ReadBytes(8));
@@ -274,7 +294,7 @@ public static class RawEventCodec
     target.SessionStartTicks = checked(ticks - sessionOffset);
     var flags = reader.ReadByte();
     target.Interactive = (flags & InteractiveFlag) != 0;
-    if (requireEnd && (string.IsNullOrWhiteSpace(target.Name) || (flags & ~InteractiveFlag) != 0 ||
+    if (requireEnd && (string.IsNullOrWhiteSpace(target.Name) || target.Name.Any(char.IsControl) || (flags & ~InteractiveFlag) != 0 ||
         (target.SessionId == 0 && sessionOffset != 0) ||
         target.SessionStartTicks < 0 || target.SessionStartTicks > DateTime.MaxValue.Ticks))
       throw new FormatException("The raw event header contains an invalid name, session start or flags.");
@@ -283,8 +303,10 @@ public static class RawEventCodec
     {
       if (selector == null)
       {
-        var key = reader.ReadString(target.Strings);
-        var value = reader.ReadString(target.Strings);
+        var key = reader.ReadString(strings);
+        if (requireEnd && (string.IsNullOrWhiteSpace(key) || key.Any(char.IsControl)))
+          throw new FormatException("A raw event dimension has an invalid name.");
+        var value = reader.ReadString(strings);
         target.Dimensions.Add(new(key, value));
         continue;
       }
@@ -295,12 +317,14 @@ public static class RawEventCodec
         reader.SkipString();
         continue;
       }
-      target.Dimensions.Add(new(selector.Names[index], reader.ReadString(target.Strings)));
+      target.Dimensions.Add(new(selector.Names[index], reader.ReadString(strings)));
     }
     var valueCount = checked((int)reader.ReadVarUInt64());
     for (var i = 0; i < valueCount; ++i)
     {
-      var key = reader.ReadString(target.Strings);
+      var key = reader.ReadString(strings);
+      if (requireEnd && (string.IsNullOrWhiteSpace(key) || key.Any(char.IsControl)))
+        throw new FormatException("A raw event measured value has an invalid name.");
       var value = reader.ReadDouble();
       target.Values.Add(new(key, value));
     }

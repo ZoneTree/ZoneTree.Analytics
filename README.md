@@ -294,6 +294,13 @@ Invalid text raises `FormatException`; a null text raises `ArgumentNullException
 
 Calendar ranges and day, week, month and year buckets follow the query's time zone (the engine's reporting time zone by default). Daily rollups are stored in the reporting time zone; other time zones are answered from hourly rollups. A time series has at most `Queries.MaxTimeBuckets` buckets (100,000 by default); longer ones are rejected rather than truncated. A query groups by at most `Queries.MaxGroupBy` dimensions (8 by default).
 
+`Queries.MaxGroups` bounds aggregate entries while reading a query (100,000 by default), before
+`Limit`, `Having` or `LimitPerBucket` are applied. Each time bucket and dimension combination
+counts separately for each metric source; partial groups of parallel raw scans count until
+merged. A query that exceeds the budget raises `AnalyticsQueryException`. Narrow its range,
+group by fewer dimensions, lower `Queries.MaxDegreeOfParallelism`, or raise `MaxGroups`.
+Comparison periods have separate budgets; gap-filled rows use `Queries.MaxFilledRows`.
+
 Queries and funnels that run longer than `Queries.Timeout` (30 seconds by default) are cancelled with an `AnalyticsQueryTimeoutException`, a kind of `AnalyticsQueryException`, so an expensive ad-hoc query cannot tie up the host application.
 
 ### Filters
@@ -710,7 +717,10 @@ var aggregates = iterator.CurrentValue; // already a typed RollupValue
 The rollup key does not contain its granularity: pass the tier's granularity and the engine's
 time zone to `GetBucketStart`. Minute and hour buckets store UTC ticks; daily buckets store a
 local calendar date. Session keys and values are already typed as `ulong` and `SessionState`.
-Codecs preserve stored data without applying ingestion normalization. Malformed encoded keys
+Codecs preserve stored data without applying ingestion normalization. Encoders reject invalid
+Unicode and out-of-range event or session dates rather than silently replacing text or producing
+unreadable records. `DefaultSite` must also contain valid Unicode and no control characters.
+Each decoded raw event keeps only its own data, without a scan cache. Malformed encoded keys
 and raw event payloads raise `FormatException`.
 
 Release leases before disposing the engine. The engine owns all trees and maintainers: do not

@@ -255,14 +255,14 @@ sealed class QueryEngine
             outputBucket = calendar.Bucket(bucket, interval);
           for (var i = 0; i < groupValues.Length; ++i)
             groupValues[i] = parts[source.GroupByIndexes[i]];
-          GetGroup(source.Groups, outputBucket, groupValues).MergeForQuery(value, requirements);
+          GetGroup(context, source.Groups, outputBucket, groupValues).MergeForQuery(value, requirements);
         });
   }
 
   /// <summary>
   /// Returns the group of stored-form values (missing values as <see cref="KeyCodec.MissingValue"/>).
   /// </summary>
-  static RollupAccumulator GetGroup(Dictionary<GroupKey, RollupAccumulator> groups, long bucket, string[] storedValues)
+  static RollupAccumulator GetGroup(QueryContext context, Dictionary<GroupKey, RollupAccumulator> groups, long bucket, string[] storedValues)
   {
     var combined = storedValues.Length switch
     {
@@ -273,6 +273,7 @@ sealed class QueryEngine
     var key = new GroupKey(bucket, combined);
     if (!groups.TryGetValue(key, out var accumulator))
     {
+      context.GroupBudget.Reserve();
       accumulator = new RollupAccumulator();
       groups.Add(key, accumulator);
     }
@@ -282,15 +283,19 @@ sealed class QueryEngine
   /// <summary>
   /// Moves groups into the target. The source must not be used afterwards.
   /// </summary>
-  static void MergeGroups(Dictionary<GroupKey, RollupAccumulator> target, Dictionary<GroupKey, RollupAccumulator> source)
+  static void MergeGroups(QueryContext context, Dictionary<GroupKey, RollupAccumulator> target, Dictionary<GroupKey, RollupAccumulator> source)
   {
     foreach (var (key, accumulator) in source)
     {
       if (target.TryGetValue(key, out var existing))
+      {
         existing.Merge(accumulator);
+        context.GroupBudget.Release();
+      }
       else
         target.Add(key, accumulator);
     }
+    source.Clear();
   }
 
   /// <summary>
@@ -353,7 +358,7 @@ sealed class QueryEngine
     ParallelWork.For(eventSources.Length, maxDegree, i =>
     {
       foreach (var slice in slices)
-        MergeGroups(eventSources[i].Groups, slice.Groups[i]);
+        MergeGroups(context, eventSources[i].Groups, slice.Groups[i]);
     });
     if (!trackSessions)
       return;
@@ -404,7 +409,7 @@ sealed class QueryEngine
     for (var i = 0; i < flowSources.Length; ++i)
     {
       for (var shard = 0; shard < joined.Length; ++shard)
-        MergeGroups(flowSources[i].Groups, flowGroups[shard][i]);
+        MergeGroups(context, flowSources[i].Groups, flowGroups[shard][i]);
     }
   }
 
@@ -426,7 +431,7 @@ sealed class QueryEngine
       rawEvent.TryGetDimension(context.GroupBy[i], out var value);
       groupValues[i] = KeyCodec.Stored(value);
     }
-    var accumulator = GetGroup(groups, context.Calendar.Bucket(rawEvent.Ticks, context.Interval), groupValues);
+    var accumulator = GetGroup(context, groups, context.Calendar.Bucket(rawEvent.Ticks, context.Interval), groupValues);
     ++accumulator.Count;
     if (source.ReadsVisitors)
       accumulator.AddVisitor(rawEvent.Visitor, context.Precision);
@@ -455,7 +460,7 @@ sealed class QueryEngine
   {
     if (!MatchAndGroup(context, source, session.Dimensions, groupValues))
       return;
-    var accumulator = GetGroup(groups, context.Calendar.Bucket(session.Start, context.Interval), groupValues);
+    var accumulator = GetGroup(context, groups, context.Calendar.Bucket(session.Start, context.Interval), groupValues);
     ++accumulator.Count;
     if (source.ReadsVisitors)
       accumulator.AddVisitor(session.Visitor, context.Precision);
@@ -490,7 +495,7 @@ sealed class QueryEngine
       var dimensions = pageDimensions.Of(session.Dimensions, session.FirstPage, session.FirstHostname);
       if (MatchAndGroup(context, source, dimensions, groupValues))
       {
-        GetGroup(groups, context.Calendar.Bucket(session.Start, context.Interval), groupValues)
+        GetGroup(context, groups, context.Calendar.Bucket(session.Start, context.Interval), groupValues)
             .AddValueDelta(StandardValues.Entrances, 1);
       }
     }
@@ -499,7 +504,7 @@ sealed class QueryEngine
       var dimensions = pageDimensions.Of(session.Dimensions, session.LastPage, session.LastHostname);
       if (MatchAndGroup(context, source, dimensions, groupValues))
       {
-        GetGroup(groups, context.Calendar.Bucket(session.LastPageTicks, context.Interval), groupValues)
+        GetGroup(context, groups, context.Calendar.Bucket(session.LastPageTicks, context.Interval), groupValues)
             .AddValueDelta(StandardValues.Exits, 1);
       }
     }

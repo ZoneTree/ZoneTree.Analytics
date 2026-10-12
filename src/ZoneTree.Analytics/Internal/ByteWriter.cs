@@ -185,10 +185,10 @@ ref struct ByteReader
     var lengthPlusOne = ReadVarUInt64();
     if (lengthPlusOne == 0)
       return null;
-    var byteCount = (int)(lengthPlusOne - 1);
+    var byteCount = checked((int)(lengthPlusOne - 1));
     if (byteCount == 0)
       return string.Empty;
-    var result = Encoding.UTF8.GetString(span.Slice(position, byteCount));
+    var result = (strict ? StrictUtf8 : Encoding.UTF8).GetString(span.Slice(position, byteCount));
     position += byteCount;
     return result;
   }
@@ -198,6 +198,8 @@ ref struct ByteReader
   /// </summary>
   public string ReadString(Utf8StringCache cache)
   {
+    if (cache == null)
+      return ReadString();
     var lengthPlusOne = ReadVarUInt64();
     if (lengthPlusOne == 0)
       return null;

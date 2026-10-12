@@ -29,6 +29,15 @@ public sealed class QueryOptions
   public int MaxGroupBy { get; set; } = 8;
 
   /// <summary>
+  /// The most aggregate groups held while reading one query period. Default is 100,000.
+  /// Each time bucket and dimension combination counts separately for each metric source;
+  /// temporary groups of parallel raw scans also count until merged. The limit is enforced
+  /// before allocating a group, regardless of Limit, Having or LimitPerBucket. Exceeding it
+  /// raises <see cref="AnalyticsQueryException"/>. Comparison periods use separate budgets.
+  /// </summary>
+  public int MaxGroups { get; set; } = 100_000;
+
+  /// <summary>
   /// The most time buckets of one query: longer time series are rejected rather than truncated.
   /// Default is 100,000, for example 69 days of minutes or 11 years of hours.
   /// </summary>
@@ -52,6 +61,8 @@ public sealed class QueryOptions
       throw new ArgumentException("Queries.MaxDegreeOfParallelism must be positive.");
     if (MaxGroupBy < 1)
       throw new ArgumentException("Queries.MaxGroupBy must be positive.");
+    if (MaxGroups < 1)
+      throw new ArgumentException("Queries.MaxGroups must be positive.");
     if (MaxTimeBuckets < 1)
       throw new ArgumentException("Queries.MaxTimeBuckets must be positive.");
     if (MaxFilledRows < 1)

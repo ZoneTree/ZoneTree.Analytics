@@ -14,6 +14,8 @@ sealed class QueryContext
 
   public int MaxFilledRows;
 
+  public QueryGroupBudget GroupBudget;
+
   public string BaseEvent;
 
   public ReportingCalendar Calendar;
@@ -51,6 +53,23 @@ sealed class QueryContext
   public long NowTicks;
 
   public RetentionCutoffs Cutoffs;
+}
+
+/// <summary>A shared budget for aggregate entries across all sources and parallel slices.</summary>
+sealed class QueryGroupBudget(int maximum)
+{
+  long count;
+
+  public void Reserve()
+  {
+    if (Interlocked.Increment(ref count) > maximum)
+      throw new AnalyticsQueryException(
+          $"The query needs more than {maximum} aggregate groups (Queries.MaxGroups). " +
+          "Use a shorter range, fewer groups or less raw-scan parallelism, or raise the limit.");
+  }
+
+  // Merging two entries into one frees a slot. Transferring an entry to another map does not.
+  public void Release() => Interlocked.Decrement(ref count);
 }
 
 /// <summary>

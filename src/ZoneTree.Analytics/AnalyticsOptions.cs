@@ -1,3 +1,5 @@
+using ZoneTree.Analytics.Internal;
+
 namespace ZoneTree.Analytics;
 
 /// <summary>
@@ -23,6 +25,7 @@ public sealed class AnalyticsOptions
 
   /// <summary>
   /// The site used for events and queries that do not specify one. Default is "default".
+  /// Must contain valid Unicode and no control characters.
   /// </summary>
   public string DefaultSite { get; set; } = "default";
 
@@ -117,8 +120,7 @@ public sealed class AnalyticsOptions
   {
     if (string.IsNullOrWhiteSpace(DataDirectory))
       throw new ArgumentException("DataDirectory is required.");
-    if (string.IsNullOrWhiteSpace(DefaultSite))
-      throw new ArgumentException("DefaultSite is required.");
+    Text.ValidateStoredName(DefaultSite, nameof(DefaultSite));
     if (TimeZone == null)
       throw new ArgumentException("TimeZone is required.");
     Ingestion.Validate();

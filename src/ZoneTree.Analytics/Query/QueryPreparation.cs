@@ -101,6 +101,7 @@ sealed class QueryPreparation(
       Having = having,
       Fill = query.Fill,
       MaxFilledRows = limits.MaxFilledRows,
+      GroupBudget = new QueryGroupBudget(limits.MaxGroups),
       Precision = options.Rollups.HyperLogLogPrecision,
       CancellationToken = cancellationToken,
       NowTicks = now,

@@ -103,8 +103,12 @@ public static class StorageKeyCodec
       ValidateName(name, nameof(key));
       if (name.Contains(',', StringComparison.Ordinal))
         throw new ArgumentException("Dimension names cannot contain commas.", nameof(key));
-      if (key.Dimensions[name] is { } value && value.Any(char.IsControl))
-        throw new ArgumentException("Dimension values cannot contain control characters.", nameof(key));
+      if (key.Dimensions[name] is { } value)
+      {
+        if (value.Any(char.IsControl))
+          throw new ArgumentException("Dimension values cannot contain control characters.", nameof(key));
+        Text.ValidateUnicode(value, nameof(key));
+      }
     }
     var combined = string.Join(KeyCodec.ValueSeparator, names.Select(name => KeyCodec.Stored(key.Dimensions[name])));
     return KeyCodec.RollupKey(key.Site, key.Event, string.Join(",", names), key.BucketTicks, combined);
@@ -140,10 +144,7 @@ public static class StorageKeyCodec
 
   static void ValidateName(string name, string parameter)
   {
-    if (string.IsNullOrWhiteSpace(name) || name.Any(char.IsControl))
-      throw new ArgumentException("Stored names must be non-empty and contain no control characters.", parameter);
-    // Reject invalid UTF-16 instead of silently changing it while encoding.
-    StrictUtf8.GetByteCount(name);
+    Text.ValidateStoredName(name, parameter);
   }
 
   static string ReadSegment(ReadOnlySpan<byte> bytes, ref int offset, bool allowEmpty = false)

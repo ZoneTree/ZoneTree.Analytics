@@ -176,7 +176,8 @@ public sealed class PublicStorageCodecTests : DirectoryTest
         [0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x02]));
     raw.SessionId = 1;
     raw.SessionStartTicks = -1;
-    var invalidSession = RawEventCodec.Encode(raw);
+    var invalidSession = RawEventCodec.Encode(raw.Name, raw.Ticks, raw.Visitor, raw.SessionId,
+        raw.SessionStartTicks, raw.Interactive, raw.Dimensions, raw.Values);
     Assert.Throws<FormatException>(() => RawEventCodec.Decode(key.Span, invalidSession.Span));
   }
 
@@ -210,4 +211,80 @@ public sealed class PublicStorageCodecTests : DirectoryTest
     Assert.Throws<ArgumentException>(() => StorageKeyCodec.EncodeRollup(key));
     Assert.Throws<ArgumentException>(() => StorageKeyCodec.EncodeRawEvent(new RawEventKey("s\0e", 100, 1)));
   }
+
+  [Test]
+  public void PublicDecoderDoesNotAllocateAScanCacheForEachRecord()
+  {
+    var sample = new RawEvent { Site = "s", Ticks = 1000, Sequence = 1, Name = "purchase" };
+    var key = RawEventCodec.EncodeKey(sample);
+    var value = RawEventCodec.Encode(sample);
+    for (var i = 0; i < 10; ++i)
+      RawEventCodec.Decode(key.Span, value.Span);
+    var before = GC.GetAllocatedBytesForCurrentThread();
+    var records = new RawEvent[1000];
+    for (var i = 0; i < records.Length; ++i)
+      records[i] = RawEventCodec.Decode(key.Span, value.Span);
+    var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+    Assert.That(allocated, Is.LessThan(1_000_000), $"1000 tiny records allocated {allocated:N0} bytes.");
+    Assert.That(records[0].Name, Is.EqualTo("purchase"));
+    Assert.That(records[0], Is.Not.SameAs(records[^1]));
+    GC.KeepAlive(records);
+  }
+
+  [TestCase(-1L)]
+  [TestCase(long.MaxValue)]
+  public void RawEncoderRejectsInvalidEventAndSessionDates(long ticks)
+  {
+    var record = new RawEvent { Site = "s", Ticks = ticks, Sequence = 1, Name = "e" };
+    Assert.Throws<ArgumentOutOfRangeException>(() => RawEventCodec.Encode(record));
+    Assert.Throws<ArgumentOutOfRangeException>(() => RawEventCodec.EncodeKey(record));
+    record.Ticks = 1000;
+    record.SessionId = 1;
+    record.SessionStartTicks = ticks;
+    Assert.Throws<ArgumentOutOfRangeException>(() => RawEventCodec.Encode(record));
+  }
+
+  [TestCase(0xD800)]
+  [TestCase(0xDC00)]
+  public void PublicEncodersRejectInvalidUnicodeInsteadOfReplacingIt(int codeUnit)
+  {
+    var invalid = new string((char)codeUnit, 1);
+    var rollup = new RollupKey { Site = "s", Event = "e", BucketTicks = 1000, Dimensions = { ["page"] = invalid } };
+    Assert.Throws<ArgumentException>(() => StorageKeyCodec.EncodeRollup(rollup));
+    var raw = new RawEvent { Site = "s", Ticks = 1000, Sequence = 1, Name = "e", Dimensions = { new("page", invalid) } };
+    Assert.Throws<ArgumentException>(() => RawEventCodec.Encode(raw));
+    raw.Dimensions.Clear();
+    raw.Name = invalid;
+    Assert.Throws<ArgumentException>(() => RawEventCodec.Encode(raw));
+    raw.Name = "e";
+    raw.Values.Add(new(invalid, 1));
+    Assert.Throws<ArgumentException>(() => RawEventCodec.Encode(raw));
+    Assert.Throws<ArgumentException>(() => StorageKeyCodec.EncodeRawEvent(new RawEventKey(invalid, 1000, 1)));
+  }
+
+  [Test]
+  public void DuplicateRawDimensionEntriesRoundTripInEncodedOrder()
+  {
+    var raw = new RawEvent { Site = "s", Ticks = 1000, Sequence = 1, Name = "e", Dimensions = { new("page", "/a"), new("page", "/b") } };
+    var key = RawEventCodec.EncodeKey(raw);
+    var value = RawEventCodec.Encode(raw);
+    var decoded = RawEventCodec.Decode(key.Span, value.Span);
+    Assert.That(decoded.Dimensions, Is.EqualTo(raw.Dimensions));
+    Assert.That(RawEventCodec.Encode(decoded).ToArray(), Is.EqualTo(value.ToArray()));
+  }
+
+  [TestCase("shop\tdefault")]
+  [TestCase("shop\ndefault")]
+  [TestCase("shop\0default")]
+  public void EngineRejectsDefaultSitesThatItsCodecsCannotRead(string site)
+  {
+    var options = TestEngine.Options(directory, o => o.DefaultSite = site);
+    var error = Assert.Throws<ArgumentException>(() => { using var engine = new AnalyticsEngine(options); });
+    Assert.That(error.ParamName, Is.EqualTo(nameof(AnalyticsOptions.DefaultSite)));
+    Assert.That(Directory.Exists(directory), Is.False, "Validation must fail before creating storage.");
+  }
+
+  [Test]
+  public void EngineRejectsInvalidUnicodeDefaultSites() =>
+      EngineRejectsDefaultSitesThatItsCodecsCannotRead("shop" + new string((char)0xD800, 1));
 }
