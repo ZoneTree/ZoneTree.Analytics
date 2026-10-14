@@ -7,6 +7,6 @@
     <ServerGarbageCollection>true</ServerGarbageCollection>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="../../src/ZoneTree.Analytics.AspNetCore/ZoneTree.Analytics.AspNetCore.csproj" />
+    <ProjectReference Include="../../../src/ZoneTree.Analytics.AspNetCore/ZoneTree.Analytics.AspNetCore.csproj" />
   </ItemGroup>
 </Project>

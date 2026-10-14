@@ -35,12 +35,12 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Compile Include="../../examples/DashboardHost/SampleTraffic.cs" Link="Samples/SampleTraffic.cs" />
-    <Compile Include="../../examples/DashboardHost/DashboardAnalyticsOptions.cs" Link="Samples/DashboardAnalyticsOptions.cs" />
-    <Compile Include="../../examples/DashboardHost/SampleTrafficProfile.cs" Link="Samples/SampleTrafficProfile.cs" />
-    <Compile Include="../../examples/DashboardHost/SampleBenchmark.cs" Link="Samples/SampleBenchmark.cs" />
-    <Compile Include="../../examples/DashboardHost/BenchmarkReportStore.cs" Link="Samples/BenchmarkReportStore.cs" />
-    <Compile Include="../../examples/DashboardHost/SampleEngineLease.cs" Link="Samples/SampleEngineLease.cs" />
+    <Compile Include="../../apps/ZoneTree.Analytics.Dashboard/server/SampleTraffic.cs" Link="Dashboard/SampleTraffic.cs" />
+    <Compile Include="../../apps/ZoneTree.Analytics.Dashboard/server/DashboardAnalyticsOptions.cs" Link="Dashboard/DashboardAnalyticsOptions.cs" />
+    <Compile Include="../../apps/ZoneTree.Analytics.Dashboard/server/SampleTrafficProfile.cs" Link="Dashboard/SampleTrafficProfile.cs" />
+    <Compile Include="../../apps/ZoneTree.Analytics.Dashboard/server/SampleBenchmark.cs" Link="Dashboard/SampleBenchmark.cs" />
+    <Compile Include="../../apps/ZoneTree.Analytics.Dashboard/server/BenchmarkReportStore.cs" Link="Dashboard/BenchmarkReportStore.cs" />
+    <Compile Include="../../apps/ZoneTree.Analytics.Dashboard/server/SampleEngineLease.cs" Link="Dashboard/SampleEngineLease.cs" />
   </ItemGroup>
 
 </Project>

@@ -8,9 +8,9 @@ var contentRoot = builder.Environment.ContentRootPath;
 var watchDashboard = builder.Environment.IsDevelopment()
     && builder.Configuration.GetValue("Dashboard:Watch", true);
 var dashboardPath = Path.GetFullPath(builder.Configuration["Dashboard:Path"]
-    ?? Path.Combine(contentRoot, "../../dashboard/dist/publish"));
+    ?? Path.Combine(contentRoot, "../ui/dist/publish"));
 if (!watchDashboard && !File.Exists(Path.Combine(dashboardPath, "index.html")))
-  throw new InvalidOperationException("Build the dashboard first: cd dashboard; yarn install; yarn publish. " +
+  throw new InvalidOperationException("Build the dashboard first: cd apps/ZoneTree.Analytics.Dashboard/ui; yarn install; yarn publish. " +
       "Or supply --Dashboard:Path=<absolute path to the generated site>.");
 var timeZone = TimeZoneInfo.FindSystemTimeZoneById(builder.Configuration["Analytics:TimeZone"] ?? "UTC");
 builder.Services.AddSingleton(timeZone);

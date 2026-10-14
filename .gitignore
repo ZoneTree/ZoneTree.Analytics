@@ -5,13 +5,17 @@ obj
 *.user
 TestResults
 src/ZoneTree.Analytics.Playground/data
-dashboard/node_modules/
-dashboard/dist/
+apps/ZoneTree.Analytics.Dashboard/ui/node_modules/
+apps/ZoneTree.Analytics.Dashboard/ui/dist/
+apps/ZoneTree.Analytics.Dashboard/ui/test-results/
+apps/ZoneTree.Analytics.Dashboard/ui/.yarn/
+apps/ZoneTree.Analytics.Dashboard/ui/.pnp.*
+apps/ZoneTree.Analytics.Dashboard/ui/*.log
+apps/ZoneTree.Analytics.Dashboard/ui/.qa-content/
+apps/ZoneTree.Analytics.Dashboard/ui/.qa-subpath-*/
+apps/ZoneTree.Analytics.Dashboard/server/data/
+examples/MinimalHost/data/
+# Ignored local runtime files can remain here while older processes are running.
 dashboard/test-results/
-dashboard/.yarn/
-dashboard/.pnp.*
-dashboard/*.log
-dashboard/.qa-content/
-dashboard/.qa-subpath-*/
 examples/DashboardHost/data/
 .tmp

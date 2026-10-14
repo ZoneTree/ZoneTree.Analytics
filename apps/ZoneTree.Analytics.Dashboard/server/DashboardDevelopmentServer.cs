@@ -20,7 +20,7 @@ sealed class DashboardDevelopmentServer(
   public async Task StartAsync(CancellationToken cancellationToken)
   {
     var source = Path.GetFullPath(configuration["Dashboard:SourcePath"]
-        ?? Path.Combine(environment.ContentRootPath, "../../dashboard"));
+        ?? Path.Combine(environment.ContentRootPath, "../ui"));
     var cli = Path.Combine(source, "node_modules/purestack/dist/cli.mjs");
     if (!File.Exists(cli))
       throw new InvalidOperationException($"Install dashboard dependencies first: cd \"{source}\"; yarn install.");

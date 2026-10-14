@@ -76,7 +76,7 @@ sealed class SampleDataStore(IWebHostEnvironment environment, IConfiguration con
     if (Directory.Exists(directory) && !File.Exists(Path.Combine(directory, Marker)) && Directory.EnumerateFileSystemEntries(directory).Any())
       throw new InvalidOperationException("The sample directory contains files not owned by this sample generator.");
     Directory.CreateDirectory(directory);
-    File.WriteAllText(Path.Combine(directory, Marker), "ZoneTree.Analytics DashboardHost generated samples");
+    File.WriteAllText(Path.Combine(directory, Marker), "ZoneTree.Analytics.Dashboard generated samples");
   }
 
   public long ReadCount()
