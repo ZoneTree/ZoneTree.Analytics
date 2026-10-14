@@ -59,9 +59,9 @@ sealed class BenchmarkReportStore : IAsyncDisposable
     }
   }
 
-  static AnalyticsOptions CreateReportOptions(string path, Dataset dataset)
+  AnalyticsOptions CreateReportOptions(string path, Dataset dataset)
   {
-    var options = SampleBenchmark.CreateOptions(path, 1, dataset.Result.Percentiles);
+    var options = SampleBenchmark.CreateOptions(path, 1, dataset.Result.Percentiles, logger);
     options.TimeZone = TimeZoneInfo.FindSystemTimeZoneById(dataset.TimeZone);
     return options;
   }

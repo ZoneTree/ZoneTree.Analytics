@@ -5,10 +5,11 @@ sealed class DimensionIndexWriter(DimensionIndexStore owner) : IDisposable
 {
   readonly PartitionLease<Memory<byte>, Memory<byte>>[] leases = new PartitionLease<Memory<byte>, Memory<byte>>[owner.Indexes.Count];
 
-  public void Write(string site, long ticks, long sequence,
+  public int Write(string site, long ticks, long sequence,
       IEnumerable<KeyValuePair<string, string>> dimensions, Memory<byte> value)
   {
-    if (!owner.IsHealthy) return;
+    if (!owner.IsHealthy) return 0;
+    var written = 0;
     try
     {
       for (var i = 0; i < owner.Indexes.Count; ++i)
@@ -22,10 +23,13 @@ sealed class DimensionIndexWriter(DimensionIndexStore owner) : IDisposable
             if (dimension.Key == index.Dimension) { match = dimension.Value; break; }
         if (match == null) continue;
         var tree = Tree(i, ticks);
-        tree?.Upsert(DimensionIndexKeyCodec.Key(site, match, ticks, sequence), value);
+        if (tree == null) continue;
+        tree.Upsert(DimensionIndexKeyCodec.Key(site, match, ticks, sequence), value);
+        written++;
       }
     }
     catch { owner.Invalidate(); throw; }
+    return written;
   }
 
   public void Delete(RawEvent record)

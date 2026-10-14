@@ -53,7 +53,12 @@ sealed class DimensionIndexStore : IDisposable
 
   public void Initialize()
   {
-    var rebuild = meta.Get(CleanKey) != "true" || meta.Get(DimensionsKey) != manifest || meta.Get("dimension-index.format") != "1";
+    using var startup = new StartupLog(logger, "Dimension index initialization", directory);
+    using var check = new StartupLog(logger, "Dimension index backfill check", directory);
+    var reasons = new List<string>();
+    if (meta.Get(CleanKey) != "true") reasons.Add("missing or unclean checkpoint");
+    if (meta.Get(DimensionsKey) != manifest) reasons.Add("configuration changed");
+    if (meta.Get("dimension-index.format") != "1") reasons.Add("format changed");
     var registered = (meta.Get("dimension-index.registry") ?? meta.Get(DimensionsKey) ?? "")
         .Split('\n', StringSplitOptions.RemoveEmptyEntries).Union(options.Dimensions, StringComparer.Ordinal).ToArray();
     // Includes engines opened with no indexes: disabling and re-enabling an index must
@@ -63,6 +68,19 @@ sealed class DimensionIndexStore : IDisposable
       entries[CleanKey] = "false";
       entries["dimension-index.registry"] = string.Join('\n', registered.Order(StringComparer.Ordinal));
     });
+    var partitions = 0;
+    foreach (var dimension in options.Dimensions)
+    {
+      var index = Open(dimension);
+      indexes.Add(index);
+      var names = index.Store.ListPartitions();
+      partitions += names.Count;
+      if (meta.Get(PartitionsKey(index.Id)) != string.Join(',', names)) reasons.Add($"partition manifest changed: {dimension}");
+    }
+    var rebuild = reasons.Count > 0;
+    var decision = indexes.Count == 0 ? "disabled" : rebuild ? "rebuild required" : "reuse existing indexes";
+    var reason = indexes.Count == 0 ? "no configured dimensions" : rebuild ? string.Join(", ", reasons) : "clean checkpoint and matching manifests";
+    check.Complete($"decision={decision}; indexes={indexes.Count}; partitions={partitions}; reasons={reason}");
     // Removed indexes must not retain copies of private data. The registry is durable
     // before creation/deletion, so interrupted cleanup is retried on the next open.
     foreach (var dimension in registered.Except(options.Dimensions, StringComparer.Ordinal))
@@ -70,18 +88,9 @@ sealed class DimensionIndexStore : IDisposable
       var obsolete = Open(dimension);
       foreach (var partition in obsolete.Store.ListPartitions()) obsolete.Store.Drop(partition);
     }
-    foreach (var dimension in options.Dimensions)
-    {
-      var index = Open(dimension);
-      indexes.Add(index);
-      rebuild |= meta.Get(PartitionsKey(index.Id)) != string.Join(',', index.Store.ListPartitions());
-    }
     if (rebuild && indexes.Count > 0)
-    {
-      foreach (var index in indexes)
-        foreach (var partition in index.Store.ListPartitions()) index.Store.Drop(partition);
       Backfill(rawEvents);
-    }
+    startup.Complete($"decision={(rebuild && indexes.Count > 0 ? "rebuild completed" : decision)}; indexes={indexes.Count}");
   }
 
   DimensionIndex Open(string dimension)
@@ -98,15 +107,22 @@ sealed class DimensionIndexStore : IDisposable
 
   void Backfill(RawEventStore rawEvents)
   {
-    logger.LogInfo($"Building {indexes.Count} covering dimension indexes from retained raw events.");
+    using var build = new StartupLog(logger, "Dimension index backfill", directory);
+    foreach (var index in indexes)
+      foreach (var partition in index.Store.ListPartitions()) index.Store.Drop(partition);
     var record = new RawEvent();
     var selector = new DimensionSelector(options.Dimensions);
     long records = 0;
+    long rows = 0;
+    long bytes = 0;
+    long skipped = 0;
+    var partitions = 0;
     using var writer = CreateWriter();
     foreach (var partition in rawEvents.Store.ListPartitions())
     {
       using var lease = rawEvents.Store.Acquire(partition);
       if (lease == null) continue;
+      partitions++;
       using var iterator = lease.Tree.CreateIterator(new IteratorOptions { ContributeToTheBlockCache = true });
       iterator.SeekFirst();
       while (iterator.Next())
@@ -114,12 +130,15 @@ sealed class DimensionIndexStore : IDisposable
         var key = iterator.CurrentKey;
         var value = iterator.CurrentValue;
         var rawKey = StorageKeyCodec.DecodeRawEvent(key.Span);
-        if (!RawEventCodec.TryDecode(value.Span, rawKey.Ticks, null, default, record, selector)) continue;
-        writer.Write(rawKey.Site, rawKey.Ticks, rawKey.Sequence, record.Dimensions, value);
-        if (++records % 100_000 == 0) logger.LogInfo($"Dimension index build: {records:N0} retained events copied.");
+        if (!RawEventCodec.TryDecode(value.Span, rawKey.Ticks, null, default, record, selector)) { skipped++; continue; }
+        var copies = writer.Write(rawKey.Site, rawKey.Ticks, rawKey.Sequence, record.Dimensions, value);
+        rows += copies;
+        bytes += (long)copies * value.Length;
+        if (++records % 100_000 == 0) build.Progress($"events={records}; index rows written={rows}; payload bytes copied={bytes}", records, "events");
       }
     }
-    logger.LogInfo($"Dimension indexes ready: {records:N0} retained events copied.");
+    writer.Dispose();
+    build.Complete($"indexes={indexes.Count}; raw partitions={partitions}; events={records}; skipped events={skipped}; index rows written={rows}; payload bytes copied={bytes}", records, "events");
   }
 
   public DimensionIndexWriter CreateWriter() => new(this);
@@ -184,7 +203,7 @@ sealed class DimensionIndexStore : IDisposable
     return IsAvailable && currentRevision == Interlocked.Read(ref revision) ? best : null;
   }
 
-  static IEnumerable<Filter> Mandatory(IEnumerable<Filter> filters)
+  internal static IEnumerable<Filter> Mandatory(IEnumerable<Filter> filters)
   {
     foreach (var filter in filters)
     {
@@ -194,7 +213,7 @@ sealed class DimensionIndexStore : IDisposable
     }
   }
 
-  static bool TryEquality(Filter filter, out string dimension, out string[] values)
+  internal static bool TryEquality(Filter filter, out string dimension, out string[] values)
   {
     dimension = filter.Dimension;
     values = [];

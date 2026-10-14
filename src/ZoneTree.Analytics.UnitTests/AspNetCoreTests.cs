@@ -39,6 +39,8 @@ public sealed class AspNetCoreTests : DirectoryTest
             options.Storage.Logger = new ThrowingLogger();
           TestEngine.UseTestDefaults(options);
           options.Web.Bots = BotTraffic.TrackSeparately;
+          if (TestContext.CurrentContext.Test.MethodName == nameof(ReportingApiOverviewUsesCoveringRollups))
+            SampleAnalyticsOptions.ConfigureIndexes(options);
           // Options are fixed once the engine exists: the timeout test needs its own value.
           if (TestContext.CurrentContext.Test.MethodName == nameof(ReportingApiReportsTimeouts))
             options.Queries.Timeout = TimeSpan.FromTicks(1);
@@ -452,6 +454,27 @@ public sealed class AspNetCoreTests : DirectoryTest
     var (status, error) = await GetJson("/_analytics/api/exit-pages?includePageFlowMetrics=false");
     Assert.That(status, Is.EqualTo(HttpStatusCode.BadRequest));
     Assert.That(error.GetProperty("error").GetString(), Does.Contain("page-flow"));
+  }
+
+  [Test]
+  public async Task ReportingApiOverviewUsesCoveringRollups()
+  {
+    await TrackVisitsAsync();
+    foreach (var endpoint in new[] { "pages?limit=5&includePageFlowMetrics=false",
+        "breakdown?dimension=country&includeSessionMetrics=false", "breakdown?dimension=device&includeSessionMetrics=false" })
+    {
+      var (status, report) = await GetJson("/_analytics/api/" + endpoint + "&range=this-year&filter=source%3D%3DGoogle");
+      Assert.That(status, Is.EqualTo(HttpStatusCode.OK));
+      var rows = report.GetProperty("rows");
+      Assert.That(rows.EnumerateArray().Sum(row => row.GetProperty("pageViews").GetInt64()), Is.EqualTo(2));
+      var steps = report.GetProperty("plan").GetProperty("steps");
+      Assert.That(steps.GetArrayLength(), Is.GreaterThan(0));
+      foreach (var step in steps.EnumerateArray())
+      {
+        Assert.That(step.GetProperty("source").GetString(), Is.AnyOf("DayRollups", "HourRollups", "MinuteRollups"));
+        Assert.That(step.GetProperty("indexDimension").GetString(), Is.EqualTo("source"));
+      }
+    }
   }
 
   [Test]

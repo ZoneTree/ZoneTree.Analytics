@@ -33,6 +33,9 @@ public sealed class StorageOptions
   /// <summary>Opt-in full-payload ordered dimension indexes over retained raw events.</summary>
   public DimensionIndexOptions DimensionIndexes { get; private set; } = new();
 
+  /// <summary>Opt-in full-key, full-value ordered indexes of joint rollups.</summary>
+  public RollupIndexOptions RollupIndexes { get; private set; } = new();
+
   /// <summary>
   /// ZoneTree settings of rollup partitions. By default the mutable segment holds 100,000 rows.
   /// </summary>
@@ -76,6 +79,7 @@ public sealed class StorageOptions
     clone.Partitioning = Partitioning.Clone();
     clone.RawEvents = RawEvents.Clone();
     clone.DimensionIndexes = DimensionIndexes.Clone();
+    clone.RollupIndexes = RollupIndexes.Clone();
     clone.Rollups = Rollups.Clone();
     clone.Sessions = Sessions.Clone();
     return clone;
@@ -89,6 +93,7 @@ public sealed class StorageOptions
       throw new ArgumentException("Storage.WriteAheadLogDirectory cannot be empty; use null to keep logs next to the data.");
     RawEvents.Validate(nameof(RawEvents));
     DimensionIndexes.Validate(StoreRawEvents);
+    RollupIndexes.Validate();
     Rollups.Validate(nameof(Rollups));
     Sessions.Validate(nameof(Sessions));
     Partitioning.Validate();

@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Runtime;
 using Microsoft.Extensions.Logging;
 using ZoneTree.Analytics;
+using ZoneTree.Analytics.AspNetCore;
 using ZoneTree.Analytics.Web;
 
 sealed record SampleBenchmarkRequest(int Events = 5_000_000, int Days = 90, int Workers = 20, bool Percentiles = false);
@@ -22,7 +23,7 @@ sealed record SampleBenchmarkProgress(string State, int Prepared = 0, int Submit
 sealed class SampleBenchmark(string contentRoot, TimeZoneInfo timeZone, ILogger? logger = null) : IAsyncDisposable
 {
   public BenchmarkReportStore Reports { get; } = new(contentRoot, logger);
-  public static AnalyticsOptions CreateOptions(string directory, int workers, bool percentiles)
+  public static AnalyticsOptions CreateOptions(string directory, int workers, bool percentiles, ILogger? logger = null)
   {
     var options = new AnalyticsOptions
     {
@@ -30,8 +31,9 @@ sealed class SampleBenchmark(string contentRoot, TimeZoneInfo timeZone, ILogger?
       DefaultSite = BenchmarkReportStore.Site,
       Ingestion = { WorkerCount = workers, QueueFullBehavior = QueueFullBehavior.Wait },
       Web = { Bots = BotTraffic.TrackSeparately, GeoLocator = new SampleBenchmarkGeoLocator() },
-      Storage = { DimensionIndexes = { Dimensions = { "source", "country", "device", "page" } } },
     };
+    SampleAnalyticsOptions.ConfigureIndexes(options);
+    if (logger != null) options.UseLogger(logger);
     if (percentiles) options.Rollups.ValueAggregates["load_time"] = ValueAggregates.Percentiles;
     return options;
   }
@@ -74,7 +76,7 @@ sealed class SampleBenchmark(string contentRoot, TimeZoneInfo timeZone, ILogger?
   async Task<SampleBenchmarkResult?> MeasureAsync(string directory, AnalyticsEvent[] events, SampleBenchmarkRequest request, DateTimeOffset end,
       double preparationMs, Action<SampleBenchmarkProgress> progress, CancellationToken cancellationToken, CancellationToken applicationStopping)
   {
-    var options = CreateOptions(directory, request.Workers, request.Percentiles);
+    var options = CreateOptions(directory, request.Workers, request.Percentiles, logger);
     options.TimeZone = timeZone;
     await using var engine = new AnalyticsEngine(options);
     progress(new("running", Prepared: events.Length));

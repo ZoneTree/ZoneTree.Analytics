@@ -60,6 +60,8 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
 
   readonly DimensionIndexStore dimensionIndexes;
 
+  readonly RollupIndexStore rollupIndexes;
+
   bool started;
 
   readonly VisitorHasher visitorHasher;
@@ -119,6 +121,7 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
     ArgumentNullException.ThrowIfNull(options);
     options = options.Clone();
     options.Validate();
+    options.Storage.RollupIndexes.AddRollups(options.Rollups);
     this.options = options;
     logger = options.Storage.Logger ?? new ConsoleLogger();
     calendar = new ReportingCalendar(options.TimeZone, options.FirstDayOfWeek);
@@ -171,6 +174,11 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
       dimensionIndexes.Initialize();
       if (rawEvents != null) rawEvents.Indexes = dimensionIndexes;
 
+      rollupIndexes = new RollupIndexStore(Path.Combine(root, "rollup-indexes"), options, rollups, factory, meta, storageLogger);
+      ownedStores.Add(rollupIndexes);
+      rollupIndexes.Initialize(rawEvents, activations, calendar, enricher.Schema);
+      rollups.Indexes = rollupIndexes;
+
       var services = new IngestionServices
       {
         Options = options,
@@ -195,7 +203,7 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
       funnelEngine = new FunnelEngine(options, calendar, rawEvents, enricher);
       Web = new WebAnalytics(this);
       Storage = new AnalyticsStorage(rawEvents?.Store, rollups, sessions, sessionsMaintainer,
-          () => ObjectDisposedException.ThrowIf(IsDisposed, this), dimensionIndexes);
+          () => ObjectDisposedException.ThrowIf(IsDisposed, this), dimensionIndexes, rollupIndexes);
       visitorHasher.RotateSalts(DateTime.UtcNow);
 
       // Create the timer disabled, then start background work inside the cleanup boundary.
@@ -249,6 +257,8 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
   internal RollupStore RollupStore => rollups;
 
   internal DimensionIndexStore DimensionIndexes => dimensionIndexes;
+
+  internal RollupIndexStore RollupIndexes => rollupIndexes;
 
   /// <summary>Counts integration failures without letting a failing logger affect the response.</summary>
   internal void ReportIntegrationError(Exception exception)
@@ -780,6 +790,7 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
       dropped += rollups.GetStore(granularity).DropPartitionsEndingBefore(cutoff);
     }
     RemoveExpiredRecords(cutoffs);
+    dropped += rollupIndexes.ApplyRetention(cutoffs, retentionClock);
     visitorHasher.RotateSalts(now);
     Interlocked.Add(ref counters.PartitionsDropped, dropped);
     lastRetentionTicks = now.Ticks;
@@ -1012,7 +1023,14 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
   {
     Disposal.DisposeAll(ownedStores);
     // Release only after every resource confirms closure. Failed cleanup remains owned for retry.
-    try { if (started) dimensionIndexes.MarkClean(); }
+    try
+    {
+      if (started)
+      {
+        dimensionIndexes.MarkClean();
+        rollupIndexes.MarkClean();
+      }
+    }
     finally
     {
       directoryLock?.Dispose();

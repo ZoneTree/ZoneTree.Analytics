@@ -14,3 +14,4 @@ dashboard/*.log
 dashboard/.qa-content/
 dashboard/.qa-subpath-*/
 examples/DashboardHost/data/
+.tmp

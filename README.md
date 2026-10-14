@@ -801,6 +801,77 @@ registry makes interrupted removal retryable. Retention, idle closure, compactio
 statistics and visitor erasure include index stores. `analytics.Storage.IndexedDimensions` and
 `GetDimensionIndex(name)` expose their existing partitioned stores for advanced inspection.
 
+#### Covering rollup indexes
+
+Configure joint dimension combinations explicitly when filtered reports should read aggregates
+instead of individual events. Each definition names an equality dimension followed by the other
+dimensions to aggregate with it:
+
+```csharp
+options.Storage.RollupIndexes.Definitions.Add(new("source", "country"));
+options.Storage.RollupIndexes.Definitions.Add(new("source", "device"));
+options.Storage.RollupIndexes.Definitions.Add(new("source", "page"));
+options.Storage.RollupIndexes.RecordsPerPartition = 10_000_000;
+options.Storage.RollupIndexes.Store.MutableSegmentMaxItemCount = 100_000;
+```
+
+The engine adds missing joint definitions to its private rollup configuration, preserving the
+caller's options. Existing matching definitions, including their event restrictions, are reused.
+Each enabled granularity has a separate index under `rollup-indexes/<configuration-hash>/`.
+Keys are `site -> event -> equality value -> bucket -> complete original rollup key`; values are
+complete copies of the authoritative `RollupValue`, including visitor sketches, value statistics
+and configured opt-in aggregates. Reads never fetch a primary row by pointer.
+
+Indexes are opt-in and add aggregate storage, WAL traffic and ingestion work. They support
+mandatory case-sensitive equality predicates, deduplicated lists of up to 64 values and OR
+groups on one dimension. Other predicates still use the joint primary rollup when eligible.
+Queries must match the configured joint dimensions; configure only combinations your reports
+need. Raw reads remain necessary for unsupported combinations, behavioral segments, missing
+aggregates or unaligned range boundaries. `QuerySource.RawEvents` still forces primary raw reads.
+
+On first enablement in an existing directory, newly added joint definitions are backfilled from
+retained enriched raw events before ingestion starts. Stored visitor hashes, session IDs and
+session starts preserve attribution without re-enriching or re-ingesting events. Only the new
+definitions are rebuilt; existing rollups are not counted again. Buffered rows and inactive
+session eviction bound rebuild memory. Progress is logged every 100,000 events. Historical
+coverage is published after replacements reach disk; interrupted builds are cleared and retried.
+Expired raw history cannot be recreated. Queries outside backfilled coverage retain the existing
+raw fallback and retention warnings. Existing joint rollups can be indexed without raw storage.
+
+Index copies are absolute snapshots written under the primary partition's rollup-writer lock,
+so concurrent flushes and retries do not double-count or overwrite a newer snapshot with an older
+one. Copy failures are logged and counted; queries fall back to authoritative joint rollups.
+Dirty shutdowns, missing index partitions and configuration changes rebuild copies from primary
+rollups. A clean checkpoint requires successfully closed durable primary and index stores.
+Removed indexes drop their copies. Each index follows its rollup tier's retention and participates
+in idle closure, compaction, rollover and partition statistics.
+
+Plans retain `DayRollups`, `HourRollups` or `MinuteRollups` as their source and include
+`IndexDimension` (`indexDimension` in JSON) when a covering rollup index is used.
+`QueryPlan.UsedRollupIndexes` distinguishes those reads. Inspect the existing trees through
+`analytics.Storage.GetRollupIndex(Granularity.Day, "source", "country")`.
+
+Both dimension and rollup index initialization log their backfill necessity checks at
+Information level, including elapsed milliseconds, configured index and partition counts,
+and the decision and reasons: disabled, reusable, or rebuilding because of configuration,
+format, checkpoint, partition manifest, or historical coverage changes. Historical joint
+rollup backfills have a separate timed check. Every message identifies the data directory.
+Initialization summaries include the full time spent checking, cleaning up, and rebuilding.
+
+Backfills log their start, progress every 100,000 input events or rows, and completion with
+total duration and throughput. Dimension summaries count processed events, actual index rows
+written and duplicated payload bytes. Joint rollup summaries include definitions, sites,
+events, reconstructed sessions, row updates and flushes, with duration including final
+compaction and the coverage checkpoint. Rollup index summaries distinguish primary rows
+scanned, source rows selected and index copies written. Row updates can revisit a row across
+flushes; they are not a count of unique stored rows. Failed stages log elapsed time without
+claiming successful completion.
+
+ASP.NET Core registration uses the `ZoneTree.Analytics` logging category. For manually
+constructed engines, use `options.UseLogger(hostLogger)` from `ZoneTree.Analytics.AspNetCore`
+to apply the host's providers and level filters. Standalone engines keep their warning-level
+console default; set `Storage.Logger` to an Information-enabled logger to see startup logs.
+
 #### ZoneTree settings
 
 `Storage.RawEvents`, `Storage.Rollups` and `Storage.Sessions` tune the ZoneTrees of each kind of store, every partition included. Settings left null keep ZoneTree's defaults:

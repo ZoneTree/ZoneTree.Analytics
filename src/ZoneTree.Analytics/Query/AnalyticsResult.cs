@@ -269,4 +269,8 @@ public sealed class QueryPlan
 
   /// <summary>True when full-payload dimension indexes contributed.</summary>
   public bool UsedDimensionIndexes => Steps.Any(x => x.Source == PlanSource.DimensionIndex);
+
+  /// <summary>True when covering equality indexes of rollups contributed.</summary>
+  public bool UsedRollupIndexes => Steps.Any(x => x.IndexDimension != null &&
+      x.Source is PlanSource.DayRollups or PlanSource.HourRollups or PlanSource.MinuteRollups);
 }

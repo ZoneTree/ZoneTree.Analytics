@@ -1,9 +1,10 @@
 using ZoneTree.Analytics;
+using ZoneTree.Analytics.AspNetCore;
 using ZoneTree.Analytics.Web;
 
 // This engine owns only generated data. Reporting leases protect it while a
 // reset closes the engine and removes all raw events, rollups and metadata.
-sealed class SampleDataStore(IWebHostEnvironment environment, IConfiguration configuration) : IAsyncDisposable
+sealed class SampleDataStore(IWebHostEnvironment environment, IConfiguration configuration, ILogger<SampleDataStore> logger) : IAsyncDisposable
 {
   public const string Site = "performance-samples";
   public const string ApiPath = "/_analytics/sample-data/api";
@@ -16,6 +17,8 @@ sealed class SampleDataStore(IWebHostEnvironment environment, IConfiguration con
   bool resetting;
   TaskCompletionSource drained = new(TaskCreationOptions.RunContinuationsAsynchronously);
   const string Marker = ".zonetree-generated-samples";
+
+  public bool HasRetainedData => File.Exists(Path.Combine(directory, Marker));
 
   public SampleEngineLease Acquire()
   {
@@ -34,7 +37,7 @@ sealed class SampleDataStore(IWebHostEnvironment environment, IConfiguration con
   AnalyticsEngine Open()
   {
     EnsureOwnedDirectory();
-    return new AnalyticsEngine(new AnalyticsOptions
+    var options = new AnalyticsOptions
     {
       DataDirectory = directory,
       DefaultSite = Site,
@@ -42,8 +45,10 @@ sealed class SampleDataStore(IWebHostEnvironment environment, IConfiguration con
       Ingestion = { WorkerCount = workerCount },
       Web = { Bots = BotTraffic.TrackSeparately, GeoLocator = new ExampleGeoLocator() },
       Rollups = { ValueAggregates = { ["load_time"] = ValueAggregates.Percentiles } },
-      Storage = { DimensionIndexes = { Dimensions = { "source", "country", "device", "page" } } },
-    });
+    };
+    SampleAnalyticsOptions.ConfigureIndexes(options);
+    options.UseLogger(logger);
+    return new AnalyticsEngine(options);
   }
 
   public async Task PrepareGenerationAsync(int workers, CancellationToken cancellationToken)

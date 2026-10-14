@@ -255,13 +255,15 @@ public sealed class ReportingSerializationTests
     });
   }
 
-  [Test]
-  public void CoveringIndexPlansExposeTheirDimensionWithoutChangingOtherPlanShapes()
+  [TestCase(PlanSource.DimensionIndex)]
+  [TestCase(PlanSource.DayRollups)]
+  [TestCase(PlanSource.HourRollups)]
+  public void CoveringIndexPlansExposeTheirDimensionWithoutChangingOtherPlanShapes(PlanSource source)
   {
-    var plan = new QueryPlan([new("pageview", PlanSource.DimensionIndex, From, To) { IndexDimension = "source" }], []);
+    var plan = new QueryPlan([new("pageview", source, From, To) { IndexDimension = "source" }], []);
     var report = new WebReport<PageStats>([], 0, From, To, plan);
     var json = Serialize(new ReportingResponseMapper().Pages(report), ReportingJsonContext.Default.PagesResponse).GetProperty("plan");
-    Assert.That(json.GetProperty("steps")[0].GetProperty("source").GetString(), Is.EqualTo("DimensionIndex"));
+    Assert.That(json.GetProperty("steps")[0].GetProperty("source").GetString(), Is.EqualTo(source.ToString()));
     Assert.That(json.GetProperty("steps")[0].GetProperty("indexDimension").GetString(), Is.EqualTo("source"));
     Assert.That(json.GetProperty("complete").GetBoolean(), Is.True);
   }

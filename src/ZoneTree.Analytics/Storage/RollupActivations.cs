@@ -121,6 +121,18 @@ sealed class RollupActivations
   public long DefinitionSince(string id) =>
       definitions.TryGetValue(id, out var since) ? since : long.MaxValue;
 
+  /// <summary>Publishes historical coverage only after an indexed joint rollup finishes backfilling.</summary>
+  public void Backfilled(MetaStore meta, IEnumerable<RollupDefinition> completed, long since)
+  {
+    var values = completed.ToArray();
+    meta.Update(entries =>
+    {
+      foreach (var definition in values)
+        entries[DefinitionKey(definition)] = since.ToString(CultureInfo.InvariantCulture);
+    });
+    foreach (var definition in values) definitions[definition.Id] = since;
+  }
+
   /// <summary>Since when a tier has been continuously enabled.</summary>
   public long GranularitySince(Granularity granularity) =>
       granularities.TryGetValue(granularity, out var since) ? since : long.MaxValue;

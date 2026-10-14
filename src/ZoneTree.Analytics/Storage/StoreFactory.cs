@@ -34,6 +34,10 @@ sealed class StoreFactory
 
   public bool DimensionIndexesDurable { get; private set; } = true;
 
+  public bool RollupIndexesDurable { get; private set; } = true;
+
+  public bool RollupsDurable { get; private set; } = true;
+
   public StoreFactory(StorageOptions storage, string dataRoot, ILogger logger, RetentionClock retention)
   {
     this.storage = storage;
@@ -107,7 +111,15 @@ sealed class StoreFactory
       factory.Validate();
       DimensionIndexesDurable = factory.Options.WriteAheadLogOptions.WriteAheadLogMode != WriteAheadLogMode.None;
     }
-    RollupsFactory(null, Granularity.Hour).Validate();
+    var rollupFactory = RollupsFactory(null, Granularity.Hour);
+    rollupFactory.Validate();
+    RollupsDurable = rollupFactory.Options.WriteAheadLogOptions.WriteAheadLogMode != WriteAheadLogMode.None;
+    if (storage.RollupIndexes.Definitions.Count > 0)
+    {
+      var indexFactory = RollupIndexFactory(null, Granularity.Hour);
+      indexFactory.Validate();
+      RollupIndexesDurable = indexFactory.Options.WriteAheadLogOptions.WriteAheadLogMode != WriteAheadLogMode.None;
+    }
     SessionsFactory(null, schema).Validate();
   }
 
@@ -152,6 +164,24 @@ sealed class StoreFactory
 
   public IMaintainer CreateRollupsMaintainer(IZoneTree<Memory<byte>, RollupValue> tree) =>
       CreateMaintainer(tree, storage.Rollups);
+
+  public IMaintainer CreateRollupIndexMaintainer(IZoneTree<Memory<byte>, RollupValue> tree) =>
+      CreateMaintainer(tree, storage.RollupIndexes.Store);
+
+  public IZoneTree<Memory<byte>, RollupValue> OpenRollupIndex(string directory, Granularity granularity) =>
+      RollupIndexFactory(directory, granularity).OpenOrCreate();
+
+  ZoneTreeFactory<Memory<byte>, RollupValue> RollupIndexFactory(string directory, Granularity granularity)
+  {
+    ExpiredKeyPredicate expired = key => retention.IsRollupExpired(granularity, RollupIndexKeyCodec.OriginalKey(key));
+    return Create<Memory<byte>, RollupValue>(directory, storage.RollupIndexes.Store)
+        .SetComparer(new ByteArrayLexicographicComparerAscending())
+        .SetValueSerializer(new RollupValueSerializer())
+        .SetIsDeletedDelegate((in Memory<byte> key, in RollupValue value) => value == null || expired(key.Span))
+        .SetIsRangeDeletedDelegate((in Memory<byte> first, in RollupValue _, in Memory<byte> last, in RollupValue _) =>
+            RollupIndexKeyCodec.IsRangeExpired(first.Span, last.Span, expired))
+        .SetMarkValueDeletedDelegate((ref RollupValue value) => value = null);
+  }
 
   public IMaintainer CreateSessionsMaintainer(IZoneTree<ulong, SessionState> tree) =>
       CreateMaintainer(tree, storage.Sessions);

@@ -4,6 +4,21 @@ using ZoneTreeLogLevel = ZoneTree.Logger.LogLevel;
 
 namespace ZoneTree.Analytics.AspNetCore;
 
+/// <summary>Logging configuration for engines created outside dependency injection.</summary>
+public static class AnalyticsLoggingExtensions
+{
+  /// <summary>
+  /// Routes engine and storage messages to the supplied host logger, respecting its filters.
+  /// </summary>
+  public static AnalyticsOptions UseLogger(this AnalyticsOptions options, ILogger logger)
+  {
+    ArgumentNullException.ThrowIfNull(options);
+    ArgumentNullException.ThrowIfNull(logger);
+    options.Storage.Logger = new LoggerAdapter(logger);
+    return options;
+  }
+}
+
 /// <summary>
 /// Routes engine and storage logs to Microsoft.Extensions.Logging.
 /// </summary>

@@ -44,7 +44,7 @@ sealed class RollupStore : IDisposable
       stores[1] = new(Path.Combine(rootDirectory, "hour"), partitioning.HourRollups, directory => factory.OpenRollups(directory, Granularity.Hour), logger, factory.CreateRollupsMaintainer, factory.WriteAheadLogDirectoryOf);
     if ((granularities & Granularity.Day) != 0)
       stores[2] = new(Path.Combine(rootDirectory, "day"), partitioning.DayRollups, directory => factory.OpenRollups(directory, Granularity.Day), logger, factory.CreateRollupsMaintainer, factory.WriteAheadLogDirectoryOf);
-    ownedStores.AddRange(AllStores);
+    ownedStores.AddRange(PrimaryStores);
   }
 
   static int IndexOf(Granularity granularity) => granularity switch
@@ -60,7 +60,12 @@ sealed class RollupStore : IDisposable
 
   public bool IsEnabled(Granularity granularity) => stores[IndexOf(granularity)] != null;
 
-  public IEnumerable<PartitionedStore<Memory<byte>, RollupValue>> AllStores => stores.Where(x => x != null);
+  public RollupIndexStore Indexes { get; set; }
+
+  public IEnumerable<PartitionedStore<Memory<byte>, RollupValue>> PrimaryStores => stores.Where(x => x != null);
+
+  public IEnumerable<PartitionedStore<Memory<byte>, RollupValue>> AllStores =>
+      PrimaryStores.Concat(Indexes?.AllStores ?? []);
 
   /// <summary>
   /// Merges a flush into storage, retaining progress and leases if a write fails.
@@ -79,7 +84,9 @@ sealed class RollupStore : IDisposable
       partition.Lease ??= GetStore(partition.Granularity).Acquire(partition.Name);
       if (partition.Lease == null)
         continue; // The partition was dropped by retention.
-      var writer = writers.GetValue(partition.Lease.Tree, static tree => new RollupWriter(tree));
+      var granularity = partition.Granularity;
+      var writer = writers.GetValue(partition.Lease.Tree, tree => new RollupWriter(tree,
+          (key, value) => Indexes?.Copy(granularity, key, value)));
       for (; partition.NextRow < partition.Rows.Count; ++partition.NextRow)
         writer.Write(partition.Rows[partition.NextRow]);
       partition.Lease.Dispose();

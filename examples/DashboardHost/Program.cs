@@ -42,7 +42,7 @@ builder.Services.AddZoneTreeAnalytics(options =>
   options.Web.Bots = BotTraffic.TrackSeparately;
   options.Web.GeoLocator = new ExampleGeoLocator();
   options.Rollups.ValueAggregates["load_time"] = ValueAggregates.Percentiles;
-  options.Storage.DimensionIndexes.Dimensions.AddRange(["source", "country", "device", "page"]);
+  SampleAnalyticsOptions.ConfigureIndexes(options);
 });
 
 var app = builder.Build();
@@ -134,6 +134,16 @@ else
 {
   app.UseDefaultFiles(new DefaultFilesOptions { FileProvider = files! });
   app.UseStaticFiles(new StaticFileOptions { FileProvider = files! });
+}
+// Complete migrations before browsers start their reporting request timeouts.
+if (sampleDataEnabled)
+{
+  var samples = app.Services.GetRequiredService<SampleDataStore>();
+  if (samples.HasRetainedData)
+    using (samples.Acquire()) { }
+  var benchmark = app.Services.GetRequiredService<SampleBenchmark>();
+  if (benchmark.Reports.Result != null)
+    using (benchmark.Reports.Acquire()) { }
 }
 await app.RunAsync();
 

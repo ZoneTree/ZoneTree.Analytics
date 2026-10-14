@@ -257,38 +257,43 @@ sealed class QueryEngine
     var groupValues = new string[context.GroupBy.Length];
     var counter = 0;
     var requirements = source.ReadRequirements;
-    rollups.Scan(granularity, context.Site, source.Event, definition.Id, fromBucket, toBucket,
-        (bucket, combined, value) =>
+    void Visit(long bucket, string combined, RollupValue value)
+    {
+      if (++counter % CancellationCheckInterval == 0)
+        context.CancellationToken.ThrowIfCancellationRequested();
+      var parts = KeyCodec.SplitValues(combined, dimensionCount);
+      var dimensions = new FilterValues(definition.Dimensions, parts, bucket, calendar, isDay);
+      foreach (var filter in source.Filters)
+      {
+        if (!filter.IsMatch(dimensions))
+          return;
+      }
+      long outputBucket;
+      if (interval == TimeInterval.None)
+        outputBucket = 0;
+      else if (isDay)
+        outputBucket = calendar.LocalBucket(bucket, interval);
+      else
+        outputBucket = calendar.Bucket(bucket, interval);
+      for (var i = 0; i < groupValues.Length; ++i)
+        groupValues[i] = source.GroupByIndexes[i] >= 0 ? parts[source.GroupByIndexes[i]] : KeyCodec.Stored(dimensions.Get(context.GroupBy[i]));
+      var accumulator = GetGroup(context, source.Groups, outputBucket, groupValues);
+      accumulator.MergeForQuery(value, requirements);
+      if (value.Count > 0)
+      {
+        foreach (var dimension in source.DistinctDimensions)
         {
-          if (++counter % CancellationCheckInterval == 0)
-            context.CancellationToken.ThrowIfCancellationRequested();
-          var parts = KeyCodec.SplitValues(combined, dimensionCount);
-          var dimensions = new FilterValues(definition.Dimensions, parts, bucket, calendar, isDay);
-          foreach (var filter in source.Filters)
-          {
-            if (!filter.IsMatch(dimensions))
-              return;
-          }
-          long outputBucket;
-          if (interval == TimeInterval.None)
-            outputBucket = 0;
-          else if (isDay)
-            outputBucket = calendar.LocalBucket(bucket, interval);
-          else
-            outputBucket = calendar.Bucket(bucket, interval);
-          for (var i = 0; i < groupValues.Length; ++i)
-            groupValues[i] = source.GroupByIndexes[i] >= 0 ? parts[source.GroupByIndexes[i]] : KeyCodec.Stored(dimensions.Get(context.GroupBy[i]));
-          var accumulator = GetGroup(context, source.Groups, outputBucket, groupValues);
-          accumulator.MergeForQuery(value, requirements);
-          if (value.Count > 0)
-          {
-            foreach (var dimension in source.DistinctDimensions)
-            {
-              if (TimeDimension.IsDerived(dimension))
-                accumulator.AddDistinct(dimension, Text.StableHash(dimensions.Get(dimension)), context.Precision);
-            }
-          }
-        });
+          if (TimeDimension.IsDerived(dimension))
+            accumulator.AddDistinct(dimension, Text.StableHash(dimensions.Get(dimension)), context.Precision);
+        }
+      }
+    }
+    var indexDimension = rollups.Indexes?.Scan(granularity, context.Site, source.Event, definition.Id, fromBucket, toBucket,
+        source.Filters, Visit, context.CancellationToken);
+    if (indexDimension != null)
+      context.Steps[^1] = context.Steps[^1] with { IndexDimension = indexDimension };
+    else
+      rollups.Scan(granularity, context.Site, source.Event, definition.Id, fromBucket, toBucket, Visit);
   }
 
   /// <summary>

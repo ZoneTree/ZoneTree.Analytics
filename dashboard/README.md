@@ -63,6 +63,22 @@ The example exposes `GET /_analytics/sample-data/status` and JSON `POST` request
 
 ## Build and host
 
+The example host, performance sample store and ingestion benchmark also enable covering rollup
+indexes in both filtering directions for all six pairs among `source`, `country`, `device` and
+`page` (12 ordered indexes per enabled rollup tier). Overview cards filtered by any one of these
+dimensions read joint aggregates instead of replaying every matching event. The shared explicit
+configuration is in `examples/DashboardHost/SampleAnalyticsOptions.cs`. On first open after
+enabling the combinations, retained raw events backfill the joint rollups; progress is logged.
+The main, performance-sample and benchmark engines use host logging. At Information level,
+startup logs show timed backfill necessity checks and their reuse/rebuild reasons, followed
+by backfill start, progress and completion messages with duration, counts and throughput.
+The data directory identifies the dataset; initialization summaries show the total cost.
+The host opens retained sample datasets before listening so migrations finish before browser
+request timeouts start. Expired raw history cannot be rebuilt. Plan steps keep their rollup tier and expose
+the filter's `indexDimension`. Benchmark throughput includes maintaining the new aggregates and
+their copied keys and values. To configure other combinations in your own host, use
+`Storage.RollupIndexes.Definitions`; the core library leaves the list empty by default.
+
 The example host, performance sample store and ingestion benchmark all enable covering indexes
 for `source`, `country`, `device` and `page`. Existing retained events are indexed when each
 store first opens with this configuration; this can add startup time for large datasets, with

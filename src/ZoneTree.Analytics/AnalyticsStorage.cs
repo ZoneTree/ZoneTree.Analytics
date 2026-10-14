@@ -22,6 +22,8 @@ public sealed class AnalyticsStorage
 
   readonly DimensionIndexStore dimensionIndexes;
 
+  readonly RollupIndexStore rollupIndexes;
+
   readonly AnalyticsPartitionedStorage<Memory<byte>, RollupValue>[] rollups = new AnalyticsPartitionedStorage<Memory<byte>, RollupValue>[3];
 
   internal AnalyticsStorage(
@@ -29,12 +31,13 @@ public sealed class AnalyticsStorage
       RollupStore rollups,
       IZoneTree<ulong, SessionState> sessions,
       IMaintainer sessionsMaintainer,
-      Action ensureOpen, DimensionIndexStore dimensionIndexes = null)
+      Action ensureOpen, DimensionIndexStore dimensionIndexes = null, RollupIndexStore rollupIndexes = null)
   {
     this.ensureOpen = ensureOpen;
     this.sessions = sessions;
     this.sessionsMaintainer = sessionsMaintainer;
     this.dimensionIndexes = dimensionIndexes;
+    this.rollupIndexes = rollupIndexes;
     if (rawEvents != null)
       RawEvents = new(rawEvents, ensureOpen);
     for (var i = 0; i < RollupStore.Granularities.Length; ++i)
@@ -58,6 +61,18 @@ public sealed class AnalyticsStorage
   {
     ensureOpen();
     var index = dimensionIndexes?.Indexes.FirstOrDefault(x => x.Dimension == dimension);
+    return index == null ? null : new(index.Store, ensureOpen);
+  }
+
+  /// <summary>Access to a configured covering rollup index, or null when it is disabled.</summary>
+  public AnalyticsPartitionedStorage<Memory<byte>, RollupValue> GetRollupIndex(
+      Granularity granularity, string dimension, params string[] groupDimensions)
+  {
+    ensureOpen();
+    ArgumentNullException.ThrowIfNull(groupDimensions);
+    var definition = new RollupDefinition([dimension, .. groupDimensions]);
+    var index = rollupIndexes?.Indexes.FirstOrDefault(index => index.Dimension == dimension &&
+        index.DefinitionId == definition.Id && index.Granularity == granularity);
     return index == null ? null : new(index.Store, ensureOpen);
   }
 

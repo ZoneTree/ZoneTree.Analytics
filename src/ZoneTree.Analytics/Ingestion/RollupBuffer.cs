@@ -130,7 +130,8 @@ sealed class RollupBuffer
       int precision,
       SessionSchema schema,
       IReadOnlyDictionary<string, ValueAggregates> valueAggregates,
-      IReadOnlyCollection<string> distinctDimensions)
+      IReadOnlyCollection<string> distinctDimensions,
+      IReadOnlySet<string> includedDefinitions = null)
   {
     this.definitions = definitions;
     this.valueAggregates = valueAggregates
@@ -142,7 +143,8 @@ sealed class RollupBuffer
     this.precision = precision;
     accepts = Enum.GetValues<DimensionScope>()
         .Select(scope => definitions
-            .Select(x => schema.Accepts(x, scope, scope == DimensionScope.Bot ? StandardEvents.Bot : null))
+            .Select(x => (includedDefinitions == null || includedDefinitions.Contains(x.Id)) &&
+                schema.Accepts(x, scope, scope == DimensionScope.Bot ? StandardEvents.Bot : null))
             .ToArray())
         .ToArray();
   }
