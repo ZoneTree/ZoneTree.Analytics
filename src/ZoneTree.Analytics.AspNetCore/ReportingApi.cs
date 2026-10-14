@@ -260,6 +260,10 @@ static class ReportingApi
 
     public int? Offset;
 
+    public bool IncludeSessionMetrics;
+
+    public bool IncludePageFlowMetrics;
+
     public Filter[] Filters;
 
     public Segment[] Segments;
@@ -272,13 +276,19 @@ static class ReportingApi
       Compare = ParseComparison(parameters),
       Limit = parameters.GetInt("limit"),
       Offset = parameters.GetInt("offset"),
+      IncludeSessionMetrics = ParseBoolean(parameters, "includeSessionMetrics"),
+      IncludePageFlowMetrics = ParseBoolean(parameters, "includePageFlowMetrics"),
       Filters = [.. parameters.GetAll("filter").Concat(parameters.GetAll("filters")).Select(Filter.Parse)],
       Segments = [.. ParseSegments(parameters)]
     };
 
     public WebReportRequest ToRequest()
     {
-      var request = new WebReportRequest { Site = Site, TimeZone = TimeZone, Compare = Compare };
+      var request = new WebReportRequest
+      {
+        Site = Site, TimeZone = TimeZone, Compare = Compare,
+        IncludeSessionMetrics = IncludeSessionMetrics, IncludePageFlowMetrics = IncludePageFlowMetrics
+      };
       if (Range is { } range)
         request.Range = range;
       if (Limit is { } limit)
@@ -319,6 +329,16 @@ static class ReportingApi
   {
     var id = parameters.Get("tz");
     return string.IsNullOrWhiteSpace(id) ? null : TimeZoneInfo.FindSystemTimeZoneById(id);
+  }
+
+  static bool ParseBoolean(ApiParameters parameters, string name, bool fallback = true)
+  {
+    var value = parameters.Get(name);
+    if (value == null)
+      return fallback;
+    return bool.TryParse(value, out var result)
+        ? result
+        : throw new FormatException($"'{name}' must be true or false.");
   }
 
   /// <summary>

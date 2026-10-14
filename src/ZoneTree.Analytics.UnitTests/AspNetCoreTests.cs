@@ -405,6 +405,55 @@ public sealed class AspNetCoreTests : DirectoryTest
     });
   }
 
+  [TestCase("breakdown?dimension=country", "includeSessionMetrics", "sessions", "bounceRate", "averageSessionDuration")]
+  [TestCase("breakdown?dimension=device", "includeSessionMetrics", "sessions", "bounceRate", "averageSessionDuration")]
+  [TestCase("pages?limit=5", "includePageFlowMetrics", "entrances", "exits", "exitRate")]
+  public async Task ReportingApiOverviewMetricsPreserveCountsAndDefaultDetails(
+      string endpoint, string option, string detail1, string detail2, string detail3)
+  {
+    await TrackVisitsAsync();
+    var url = "/_analytics/api/" + endpoint + "&range=today&compare=previous-period&filter=source%3D%3DGoogle";
+    var (fullStatus, full) = await GetJson(url);
+    var (status, projected) = await GetJson(url + "&" + option + "=false");
+    Assert.That(fullStatus, Is.EqualTo(HttpStatusCode.OK));
+    Assert.That(status, Is.EqualTo(HttpStatusCode.OK));
+    Assert.That(projected.GetProperty("totalRows").GetInt32(), Is.EqualTo(full.GetProperty("totalRows").GetInt32()));
+    var fullRows = full.GetProperty("rows");
+    var rows = projected.GetProperty("rows");
+    Assert.That(rows.GetArrayLength(), Is.EqualTo(fullRows.GetArrayLength()).And.GreaterThan(0));
+    for (var i = 0; i < rows.GetArrayLength(); ++i)
+    {
+      foreach (var name in new[] { "visitors", "pageViews" })
+        Assert.That(rows[i].GetProperty(name).GetInt64(), Is.EqualTo(fullRows[i].GetProperty(name).GetInt64()), name);
+      foreach (var name in new[] { detail1, detail2, detail3 })
+      {
+        Assert.That(fullRows[i].GetProperty(name).ValueKind, Is.EqualTo(JsonValueKind.Number), name);
+        Assert.That(rows[i].GetProperty(name).ValueKind, Is.EqualTo(JsonValueKind.Null), name);
+      }
+    }
+    Assert.That(projected.GetProperty("plan").GetProperty("steps").EnumerateArray()
+        .All(step => step.GetProperty("event").GetString() == "pageview"), Is.True);
+  }
+
+  [TestCase("includeSessionMetrics", "yes")]
+  [TestCase("includeSessionMetrics", "")]
+  [TestCase("includePageFlowMetrics", "0")]
+  [TestCase("includePageFlowMetrics", "false,true")]
+  public async Task ReportingApiRejectsInvalidMetricOptions(string option, string value)
+  {
+    var (status, error) = await GetJson("/_analytics/api/pages?" + option + "=" + Uri.EscapeDataString(value));
+    Assert.That(status, Is.EqualTo(HttpStatusCode.BadRequest));
+    Assert.That(error.GetProperty("error").GetString(), Does.Contain(option).And.Contain("true or false"));
+  }
+
+  [Test]
+  public async Task ReportingApiExitPagesRequirePageFlowMetrics()
+  {
+    var (status, error) = await GetJson("/_analytics/api/exit-pages?includePageFlowMetrics=false");
+    Assert.That(status, Is.EqualTo(HttpStatusCode.BadRequest));
+    Assert.That(error.GetProperty("error").GetString(), Does.Contain("page-flow"));
+  }
+
   [Test]
   public async Task ReportingApiSerializationFailureReturnsACompleteErrorResponse()
   {

@@ -53,6 +53,8 @@ sealed class QueryContext
   public long NowTicks;
 
   public RetentionCutoffs Cutoffs;
+
+  public bool UseDimensionIndexes;
 }
 
 /// <summary>A shared budget for aggregate entries across all sources and parallel slices.</summary>

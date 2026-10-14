@@ -63,6 +63,15 @@ The example exposes `GET /_analytics/sample-data/status` and JSON `POST` request
 
 ## Build and host
 
+The example host, performance sample store and ingestion benchmark all enable covering indexes
+for `source`, `country`, `device` and `page`. Existing retained events are indexed when each
+store first opens with this configuration; this can add startup time for large datasets, with
+progress in the host log. Later clean opens reuse the indexes. Query plans expose indexed reads
+as `DimensionIndex` with an `indexDimension`. Benchmark throughput now includes writing these
+full-payload copies; the generated event shape is unchanged. Indexes use raw-event retention,
+so they accelerate retained data without extending its history. Other applications opt in with
+`AnalyticsOptions.Storage.DimensionIndexes.Dimensions`.
+
 ```sh
 yarn check
 yarn lint

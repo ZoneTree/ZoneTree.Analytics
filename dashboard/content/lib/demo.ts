@@ -192,11 +192,15 @@ function filter(sessions: Session[], expressions: string[]) {
 }
 const unique = (sessions: Session[]) =>
   new Set(sessions.map((item) => item.visitor)).size
-function summary(sessions: Session[], scope: Scope): Summary {
+function summary(
+  sessions: Session[],
+  scope: Scope,
+  includeSessionMetrics = true,
+): Summary {
   const pageViews = sessions.reduce((sum, item) => sum + item.pages.length, 0)
-  const sessionMetrics = !scope.filters.some((item) =>
-    /^(page|hostname)(==|!=|\^=|~=)/.test(item),
-  )
+  const sessionMetrics =
+    includeSessionMetrics &&
+    !scope.filters.some((item) => /^(page|hostname)(==|!=|\^=|~=)/.test(item))
   const botMetrics = scope.filters.every((item) =>
     /^(page|hostname)(==|!=|\^=|~=)/.test(item),
   )
@@ -249,9 +253,11 @@ export class DemoClient {
       scope.compare === 'none'
         ? []
         : filter(observations(oldFrom, oldTo, scope.site), scope.filters)
+    const summarize = (items: Session[]) =>
+      summary(items, scope, extra.includeSessionMetrics !== 'false')
     const compared = (items: Session[], old: Session[]) => ({
-      ...summary(items, scope),
-      ...(scope.compare !== 'none' ? { previous: summary(old, scope) } : {}),
+      ...summarize(items),
+      ...(scope.compare !== 'none' ? { previous: summarize(old) } : {}),
     })
     const report = <R>(rows: R[], paginate = true): Report<R> => ({
       ...base,
@@ -315,7 +321,7 @@ export class DemoClient {
                 (item) => (item.dimensions[dimension] ?? '') === value,
               )
               const make = (group: Session[], all: Session[]): Breakdown => {
-                const metrics = summary(group, scope)
+                const metrics = summarize(group)
                 return {
                   value,
                   visitors: metrics.visitors,
@@ -339,6 +345,9 @@ export class DemoClient {
       }
       case 'pages':
       case 'exit-pages': {
+        const pageFlowMetrics = extra.includePageFlowMetrics !== 'false'
+        if (endpoint === 'exit-pages' && !pageFlowMetrics)
+          throw new Error('Exit-page reports require page-flow metrics.')
         const values = [...new Set(current.flatMap((item) => item.pages))]
         const make = (page: string, all: Session[]): Page => {
           const group = all.filter((item) => item.pages.includes(page))
@@ -354,9 +363,11 @@ export class DemoClient {
             page,
             visitors: unique(group),
             pageViews: views,
-            entrances: group.filter((item) => item.pages[0] === page).length,
-            exits,
-            exitRate: views ? exits / views : 0,
+            entrances: pageFlowMetrics
+              ? group.filter((item) => item.pages[0] === page).length
+              : null,
+            exits: pageFlowMetrics ? exits : null,
+            exitRate: pageFlowMetrics ? (views ? exits / views : 0) : null,
             botHits: summary(group, scope).botHits,
           }
         }

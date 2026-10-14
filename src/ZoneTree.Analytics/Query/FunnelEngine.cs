@@ -75,11 +75,13 @@ sealed class FunnelEngine
         : SegmentSets.Evaluate(
             rawEvents, site, from, to, segments, calendar, options.Queries.MaxDegreeOfParallelism, cancellationToken);
 
-    var progress = Scan(site, from, to, steps, filters, segmentSets, calendar, funnel.Window, cancellationToken);
+    var progress = Scan(site, from, to, steps, filters, segmentSets, calendar, funnel.Window, cancellationToken, out var index);
     var results = Summarize(steps, progress);
     var plan = new QueryPlan(
         steps.Select(x => x.Event).Distinct().Select(x => new QueryPlanStep(
-            x, PlanSource.RawEvents, new DateTimeOffset(from, TimeSpan.Zero), new DateTimeOffset(to, TimeSpan.Zero))).ToList(),
+            x, index == null ? PlanSource.RawEvents : PlanSource.DimensionIndex,
+            new DateTimeOffset(from, TimeSpan.Zero), new DateTimeOffset(to, TimeSpan.Zero))
+            { IndexDimension = index?.Index.Dimension }).ToList(),
         warnings);
     return new FunnelResult(
         results,
@@ -120,7 +122,7 @@ sealed class FunnelEngine
       SegmentSets segmentSets,
       ReportingCalendar calendar,
       TimeSpan? window,
-      CancellationToken cancellationToken)
+      CancellationToken cancellationToken, out DimensionIndexSelection usedIndex)
   {
     var selector = new DimensionSelector(
         filters.SelectMany(x => x.Dimensions).Concat(steps.SelectMany(x => x.Filters).Where(x => x != null).SelectMany(x => x.Dimensions)));
@@ -128,8 +130,9 @@ sealed class FunnelEngine
     var windowTicks = window?.Ticks ?? 0;
     var maxDegree = options.Queries.MaxDegreeOfParallelism;
     var shardCount = maxDegree;
-    var slices = rawEvents.Scan(
-        site, from, to, maxDegree, () => new FunnelSlice(shardCount),
+    var index = rawEvents.Indexes?.Select(site, from, to, filters, _ => true, cancellationToken);
+    var slices = rawEvents.ScanIndexed(
+        index, site, from, to, maxDegree, () => new FunnelSlice(shardCount),
         (slice, ticks, value) =>
         {
           var rawEvent = slice.RawEvent;
@@ -155,7 +158,8 @@ sealed class FunnelEngine
           if (matched != 0)
             slice.Hits[Shards.Of(key, shardCount)].Add(new StepHit(key, rawEvent.Visitor, ticks, matched));
         },
-        cancellationToken);
+        cancellationToken, out var indexed);
+    usedIndex = indexed ? index : null;
 
     var progress = new Dictionary<ulong, Progress>[shardCount];
     ParallelWork.For(shardCount, maxDegree, shard =>

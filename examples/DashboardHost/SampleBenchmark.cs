@@ -30,6 +30,7 @@ sealed class SampleBenchmark(string contentRoot, TimeZoneInfo timeZone, ILogger?
       DefaultSite = BenchmarkReportStore.Site,
       Ingestion = { WorkerCount = workers, QueueFullBehavior = QueueFullBehavior.Wait },
       Web = { Bots = BotTraffic.TrackSeparately, GeoLocator = new SampleBenchmarkGeoLocator() },
+      Storage = { DimensionIndexes = { Dimensions = { "source", "country", "device", "page" } } },
     };
     if (percentiles) options.Rollups.ValueAggregates["load_time"] = ValueAggregates.Percentiles;
     return options;

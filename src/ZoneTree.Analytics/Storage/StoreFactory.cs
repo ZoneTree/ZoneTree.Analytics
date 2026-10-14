@@ -30,6 +30,10 @@ sealed class StoreFactory
 
   readonly RetentionClock retention;
 
+  public bool RawEventsDurable { get; private set; } = true;
+
+  public bool DimensionIndexesDurable { get; private set; } = true;
+
   public StoreFactory(StorageOptions storage, string dataRoot, ILogger logger, RetentionClock retention)
   {
     this.storage = storage;
@@ -92,7 +96,17 @@ sealed class StoreFactory
   public void Validate(SessionSchema schema)
   {
     if (storage.StoreRawEvents)
-      RawEventsFactory(null).Validate();
+    {
+      var factory = RawEventsFactory(null);
+      factory.Validate();
+      RawEventsDurable = factory.Options.WriteAheadLogOptions.WriteAheadLogMode != WriteAheadLogMode.None;
+    }
+    if (storage.DimensionIndexes.Dimensions.Count > 0)
+    {
+      var factory = DimensionIndexFactory(null);
+      factory.Validate();
+      DimensionIndexesDurable = factory.Options.WriteAheadLogOptions.WriteAheadLogMode != WriteAheadLogMode.None;
+    }
     RollupsFactory(null, Granularity.Hour).Validate();
     SessionsFactory(null, schema).Validate();
   }
@@ -118,6 +132,23 @@ sealed class StoreFactory
 
   public IMaintainer CreateRawEventsMaintainer(IZoneTree<Memory<byte>, Memory<byte>> tree) =>
       CreateMaintainer(tree, storage.RawEvents);
+
+  public IMaintainer CreateDimensionIndexMaintainer(IZoneTree<Memory<byte>, Memory<byte>> tree) =>
+      CreateMaintainer(tree, storage.DimensionIndexes.Store);
+
+  public IZoneTree<Memory<byte>, Memory<byte>> OpenDimensionIndex(string directory) =>
+      DimensionIndexFactory(directory).OpenOrCreate();
+
+  ZoneTreeFactory<Memory<byte>, Memory<byte>> DimensionIndexFactory(string directory)
+  {
+    ExpiredKeyPredicate expired = retention.IsRawEventExpired;
+    return Create<Memory<byte>, Memory<byte>>(directory, storage.DimensionIndexes.Store)
+        .SetComparer(new ByteArrayLexicographicComparerAscending())
+        .SetIsDeletedDelegate((in Memory<byte> key, in Memory<byte> value) => value.Length == 0 || expired(key.Span))
+        .SetIsRangeDeletedDelegate((in Memory<byte> first, in Memory<byte> _, in Memory<byte> last, in Memory<byte> _) =>
+            DimensionIndexKeyCodec.IsRangeExpired(first.Span, last.Span, expired))
+        .SetMarkValueDeletedDelegate((ref Memory<byte> value) => value = Memory<byte>.Empty);
+  }
 
   public IMaintainer CreateRollupsMaintainer(IZoneTree<Memory<byte>, RollupValue> tree) =>
       CreateMaintainer(tree, storage.Rollups);

@@ -58,6 +58,10 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
 
   readonly RawEventStore rawEvents;
 
+  readonly DimensionIndexStore dimensionIndexes;
+
+  bool started;
+
   readonly VisitorHasher visitorHasher;
 
   readonly EnrichmentPipeline enricher;
@@ -161,12 +165,19 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
         ownedStores.Add(rawEvents);
       }
 
+      dimensionIndexes = new DimensionIndexStore(Path.Combine(root, "indexes"),
+          options.Storage.DimensionIndexes, rawEvents, factory, meta, storageLogger);
+      ownedStores.Add(dimensionIndexes);
+      dimensionIndexes.Initialize();
+      if (rawEvents != null) rawEvents.Indexes = dimensionIndexes;
+
       var services = new IngestionServices
       {
         Options = options,
         Enricher = enricher,
         Rollups = rollups,
         RawEvents = rawEvents,
+        DimensionIndexes = dimensionIndexes.Indexes.Count == 0 ? null : dimensionIndexes,
         Sessions = sessions,
         Calendar = calendar,
         Definitions = definitions,
@@ -184,7 +195,7 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
       funnelEngine = new FunnelEngine(options, calendar, rawEvents, enricher);
       Web = new WebAnalytics(this);
       Storage = new AnalyticsStorage(rawEvents?.Store, rollups, sessions, sessionsMaintainer,
-          () => ObjectDisposedException.ThrowIf(IsDisposed, this));
+          () => ObjectDisposedException.ThrowIf(IsDisposed, this), dimensionIndexes);
       visitorHasher.RotateSalts(DateTime.UtcNow);
 
       // Create the timer disabled, then start background work inside the cleanup boundary.
@@ -194,6 +205,7 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
       lastHousekeepingTicks = DateTime.UtcNow.Ticks;
       var period = options.Ingestion.FlushInterval;
       timer.Change(period, period);
+      started = true;
     }
     catch
     {
@@ -235,6 +247,8 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
   internal RawEventStore RawEventStore => rawEvents;
 
   internal RollupStore RollupStore => rollups;
+
+  internal DimensionIndexStore DimensionIndexes => dimensionIndexes;
 
   /// <summary>Counts integration failures without letting a failing logger affect the response.</summary>
   internal void ReportIntegrationError(Exception exception)
@@ -496,6 +510,7 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
     await Task.Run(() =>
     {
       rawEvents?.Store.Compact();
+      foreach (var index in dimensionIndexes.Indexes) index.Store.Compact();
       foreach (var store in rollups.AllStores)
         store.Compact();
       if (sessionsMaintainer != null)
@@ -674,6 +689,13 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
 
   long EraseFlushedVisitor(ulong hash, string site, CancellationToken cancellationToken)
   {
+    using var suspension = dimensionIndexes.Suspend();
+    try { return EraseFlushedVisitorCore(hash, site, cancellationToken); }
+    catch { dimensionIndexes.Invalidate(); throw; }
+  }
+
+  long EraseFlushedVisitorCore(ulong hash, string site, CancellationToken cancellationToken)
+  {
     long deleted = 0;
     if (rawEvents != null)
     {
@@ -687,7 +709,8 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
         using var lease = store.Acquire(partitions[i]);
         if (lease == null)
           return;
-        var toDelete = new List<Memory<byte>>();
+        using var indexWriter = dimensionIndexes.CreateWriter();
+        var toDelete = new List<(Memory<byte> Key, Memory<byte> Value)>();
         // Keys are collected first and deleted after the scan, so a plain iterator suffices.
         using (var iterator = lease.Tree.CreateIterator())
         {
@@ -697,11 +720,15 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
             if (!iterator.CurrentKey.Span.StartsWith(sitePrefix))
               break;
             if (RawEventCodec.ReadVisitor(iterator.CurrentValue.Span) == hash)
-              toDelete.Add(iterator.CurrentKey);
+              toDelete.Add((iterator.CurrentKey, iterator.CurrentValue));
           }
         }
-        foreach (var key in toDelete)
+        foreach (var (key, value) in toDelete)
+        {
+          var record = RawEventCodec.Decode(key.Span, value.Span);
+          indexWriter.Delete(record);
           lease.Tree.ForceDelete(key);
+        }
         Interlocked.Add(ref deleted, toDelete.Count);
       });
     }
@@ -741,6 +768,9 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
     var dropped = 0;
     if (rawEvents != null && cutoffs.RawEvents != long.MinValue)
       dropped += rawEvents.Store.DropPartitionsEndingBefore(cutoffs.RawEvents);
+    if (cutoffs.RawEvents != long.MinValue)
+      foreach (var index in dimensionIndexes.Indexes)
+        dropped += index.Store.DropPartitionsEndingBefore(cutoffs.RawEvents);
     foreach (var granularity in RollupStore.Granularities)
     {
       if (!rollups.IsEnabled(granularity) || cutoffs.Of(granularity) == long.MinValue)
@@ -767,6 +797,9 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
     {
       rawEvents.Store.RemoveExpired(
           cutoffs.RawEvents, tree => ExpiredRecords.DeleteFirstOfExpiredHeads(tree, 1, retentionClock.IsRawEventExpired));
+      foreach (var index in dimensionIndexes.Indexes)
+        index.Store.RemoveExpired(cutoffs.RawEvents,
+            tree => DimensionIndexKeyCodec.DeleteFirstExpired(tree, retentionClock.IsRawEventExpired));
       removedUpTo = removedUpTo with { RawEvents = cutoffs.RawEvents };
     }
     foreach (var granularity in RollupStore.Granularities)
@@ -799,6 +832,8 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
     var started = 0;
     if (rawEvents != null && rawEvents.Store.RollOver(earliestStart))
       ++started;
+    foreach (var index in dimensionIndexes.Indexes)
+      if (index.Store.RollOver(earliestStart)) ++started;
     foreach (var store in rollups.AllStores)
     {
       if (store.RollOver(earliestStart))
@@ -819,7 +854,7 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
   public AnalyticsStatistics GetStatistics(bool includePartitions)
   {
     var openPartitions = includePartitions ? rollups.AllStores.Sum(x => x.OpenPartitionCount) +
-        (rawEvents?.Store.OpenPartitionCount ?? 0) : 0;
+        (rawEvents?.Store.OpenPartitionCount ?? 0) + dimensionIndexes.Indexes.Sum(x => x.Store.OpenPartitionCount) : 0;
     return new AnalyticsStatistics
     {
       EventsAccepted = Interlocked.Read(ref counters.EventsAccepted),
@@ -850,6 +885,7 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
     }
     if (rawEvents != null)
       Add(rawEvents.Store);
+    foreach (var index in dimensionIndexes.Indexes) Add(index.Store);
     foreach (var store in rollups.AllStores)
       Add(store);
     return result;
@@ -884,6 +920,7 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
           var idle = options.Storage.PartitionIdleTimeout;
           // Ingestion writes to the latest raw partition continuously.
           rawEvents?.Store.CloseIdle(idle, keepLatestOpen: true);
+          foreach (var index in dimensionIndexes.Indexes) index.Store.CloseIdle(idle, keepLatestOpen: true);
           foreach (var store in rollups.AllStores)
             store.CloseIdle(idle, keepLatestOpen: false);
           RollOverPartitions(current);
@@ -975,7 +1012,11 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
   {
     Disposal.DisposeAll(ownedStores);
     // Release only after every resource confirms closure. Failed cleanup remains owned for retry.
-    directoryLock?.Dispose();
-    storageReleased = true;
+    try { if (started) dimensionIndexes.MarkClean(); }
+    finally
+    {
+      directoryLock?.Dispose();
+      storageReleased = true;
+    }
   }
 }

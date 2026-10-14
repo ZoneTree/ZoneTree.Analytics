@@ -148,6 +148,58 @@ test('demo summary, pages, devices and time series share one dataset and honor f
   assert.equal(from.toISOString(), '2026-09-01T00:00:00.000Z')
   assert.equal(to.toISOString(), '2026-10-01T00:00:00.000Z')
 })
+test('overview metric options preserve demo counts and comparisons', async () => {
+  const demo = new DemoClient()
+  const signal = new AbortController().signal
+  for (const dimension of ['source', 'country', 'device']) {
+    const full = await demo.request<Report<Breakdown>>(
+      'breakdown',
+      scope,
+      signal,
+      {
+        dimension,
+      },
+    )
+    const projected = await demo.request<Report<Breakdown>>(
+      'breakdown',
+      scope,
+      signal,
+      {
+        dimension,
+        includeSessionMetrics: 'false',
+      },
+    )
+    const strip = (row: Breakdown): Breakdown => ({
+      ...row,
+      sessions: null,
+      bounceRate: null,
+      averageSessionDuration: null,
+      ...(row.previous ? { previous: strip(row.previous) } : {}),
+    })
+    assert.deepEqual(projected.rows, full.rows.map(strip))
+    assert.equal(projected.totalRows, full.totalRows)
+  }
+  const full = await demo.request<Report<Page>>('pages', scope, signal)
+  const projected = await demo.request<Report<Page>>('pages', scope, signal, {
+    includePageFlowMetrics: 'false',
+  })
+  const strip = (row: Page): Page => ({
+    ...row,
+    entrances: null,
+    exits: null,
+    exitRate: null,
+    ...(row.previous ? { previous: strip(row.previous) } : {}),
+  })
+  assert.deepEqual(projected.rows, full.rows.map(strip))
+  assert.equal(projected.totalRows, full.totalRows)
+  await assert.rejects(
+    demo.request('exit-pages', scope, signal, {
+      includePageFlowMetrics: 'false',
+    }),
+    /page-flow/,
+  )
+})
+
 test('API client reserves at most three slots and removes aborted queued requests', async () => {
   const originalFetch = globalThis.fetch
   const pending: (() => void)[] = []

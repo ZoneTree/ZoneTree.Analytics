@@ -58,6 +58,8 @@ sealed class IngestionServices
 
   public RawEventStore RawEvents;
 
+  public DimensionIndexStore DimensionIndexes;
+
   public IZoneTree<ulong, SessionState> Sessions;
 
   public ReportingCalendar Calendar;
@@ -121,6 +123,8 @@ sealed class IngestionWorker : IAsyncDisposable
 
   readonly bool storeRawEvents;
 
+  readonly DimensionIndexWriter indexWriter;
+
   readonly int maxBufferedRows;
 
   long watermark;
@@ -167,6 +171,7 @@ sealed class IngestionWorker : IAsyncDisposable
     flushIntervalTimestamp = (long)(options.Ingestion.FlushInterval.TotalSeconds * Stopwatch.Frequency);
     sessionsEnabled = options.Sessions.Enabled && services.Sessions != null;
     storeRawEvents = options.Storage.StoreRawEvents && services.RawEvents != null;
+    indexWriter = services.DimensionIndexes?.CreateWriter();
     maxBufferedRows = options.Ingestion.MaxBufferedRollupRows;
     lookupHorizon = services.StoredSessionHorizon;
     RefreshRetentionCutoffs();
@@ -520,7 +525,8 @@ sealed class IngestionWorker : IAsyncDisposable
       if (rawLease == null)
         return; // The partition is being dropped by retention.
     }
-    var key = KeyCodec.RawKey(ev.Site, ev.Ticks, services.NextSequence());
+    var sequence = services.NextSequence();
+    var key = KeyCodec.RawKey(ev.Site, ev.Ticks, sequence);
     var value = RawEventCodec.Encode(
         ev.Name,
         ev.Ticks,
@@ -530,7 +536,19 @@ sealed class IngestionWorker : IAsyncDisposable
         ev.Interactive,
         ev.Dimensions,
         ev.Values);
-    rawLease.Tree.Upsert(key, value);
+    try
+    {
+      rawLease.Tree.Upsert(key, value);
+    }
+    catch { services.DimensionIndexes?.Invalidate(); throw; }
+    try { indexWriter?.Write(ev.Site, ev.Ticks, sequence, ev.Dimensions, value); }
+    catch (Exception exception)
+    {
+      // Optional index failures must not discard an event already committed to the
+      // primary store. Queries fall back to raw data until recovery rebuilds the index.
+      Interlocked.Increment(ref services.Counters.Errors);
+      services.Logger.LogError(exception);
+    }
   }
 
   Exception TryFlush()
@@ -594,6 +612,7 @@ sealed class IngestionWorker : IAsyncDisposable
       // Release the raw partition so idle partitions can close and retention can drop them.
       rawLease?.Dispose();
       rawLease = null;
+      indexWriter?.Dispose();
     }
   }
 

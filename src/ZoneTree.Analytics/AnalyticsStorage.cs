@@ -20,6 +20,8 @@ public sealed class AnalyticsStorage
 
   readonly IMaintainer sessionsMaintainer;
 
+  readonly DimensionIndexStore dimensionIndexes;
+
   readonly AnalyticsPartitionedStorage<Memory<byte>, RollupValue>[] rollups = new AnalyticsPartitionedStorage<Memory<byte>, RollupValue>[3];
 
   internal AnalyticsStorage(
@@ -27,11 +29,12 @@ public sealed class AnalyticsStorage
       RollupStore rollups,
       IZoneTree<ulong, SessionState> sessions,
       IMaintainer sessionsMaintainer,
-      Action ensureOpen)
+      Action ensureOpen, DimensionIndexStore dimensionIndexes = null)
   {
     this.ensureOpen = ensureOpen;
     this.sessions = sessions;
     this.sessionsMaintainer = sessionsMaintainer;
+    this.dimensionIndexes = dimensionIndexes;
     if (rawEvents != null)
       RawEvents = new(rawEvents, ensureOpen);
     for (var i = 0; i < RollupStore.Granularities.Length; ++i)
@@ -43,6 +46,20 @@ public sealed class AnalyticsStorage
 
   /// <summary>Raw event partitions, or null when raw event storage is disabled.</summary>
   public AnalyticsPartitionedStorage<Memory<byte>, Memory<byte>> RawEvents { get; }
+
+  /// <summary>Configured covering dimension names, empty when no indexes are enabled.</summary>
+  public IReadOnlyList<string> IndexedDimensions
+  {
+    get { ensureOpen(); return dimensionIndexes?.Indexes.Select(x => x.Dimension).ToArray() ?? []; }
+  }
+
+  /// <summary>Access to a configured covering dimension index, or null when it is disabled.</summary>
+  public AnalyticsPartitionedStorage<Memory<byte>, Memory<byte>> GetDimensionIndex(string dimension)
+  {
+    ensureOpen();
+    var index = dimensionIndexes?.Indexes.FirstOrDefault(x => x.Dimension == dimension);
+    return index == null ? null : new(index.Store, ensureOpen);
+  }
 
   /// <summary>The active session ZoneTree, or null when sessions are disabled.</summary>
   public IZoneTree<ulong, SessionState> Sessions

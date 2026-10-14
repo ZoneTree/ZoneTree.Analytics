@@ -42,6 +42,7 @@ builder.Services.AddZoneTreeAnalytics(options =>
   options.Web.Bots = BotTraffic.TrackSeparately;
   options.Web.GeoLocator = new ExampleGeoLocator();
   options.Rollups.ValueAggregates["load_time"] = ValueAggregates.Percentiles;
+  options.Storage.DimensionIndexes.Dimensions.AddRange(["source", "country", "device", "page"]);
 });
 
 var app = builder.Build();

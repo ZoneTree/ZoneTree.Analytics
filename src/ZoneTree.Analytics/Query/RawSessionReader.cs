@@ -90,7 +90,7 @@ sealed class RawSessionReader(RawEventStore events, SessionSchema schema, Analyt
   /// </summary>
   public long? ReadPreceding(
       string site, long from, long to, DimensionSelector selector,
-      Dictionary<ulong, RawSession>[] sessions, CancellationToken cancellationToken)
+      Dictionary<ulong, RawSession>[] sessions, CancellationToken cancellationToken, DimensionIndexSelection index = null)
   {
     var earliest = from;
     foreach (var shard in sessions)
@@ -104,7 +104,7 @@ sealed class RawSessionReader(RawEventStore events, SessionSchema schema, Analyt
     if (earliest == from)
       return null;
 
-    var slices = events.Scan(site, earliest, from, parallelism, () => new RawScanSlice(parallelism),
+    var slices = events.ScanIndexed(index, site, earliest, from, parallelism, () => new RawScanSlice(parallelism),
         (slice, ticks, value) =>
         {
           var id = RawEventCodec.ReadSessionId(value);
@@ -115,7 +115,7 @@ sealed class RawSessionReader(RawEventStore events, SessionSchema schema, Analyt
             return;
           if (RawEventCodec.TryDecode(value, ticks, null, default, slice.RawEvent, selector))
             Collect(slice.Sessions[shard], slice.RawEvent, session.Allowed);
-        }, cancellationToken);
+        }, cancellationToken, out _);
     var preceding = Join(slices);
     ParallelWork.For(parallelism, parallelism, shard =>
     {
@@ -134,7 +134,7 @@ sealed class RawSessionReader(RawEventStore events, SessionSchema schema, Analyt
   /// </summary>
   public void ReadContinuation(
       string site, long from, long now, DimensionSelector selector,
-      Dictionary<ulong, RawSession>[] sessions, CancellationToken cancellationToken)
+      Dictionary<ulong, RawSession>[] sessions, CancellationToken cancellationToken, DimensionIndexSelection index = null)
   {
     var latest = now + Math.Min(futureSkew, DateTime.MaxValue.Ticks - now);
     while (from < latest)
@@ -148,7 +148,7 @@ sealed class RawSessionReader(RawEventStore events, SessionSchema schema, Analyt
       if (to <= from)
         return;
 
-      var slices = events.Scan(site, from, to, parallelism, () => new RawScanSlice(parallelism),
+      var slices = events.ScanIndexed(index, site, from, to, parallelism, () => new RawScanSlice(parallelism),
           (slice, ticks, value) =>
           {
             var sessionId = RawEventCodec.ReadSessionId(value);
@@ -160,7 +160,7 @@ sealed class RawSessionReader(RawEventStore events, SessionSchema schema, Analyt
             var rawEvent = slice.RawEvent;
             if (RawEventCodec.TryDecode(value, ticks, null, default, rawEvent, selector))
               Collect(slice.Sessions[shard], rawEvent, session.Allowed);
-          }, cancellationToken);
+          }, cancellationToken, out _);
       var continuation = Join(slices);
       ParallelWork.For(parallelism, parallelism, shard =>
       {

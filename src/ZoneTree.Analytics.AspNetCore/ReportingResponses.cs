@@ -53,7 +53,11 @@ sealed record FunnelRow(
 
 sealed record PlanResponse(bool Complete, IReadOnlyList<string> Warnings, PlanStep[] Steps, RollupSuggestionResponse[] RollupSuggestions);
 
-sealed record PlanStep(string Event, string Source, DateTimeOffset From, DateTimeOffset To);
+sealed record PlanStep(string Event, string Source, DateTimeOffset From, DateTimeOffset To)
+{
+  [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+  public string IndexDimension { get; init; }
+}
 
 sealed record RollupSuggestionResponse(string Event, string Id, IReadOnlyList<string> Dimensions, IReadOnlyCollection<string> Events);
 

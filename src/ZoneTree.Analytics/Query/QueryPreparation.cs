@@ -105,7 +105,8 @@ sealed class QueryPreparation(
       Precision = options.Rollups.HyperLogLogPrecision,
       CancellationToken = cancellationToken,
       NowTicks = now,
-      Cutoffs = RetentionCutoffs.Compute(options.Retention, storageCalendar, now)
+      Cutoffs = RetentionCutoffs.Compute(options.Retention, storageCalendar, now),
+      UseDimensionIndexes = query.Source == QuerySource.Auto
     };
 
     foreach (var metric in aggregates)

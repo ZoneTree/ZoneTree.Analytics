@@ -205,6 +205,9 @@ public enum PlanSource
 
   /// <summary>Raw events.</summary>
   RawEvents,
+
+  /// <summary>A full-payload ordered secondary dimension index over raw events.</summary>
+  DimensionIndex,
 }
 
 /// <summary>
@@ -214,7 +217,11 @@ public enum PlanSource
 /// <param name="Source">The data source.</param>
 /// <param name="From">The inclusive start (UTC).</param>
 /// <param name="To">The exclusive end (UTC).</param>
-public sealed record QueryPlanStep(string Event, PlanSource Source, DateTimeOffset From, DateTimeOffset To);
+public sealed record QueryPlanStep(string Event, PlanSource Source, DateTimeOffset From, DateTimeOffset To)
+{
+  /// <summary>The dimension used for a covering index read; null for other sources.</summary>
+  public string IndexDimension { get; init; }
+}
 
 /// <summary>A missing definition that would make this event eligible for rollup execution.</summary>
 /// <remarks>
@@ -255,8 +262,11 @@ public sealed class QueryPlan
   public bool IsComplete => Warnings.Count == 0;
 
   /// <summary>True when rollups contributed.</summary>
-  public bool UsedRollups => Steps.Any(x => x.Source != PlanSource.RawEvents);
+  public bool UsedRollups => Steps.Any(x => x.Source is PlanSource.DayRollups or PlanSource.HourRollups or PlanSource.MinuteRollups);
 
   /// <summary>True when raw events contributed.</summary>
-  public bool UsedRawEvents => Steps.Any(x => x.Source == PlanSource.RawEvents);
+  public bool UsedRawEvents => Steps.Any(x => x.Source is PlanSource.RawEvents or PlanSource.DimensionIndex);
+
+  /// <summary>True when full-payload dimension indexes contributed.</summary>
+  public bool UsedDimensionIndexes => Steps.Any(x => x.Source == PlanSource.DimensionIndex);
 }

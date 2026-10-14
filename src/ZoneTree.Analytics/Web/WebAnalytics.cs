@@ -31,6 +31,19 @@ public sealed class WebReportRequest
 
   /// <summary>Rows to skip, for paging list reports.</summary>
   public int Offset { get; set; }
+
+  /// <summary>
+  /// Include session counts, bounce rates and durations in summary, time series and breakdown
+  /// reports. Defaults to true. False leaves these fields null and avoids reconstructing raw
+  /// sessions when only visitors and page views are needed.
+  /// </summary>
+  public bool IncludeSessionMetrics { get; set; } = true;
+
+  /// <summary>
+  /// Include entrances, exits and exit rates in page reports. Defaults to true. False leaves
+  /// these fields null and avoids reconstructing raw page flow. Exit-page reports require true.
+  /// </summary>
+  public bool IncludePageFlowMetrics { get; set; } = true;
 }
 
 /// <summary>
@@ -38,7 +51,7 @@ public sealed class WebReportRequest
 /// </summary>
 /// <param name="Visitors">Unique visitors with at least one page view.</param>
 /// <param name="PageViews">Page views.</param>
-/// <param name="Sessions">Sessions started. Null when the filters exclude session metrics.</param>
+/// <param name="Sessions">Sessions started. Null when session metrics are disabled or the filters exclude them.</param>
 /// <param name="BounceRate">Share of sessions with at most one interactive event, 0 to 1.</param>
 /// <param name="AverageSessionDuration">Average session duration.</param>
 /// <param name="PageViewsPerSession">Average page views per session.</param>
@@ -72,7 +85,7 @@ public sealed record WebTimeseriesPoint(DateTimeOffset Bucket, WebSummary Summar
 /// <param name="Visitors">Unique visitors with a page view.</param>
 /// <param name="PageViews">Page views.</param>
 /// <param name="VisitorShare">This row's share of all visitors, 0 to 1.</param>
-/// <param name="Sessions">Sessions. Null when the dimension or filters are not session-level.</param>
+/// <param name="Sessions">Sessions. Null when session metrics are disabled or the dimension or filters are not session-level.</param>
 /// <param name="BounceRate">Bounce rate, 0 to 1.</param>
 /// <param name="AverageSessionDuration">Average session duration.</param>
 public sealed record WebBreakdownRow(
@@ -94,7 +107,7 @@ public sealed record WebBreakdownRow(
 /// <param name="Page">The page path.</param>
 /// <param name="Visitors">Unique visitors of the page.</param>
 /// <param name="PageViews">Page views.</param>
-/// <param name="Entrances">Sessions that started on the page. Null when filtered by custom dimensions.</param>
+/// <param name="Entrances">Sessions that started on the page. Null when page-flow metrics are disabled or filtered by custom dimensions.</param>
 /// <param name="Exits">Sessions that ended on the page.</param>
 /// <param name="ExitRate">Exits per page view, 0 to 1.</param>
 /// <param name="BotHits">Bot requests of the page. Null unless bots are tracked separately, and
@@ -196,7 +209,7 @@ public sealed class WebAnalytics
 
   bool SessionMetricsAvailable(WebReportRequest request, string dimension = null)
   {
-    if (!engine.Options.Sessions.Enabled)
+    if (!request.IncludeSessionMetrics || !engine.Options.Sessions.Enabled)
       return false;
     var schema = engine.Schema;
     return (dimension == null || TimeDimension.IsDerived(dimension) || schema.Contains(DimensionScope.Session, dimension)) &&
@@ -375,7 +388,9 @@ public sealed class WebAnalytics
 
   WebReport<PageStats> GetPages(WebReportRequest request, Metric order, CancellationToken cancellationToken)
   {
-    var pageMetrics = PageMetricsAvailable(request);
+    if (order == Metric.Exits && !request.IncludePageFlowMetrics)
+      throw new ArgumentException("Exit-page reports require page-flow metrics.", nameof(request));
+    var pageMetrics = request.IncludePageFlowMetrics && PageMetricsAvailable(request);
     var bots = BotMetricsAvailable(request);
     if (!pageMetrics && order == Metric.Exits)
       throw new ArgumentException("Exit pages cannot be filtered by custom dimensions.", nameof(request));

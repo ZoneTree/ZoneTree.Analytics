@@ -2,7 +2,7 @@
 export interface Plan {
   complete: boolean
   warnings: string[]
-  steps: { event: string; source: string; from: string; to: string }[]
+  steps: { event: string; source: string; from: string; to: string; indexDimension?: string }[]
   rollupSuggestions: {
     event: string
     id: string

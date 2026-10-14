@@ -362,8 +362,12 @@ sealed class QueryEngine
     var maxDegree = options.Queries.MaxDegreeOfParallelism;
     var shardCount = trackSessions ? maxDegree : 0;
 
-    var slices = rawEvents.Scan(
-        context.Site, segment.From, segment.To, maxDegree,
+    var index = context.UseDimensionIndexes ? rawEvents.Indexes?.Select(
+        context.Site, segment.From, segment.To, context.Filters,
+        dimension => !trackSessions || enricher.Schema.IsSessionLevel(dimension) || dimension == StandardDimensions.EntryPage,
+        context.CancellationToken) : null;
+    var slices = rawEvents.ScanIndexed(
+        index, context.Site, segment.From, segment.To, maxDegree,
         () => new RawSlice(eventSources.Length, shardCount, context.GroupBy.Length),
         (slice, ticks, value) =>
         {
@@ -385,7 +389,16 @@ sealed class QueryEngine
           if (trackSessions && rawEvent.SessionId != 0)
             sessionReader.Collect(slice.Sessions[Shards.Of(rawEvent.SessionId, shardCount)], rawEvent, allowed);
         },
-        context.CancellationToken);
+        context.CancellationToken, out var usedIndex);
+
+    if (usedIndex)
+      for (var i = 0; i < context.Steps.Count; ++i)
+      {
+        var step = context.Steps[i];
+        if (step.Source == PlanSource.RawEvents && step.From.UtcTicks == segment.From && step.To.UtcTicks == segment.To &&
+            sources.Any(source => source.Event == step.Event))
+          context.Steps[i] = step with { Source = PlanSource.DimensionIndex, IndexDimension = index.Index.Dimension };
+      }
 
     ParallelWork.For(eventSources.Length, maxDegree, i =>
     {
@@ -395,20 +408,21 @@ sealed class QueryEngine
     if (!trackSessions)
       return;
 
-    AggregateSessions(context, segment, flowSources, slices, selector);
+    AggregateSessions(context, segment, flowSources, slices, selector, usedIndex ? index : null);
   }
 
   void AggregateSessions(
-      QueryContext context, ReadSegment segment, SourceContext[] flowSources, RawSlice[] slices, DimensionSelector selector)
+      QueryContext context, ReadSegment segment, SourceContext[] flowSources, RawSlice[] slices, DimensionSelector selector,
+      DimensionIndexSelection index)
   {
     var maxDegree = options.Queries.MaxDegreeOfParallelism;
     var joined = sessionReader.Join(slices);
     var precedingFrom = flowSources.Any(x => x.ReadsSessionActivity)
-        ? sessionReader.ReadPreceding(context.Site, segment.From, segment.To, selector, joined, context.CancellationToken)
+        ? sessionReader.ReadPreceding(context.Site, segment.From, segment.To, selector, joined, context.CancellationToken, index)
         : null;
     if (precedingFrom.HasValue)
       AddWarning(context, context.Cutoffs.RawEventsWarning(precedingFrom.Value));
-    sessionReader.ReadContinuation(context.Site, segment.To, context.NowTicks, selector, joined, context.CancellationToken);
+    sessionReader.ReadContinuation(context.Site, segment.To, context.NowTicks, selector, joined, context.CancellationToken, index);
 
     // A session can span slices. Its parts are joined in time order, shard by shard, and each
     // shard adds its complete sessions to groups of its own, per sub-query.

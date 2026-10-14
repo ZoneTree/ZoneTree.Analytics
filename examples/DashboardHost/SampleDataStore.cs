@@ -42,6 +42,7 @@ sealed class SampleDataStore(IWebHostEnvironment environment, IConfiguration con
       Ingestion = { WorkerCount = workerCount },
       Web = { Bots = BotTraffic.TrackSeparately, GeoLocator = new ExampleGeoLocator() },
       Rollups = { ValueAggregates = { ["load_time"] = ValueAggregates.Percentiles } },
+      Storage = { DimensionIndexes = { Dimensions = { "source", "country", "device", "page" } } },
     });
   }
 

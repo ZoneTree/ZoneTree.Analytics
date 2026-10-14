@@ -588,6 +588,14 @@ List reports return `{ from, to, totalRows, rows, plan }`. Summary, time series 
 
 The reporting API represents non-finite metric values (overflow or undefined arithmetic) as JSON `null`, adds a warning to `plan.warnings`, and sets `plan.complete` to false. This also applies to totals, series and comparison values. The .NET query result retains its numerical values. Page reports exclude missing pages before counting and pagination; exit-page reports also exclude rows with no exits.
 
+For cards that only need visitors and page views, set `includeSessionMetrics=false` on summary,
+time series or breakdown requests, and `includePageFlowMetrics=false` on page requests. Both
+default to true. Disabled metrics remain null in the response, including comparison rows;
+counts, shares, ordering and pagination keep their usual meaning. This avoids raw session
+reconstruction when the selected metrics do not need it. In .NET, use the corresponding
+`WebReportRequest.IncludeSessionMetrics` and `IncludePageFlowMetrics` properties. Exit-page
+reports require page-flow metrics and reject `includePageFlowMetrics=false`.
+
 The HTTP API accepts the same nested filter expressions in repeatable GET `filter` parameters
 and POST `filters` strings. URL-encode GET expressions; JSON bodies escape their inner quotes,
 for example `"filters": ["any(\"country==DE\",\"source==Google\")"]`. Use `$hour_of_day` or
@@ -648,7 +656,7 @@ exercise the expected traffic and graceful shutdown against the real hosting con
 * **Custom dimension policy.** Allow/deny lists and `MaxCustomDimensions` apply after all enrichers run, before raw events or rollups are stored. Denials take precedence over allowances. Tracked custom event dimensions and enricher additions share the limit; the first remaining dimensions are kept. Page, hostname and standard session dimensions are exempt from these custom-dimension rules, and engine-maintained bot dimensions are preserved on bot events. Custom session names must be allowed at configuration time and do not consume the per-event limit.
 * **Filtering.** `EventFilters` drop events before they are queued, for example internal traffic or visitors who opted out. Bot traffic is excluded by default.
 * **Retention** per data tier, see [Retention](#retention). Expired data is hidden at once and removed from disk; late events older than a tier's retention are not written to that tier, so backfilled history only lands where it is kept.
-* **Erasure.** `analytics.EraseVisitor(userId)` or `await analytics.EraseVisitorAsync(userId)` deletes the raw events and the session of an explicitly identified visitor. Rollups contain only aggregates and sketches, never identifiers.
+* **Erasure.** `analytics.EraseVisitor(userId)` or `await analytics.EraseVisitorAsync(userId)` deletes the raw events, every configured dimension-index copy and the session of an explicitly identified visitor. Rollups contain only aggregates and sketches, never identifiers.
 
 With daily rotation, a person who visits on several days counts once per day in multi-day totals. Use `PersistentHash` or explicit visitor ids for cross-day unique visitors.
 
@@ -741,6 +749,59 @@ With the defaults (10 million records per partition; raw events for 90 days, hou
 Only recently used trees are open: a partition that has not been written or read for `Storage.PartitionIdleTimeout` (10 minutes) is merged to disk and closed. Live traffic writes to the latest partition of each tier, so an ingesting engine with the defaults holds 4 trees open, plus the partitions that recent queries read.
 
 ### Storage tuning
+
+#### Ordered dimension indexes
+
+Optional covering indexes accelerate raw query fallbacks for equality filters without fetching
+each match from the primary store. Each index keeps the complete encoded event payload under
+`site -> dimension value -> timestamp -> sequence`; the payload and event identity are shared
+with the primary raw record. No separate compound index is needed to group matching events by
+other dimensions or evaluate additional filters.
+
+```csharp
+options.Storage.DimensionIndexes.Dimensions.AddRange(
+    [StandardDimensions.Source, StandardDimensions.Country, StandardDimensions.Device, StandardDimensions.Page]);
+options.Storage.DimensionIndexes.RecordsPerPartition = 10_000_000;
+options.Storage.DimensionIndexes.Store.MutableSegmentMaxItemCount = 50_000;
+```
+
+Indexes are disabled by default and require `Storage.StoreRawEvents`. Only retained events
+carrying a configured dimension are copied; missing and empty values remain distinct. Index
+trees live under `indexes/<SHA-256 of the dimension name>/<partition start day>/`, keeping
+arbitrary dimension names out of filesystem paths. Each indexed dimension adds payload storage,
+WAL traffic and compaction work. Events are encoded once; per-worker partition leases avoid
+locking the partition registry for every copy.
+
+`QuerySource.Auto` still prefers eligible rollups. For raw portions, it can choose a mandatory,
+case-sensitive equality filter, including equality value lists and same-dimension OR groups.
+Other conditions are evaluated against the complete copied payload. Bounded probes of at most
+1,024 matching keys per candidate favor smaller match sets; candidates above that bound tie,
+so this is not a full cost model. Lists exceeding 64 distinct values, case-insensitive predicates
+and unsupported filter shapes fall back to ordinary raw scans. Multi-value reads merge by
+timestamp and sequence, preserving event order. `QuerySource.RawEvents` forces primary raw scans
+for validation. Session reconstruction only uses indexes on session-level dimensions or the
+entry page, keeping complete sessions; eligible lookback and continuation reads use that same
+index. Global equality filters can also accelerate funnels.
+
+Query plans identify indexed reads with `PlanSource.DimensionIndex` and `IndexDimension`.
+`UsedDimensionIndexes` reports their use; `UsedRawEvents` includes these full raw-event copies,
+while `UsedRollups` only reports rollup tiers. Reporting JSON includes `source: "DimensionIndex"`
+and `indexDimension` on those steps. Indexes follow raw retention and cannot recover expired
+events; a year-long raw fallback remains incomplete if its older raw data has expired.
+
+On first enablement or a dimension configuration change, the engine backfills retained primary
+events before starting ingestion. Build progress is logged every 100,000 records. A durable dirty
+marker is set before writes and cleared only after all stores close successfully. An unclean
+shutdown or an index write failure triggers a rebuild on the next open. Optional index failures
+are logged and counted without discarding successfully written primary events; subsequent
+queries use primary raw scans. In-flight index reads invalidated by erasure or failures are
+rejected for retry, never returned partially. Stores configured without a WAL are rebuilt on
+reopen even after orderly shutdown. Removing an index drops its payload partitions; a durable
+registry makes interrupted removal retryable. Retention, idle closure, compaction, partition
+statistics and visitor erasure include index stores. `analytics.Storage.IndexedDimensions` and
+`GetDimensionIndex(name)` expose their existing partitioned stores for advanced inspection.
+
+#### ZoneTree settings
 
 `Storage.RawEvents`, `Storage.Rollups` and `Storage.Sessions` tune the ZoneTrees of each kind of store, every partition included. Settings left null keep ZoneTree's defaults:
 
@@ -897,6 +958,7 @@ data/analytics/
   meta/                       configuration, secrets, daily salts, rollup activations (two checksummed files)
   sessions/                   active sessions keyed by visitor hash (TTL deletion)
   events/2026-10-11/          raw events, 10 million per ZoneTree by default
+  indexes/<dimension-hash>/2026-10-11/  optional full-payload dimension indexes
   rollups/day/2026-10-11/     daily rollups, likewise
   rollups/hour/2026-10-11/    hourly rollups, likewise
   rollups/minute/2026-10-11/  minute rollups, likewise

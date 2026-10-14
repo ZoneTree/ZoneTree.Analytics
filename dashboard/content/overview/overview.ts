@@ -41,18 +41,24 @@ async function loadOverview(model: DashboardModel, signal: AbortSignal) {
     model.request<Report<Point>>('timeseries', signal, {
       interval: model.interval(),
     }),
-    model.request<Report<Page>>('pages', signal, { limit: '5' }),
+    model.request<Report<Page>>('pages', signal, {
+      limit: '5',
+      includePageFlowMetrics: 'false',
+    }),
     model.request<Report<Breakdown>>('breakdown', signal, {
       dimension: 'source',
       limit: '5',
+      includeSessionMetrics: 'false',
     }),
     model.request<Report<Breakdown>>('breakdown', signal, {
       dimension: 'country',
       limit: '5',
+      includeSessionMetrics: 'false',
     }),
     model.request<Report<Breakdown>>('breakdown', signal, {
       dimension: 'device',
       limit: '10',
+      includeSessionMetrics: 'false',
     }),
   ])
   signal.throwIfAborted()

@@ -33,6 +33,31 @@ sealed class RawEventStore : IDisposable
 
   public PartitionedStore<Memory<byte>, Memory<byte>> Store { get; }
 
+  public DimensionIndexStore Indexes { get; set; }
+
+  public TState[] ScanIndexed<TState>(DimensionIndexSelection selection, string site, long from, long to,
+      int parallelism, Func<TState> createState, SliceVisitor<TState> visit, CancellationToken cancellationToken,
+      out bool usedIndex)
+  {
+    if (selection != null && Indexes.CanUse(selection))
+    {
+      try
+      {
+        var states = DimensionIndexScan.Scan(Indexes, selection, site, from, to, parallelism, createState, visit, cancellationToken);
+        usedIndex = true;
+        return states;
+      }
+      catch (DimensionIndexUnavailableException)
+      {
+        // Aggregators may have reserved groups while scanning. Discard the query rather
+        // than reuse its state after maintenance invalidates an in-flight index read.
+        throw new AnalyticsQueryException("Dimension indexes changed during the query. Retry the query.");
+      }
+    }
+    usedIndex = false;
+    return Scan(site, from, to, parallelism, createState, visit, cancellationToken);
+  }
+
   /// <summary>
   /// Receives one event of a slice: its timestamp and encoded value.
   /// </summary>

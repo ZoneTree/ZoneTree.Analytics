@@ -97,7 +97,8 @@ sealed class ReportingResponseMapper
     if (nonFinite)
       warnings = [.. warnings, "Non-finite metric values (overflow or undefined arithmetic) are represented as null in this JSON response."];
     return new(plan.IsComplete && !nonFinite, warnings,
-        plan.Steps.Select(step => new PlanStep(step.Event, step.Source.ToString(), step.From, step.To)).ToArray(),
+        plan.Steps.Select(step => new PlanStep(step.Event, step.Source.ToString(), step.From, step.To)
+            { IndexDimension = step.IndexDimension }).ToArray(),
         plan.RollupSuggestions.Select(suggestion => new RollupSuggestionResponse(
             suggestion.Event, suggestion.Definition.Id, suggestion.Definition.Dimensions, suggestion.Definition.Events)).ToArray());
   }
