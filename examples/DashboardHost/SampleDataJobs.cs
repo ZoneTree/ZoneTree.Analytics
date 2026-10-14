@@ -16,14 +16,20 @@ sealed class SampleDataJobs(SampleDataStore store, SampleBenchmark benchmark, IH
   string? activeOperation;
   SampleBenchmarkStatus benchmarkStatus = new(Result: benchmark.Reports.Result);
 
-  public SampleDataStatus Status { get { lock (sync) return status with
-    { ActiveOperation = operation.IsCompleted ? null : activeOperation, Benchmark = benchmarkStatus }; } }
+  public SampleDataStatus Status
+  {
+    get
+    {
+      lock (sync) return status with
+      { ActiveOperation = operation.IsCompleted ? null : activeOperation, Benchmark = benchmarkStatus };
+    }
+  }
   public Task StartAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
   public bool Generate(SampleGenerationRequest request)
   {
-    if (request.Events is < 1 or > 10_000_000 || request.Days is < 1 or > 90 || request.Workers is < 1 or > 64)
-      throw new ArgumentException("Choose 1–10,000,000 events, 1–90 days, and 1–64 workers.");
+    if (request.Events is < 1 or > 10_000_000 || request.Days is < 1 or > 365 || request.Workers is < 1 or > 64)
+      throw new ArgumentException("Choose 1–10,000,000 events, 365 days, and 1–64 workers.");
     request = request with { Workers = Math.Min(request.Workers, request.Events) };
     lock (sync)
     {
@@ -31,8 +37,18 @@ sealed class SampleDataJobs(SampleDataStore store, SampleBenchmark benchmark, IH
       cancellation?.Dispose();
       cancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime.ApplicationStopping);
       activeOperation = "generation";
-      status = status with { State = "generating", Requested = request.Events, Processed = 0, ElapsedMs = 0, Error = null,
-        Workers = request.Workers, Ingested = 0, EventsPerSecond = 0, AverageEventsPerSecond = 0 };
+      status = status with
+      {
+        State = "generating",
+        Requested = request.Events,
+        Processed = 0,
+        ElapsedMs = 0,
+        Error = null,
+        Workers = request.Workers,
+        Ingested = 0,
+        EventsPerSecond = 0,
+        AverageEventsPerSecond = 0
+      };
       var token = cancellation.Token;
       operation = Task.Run(() => GenerateAsync(request, token));
       return true;
@@ -41,8 +57,8 @@ sealed class SampleDataJobs(SampleDataStore store, SampleBenchmark benchmark, IH
 
   public bool Benchmark(SampleBenchmarkRequest request)
   {
-    if (request.Events is < 1 or > 10_000_000 || request.Days is < 1 or > 90 || request.Workers is < 1 or > 64)
-      throw new ArgumentException("Choose 1–10,000,000 events, 1–90 days, and 1–64 workers.");
+    if (request.Events is < 1 or > 10_000_000 || request.Days is < 1 or > 365 || request.Workers is < 1 or > 64)
+      throw new ArgumentException("Choose 1–10,000,000 events, 365 days, and 1–64 workers.");
     lock (sync)
     {
       if (!operation.IsCompleted) return false;
@@ -60,14 +76,16 @@ sealed class SampleDataJobs(SampleDataStore store, SampleBenchmark benchmark, IH
           {
             lock (sync) benchmarkStatus = benchmarkStatus with
             {
-              State = update.State, Prepared = Math.Max(benchmarkStatus.Prepared, update.Prepared),
+              State = update.State,
+              Prepared = Math.Max(benchmarkStatus.Prepared, update.Prepared),
               Submitted = Math.Max(benchmarkStatus.Submitted, update.Submitted),
               Ingested = Math.Max(benchmarkStatus.Ingested, update.Ingested),
-              ElapsedMs = update.ElapsedMs, EventsPerSecond = update.EventsPerSecond,
+              ElapsedMs = update.ElapsedMs,
+              EventsPerSecond = update.EventsPerSecond,
             };
           }, token, lifetime.ApplicationStopping);
           lock (sync) benchmarkStatus = benchmarkStatus with
-            { State = result == null ? "cancelled" : "completed", Result = result ?? benchmarkStatus.Result };
+          { State = result == null ? "cancelled" : "completed", Result = result ?? benchmarkStatus.Result };
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)
         {

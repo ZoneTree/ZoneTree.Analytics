@@ -40,9 +40,18 @@ In **Production**, run `yarn publish` first. The host serves `dashboard/dist/pub
 
 Every dashboard page loads the host's `/_analytics/script.js` tracker with localhost tracking enabled and `data-track-navigation="false"`. It records the page load without counting report-filter and date changes through `history.replaceState` as extra visits. Dashboard visits are recorded in the host's default analytics site. Page views increase on visits; unique visitors count distinct visitors. Refresh reports to see ingested traffic, or wait for the configured auto-refresh interval. Standalone PureStack previews keep synthetic demo reports and acknowledge beacons without persisting them.
 
+All engine options are centralized in `examples/DashboardHost/DashboardAnalyticsOptions.cs`.
+Edit `ConfigureCommon` for retention, storage, ingestion, queries, or rollups shared by actual
+traffic, performance samples, new benchmarks and reopened benchmark reports. Raw events are
+retained for three years in all datasets. `ConfigurePrimary`, `CreatePerformanceSamples`,
+`CreateBenchmark` and `CreateBenchmarkReport` contain the per-engine settings; sample and
+benchmark worker counts come from the dashboard, and the benchmark percentile setting and
+reporting time zone are preserved when reopening a completed dataset. Each engine receives
+independent options and collections. Restart the host to apply edited engine settings.
+
 ## Performance sample data
 
-With the sample host in Development mode, open **Tools → Sample data**. Choose an event count (1 to 10,000,000), a date span (1 to 90 days), and parallel workers (1 to 64), then select **Generate sample data**. One worker runs sequentially; higher counts parallelize both sample producers and the sample engine's ingestion workers while retaining visitor event order. Presets include 1,000, 100,000, 1 million and 5 million events. Generation streams events without allocating the full batch. Progress includes submitted and ingested events, elapsed time, live ingestion speed and **Generation throughput**. This average covers event creation, ingestion and flushing, excluding engine preparation. Changing workers preserves the sample store and briefly pauses sample reporting while the engine reopens. The engine's default queue, rollup-buffer and session-cache limits apply per worker. **Cancel generation** stops new submissions, drains accepted events, and keeps them in the dataset.
+With the sample host in Development mode, open **Tools → Sample data**. Choose an event count (1 to 10,000,000), a date span (1 to 365 days), and parallel workers (1 to 64), then select **Generate sample data**. One worker runs sequentially; higher counts parallelize both sample producers and the sample engine's ingestion workers while retaining visitor event order. Presets include 1,000, 100,000, 1 million and 5 million events. Generation streams events without allocating the full batch. Progress includes submitted and ingested events, elapsed time, live ingestion speed and **Generation throughput**. This average covers event creation, ingestion and flushing, excluding engine preparation. Changing workers preserves the sample store and briefly pauses sample reporting while the engine reopens. The engine's default queue, rollup-buffer and session-cache limits apply per worker. **Cancel generation** stops new submissions, drains accepted events, and keeps them in the dataset.
 
 Select **View sample reports**, or choose **Performance samples** in a report's site selector. These reports use a separate engine and store at `examples/DashboardHost/data/performance-samples`. Traffic follows the reporting time zone, with quiet nights, busy daytime hours, quieter weekends, growth, campaign spikes and a temporary dip. Visits vary in length, bounce rate and conversions; campaign traffic also changes sources and load times. The dataset includes page views, signups, purchases, bot traffic, device types, sources and geography. Counts describe generated input events; the engine also produces session records. Each generation adds a batch with new visitor IDs. Delete an existing uniformly distributed dataset before generating a fresh one to see the new patterns clearly.
 
@@ -67,7 +76,7 @@ The example host, performance sample store and ingestion benchmark also enable c
 indexes in both filtering directions for all six pairs among `source`, `country`, `device` and
 `page` (12 ordered indexes per enabled rollup tier). Overview cards filtered by any one of these
 dimensions read joint aggregates instead of replaying every matching event. The shared explicit
-configuration is in `examples/DashboardHost/SampleAnalyticsOptions.cs`. On first open after
+configuration is in `examples/DashboardHost/DashboardAnalyticsOptions.cs`. On first open after
 enabling the combinations, retained raw events backfill the joint rollups; progress is logged.
 The main, performance-sample and benchmark engines use host logging. At Information level,
 startup logs show timed backfill necessity checks and their reuse/rebuild reasons, followed

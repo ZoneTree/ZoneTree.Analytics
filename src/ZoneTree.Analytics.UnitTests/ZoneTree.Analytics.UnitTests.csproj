@@ -36,7 +36,7 @@
 
   <ItemGroup>
     <Compile Include="../../examples/DashboardHost/SampleTraffic.cs" Link="Samples/SampleTraffic.cs" />
-    <Compile Include="../../examples/DashboardHost/SampleAnalyticsOptions.cs" Link="Samples/SampleAnalyticsOptions.cs" />
+    <Compile Include="../../examples/DashboardHost/DashboardAnalyticsOptions.cs" Link="Samples/DashboardAnalyticsOptions.cs" />
     <Compile Include="../../examples/DashboardHost/SampleTrafficProfile.cs" Link="Samples/SampleTrafficProfile.cs" />
     <Compile Include="../../examples/DashboardHost/SampleBenchmark.cs" Link="Samples/SampleBenchmark.cs" />
     <Compile Include="../../examples/DashboardHost/BenchmarkReportStore.cs" Link="Samples/BenchmarkReportStore.cs" />

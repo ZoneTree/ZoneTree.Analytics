@@ -1,16 +1,14 @@
 using ZoneTree.Analytics;
-using ZoneTree.Analytics.AspNetCore;
-using ZoneTree.Analytics.Web;
 
 // This engine owns only generated data. Reporting leases protect it while a
 // reset closes the engine and removes all raw events, rollups and metadata.
-sealed class SampleDataStore(IWebHostEnvironment environment, IConfiguration configuration, ILogger<SampleDataStore> logger) : IAsyncDisposable
+sealed class SampleDataStore(IWebHostEnvironment environment, IConfiguration configuration, TimeZoneInfo timeZone,
+    ILogger<SampleDataStore> logger) : IAsyncDisposable
 {
-  public const string Site = "performance-samples";
+  public const string Site = DashboardAnalyticsOptions.PerformanceSite;
   public const string ApiPath = "/_analytics/sample-data/api";
   readonly object sync = new();
   readonly string directory = Path.GetFullPath(Path.Combine(environment.ContentRootPath, "data/performance-samples"));
-  readonly TimeZoneInfo timeZone = TimeZoneInfo.FindSystemTimeZoneById(configuration["Analytics:TimeZone"] ?? "UTC");
   AnalyticsEngine? engine;
   int workerCount = 1;
   int readers;
@@ -37,18 +35,7 @@ sealed class SampleDataStore(IWebHostEnvironment environment, IConfiguration con
   AnalyticsEngine Open()
   {
     EnsureOwnedDirectory();
-    var options = new AnalyticsOptions
-    {
-      DataDirectory = directory,
-      DefaultSite = Site,
-      TimeZone = timeZone,
-      Ingestion = { WorkerCount = workerCount },
-      Web = { Bots = BotTraffic.TrackSeparately, GeoLocator = new ExampleGeoLocator() },
-      Rollups = { ValueAggregates = { ["load_time"] = ValueAggregates.Percentiles } },
-    };
-    SampleAnalyticsOptions.ConfigureIndexes(options);
-    options.UseLogger(logger);
-    return new AnalyticsEngine(options);
+    return new AnalyticsEngine(DashboardAnalyticsOptions.CreatePerformanceSamples(directory, timeZone, workerCount, logger));
   }
 
   public async Task PrepareGenerationAsync(int workers, CancellationToken cancellationToken)
@@ -76,7 +63,7 @@ sealed class SampleDataStore(IWebHostEnvironment environment, IConfiguration con
 
   void EnsureOwnedDirectory()
   {
-    var primary = configuration["Analytics:DataDirectory"] ?? "data/analytics";
+    var primary = configuration["Analytics:DataDirectory"] ?? DashboardAnalyticsOptions.DefaultDataDirectory;
     if (!Path.IsPathRooted(primary)) primary = Path.Combine(environment.ContentRootPath, primary);
     primary = Path.TrimEndingDirectorySeparator(Path.GetFullPath(primary));
     if (string.Equals(primary, directory, StringComparison.OrdinalIgnoreCase)

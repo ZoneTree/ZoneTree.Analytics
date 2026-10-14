@@ -7,7 +7,7 @@ using ZoneTree.Analytics;
 // report leases, so a query never loses its engine or directory mid-request.
 sealed class BenchmarkReportStore : IAsyncDisposable
 {
-  public const string Site = "benchmark-results";
+  public const string Site = DashboardAnalyticsOptions.BenchmarkSite;
   public const string ApiPath = "/_analytics/sample-data/benchmark-api";
   readonly object sync = new();
   readonly string root;
@@ -53,17 +53,10 @@ sealed class BenchmarkReportStore : IAsyncDisposable
       if (current == null) throw new BenchmarkDataUnavailableException();
       var path = Path.Combine(root, current.Directory);
       ValidateOwned(path);
-      engine ??= new AnalyticsEngine(CreateReportOptions(path, current));
+      engine ??= new AnalyticsEngine(DashboardAnalyticsOptions.CreateBenchmarkReport(path, current.TimeZone, current.Result.Percentiles, logger));
       if (readers++ == 0) drained = new(TaskCreationOptions.RunContinuationsAsynchronously);
       return new(engine, () => { lock (sync) { if (--readers == 0) drained.TrySetResult(); } });
     }
-  }
-
-  AnalyticsOptions CreateReportOptions(string path, Dataset dataset)
-  {
-    var options = SampleBenchmark.CreateOptions(path, 1, dataset.Result.Percentiles, logger);
-    options.TimeZone = TimeZoneInfo.FindSystemTimeZoneById(dataset.TimeZone);
-    return options;
   }
 
   async Task BeginSwitchAsync(CancellationToken token)

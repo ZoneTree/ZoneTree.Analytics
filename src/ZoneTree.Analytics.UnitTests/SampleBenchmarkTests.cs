@@ -25,7 +25,7 @@ public sealed class SampleBenchmarkTests : DirectoryTest
   [TestCase(4, true)]
   public void BenchmarkUsesDefaultPerWorkerLimitsAndOptionalPercentiles(int workers, bool percentiles)
   {
-    var options = SampleBenchmark.CreateOptions(directory, workers, percentiles);
+    var options = DashboardAnalyticsOptions.CreateBenchmark(directory, TimeZoneInfo.Utc, workers, percentiles);
     var defaults = new AnalyticsOptions();
     Assert.That(options.Ingestion.WorkerCount, Is.EqualTo(workers));
     Assert.That(options.Ingestion.QueueCapacity, Is.EqualTo(defaults.Ingestion.QueueCapacity));

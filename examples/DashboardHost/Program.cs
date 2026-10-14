@@ -1,7 +1,6 @@
 using Microsoft.Extensions.FileProviders;
 using ZoneTree.Analytics;
 using ZoneTree.Analytics.AspNetCore;
-using ZoneTree.Analytics.Web;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.UseUrls(builder.Configuration["Urls"] ?? "http://0.0.0.0:5088");
@@ -14,6 +13,7 @@ if (!watchDashboard && !File.Exists(Path.Combine(dashboardPath, "index.html")))
   throw new InvalidOperationException("Build the dashboard first: cd dashboard; yarn install; yarn publish. " +
       "Or supply --Dashboard:Path=<absolute path to the generated site>.");
 var timeZone = TimeZoneInfo.FindSystemTimeZoneById(builder.Configuration["Analytics:TimeZone"] ?? "UTC");
+builder.Services.AddSingleton(timeZone);
 var sites = builder.Configuration.GetSection("Dashboard:Sites").Get<DashboardSite[]>()
     ?? [new("", "Default site")];
 var sampleDataEnabled = builder.Environment.IsDevelopment();
@@ -21,7 +21,7 @@ if (sampleDataEnabled)
 {
   builder.Services.AddSingleton<SampleDataStore>();
   builder.Services.AddSingleton(services => new SampleBenchmark(contentRoot,
-      TimeZoneInfo.FindSystemTimeZoneById(builder.Configuration["Analytics:TimeZone"] ?? "UTC"), services.GetRequiredService<ILogger<SampleBenchmark>>()));
+      timeZone, services.GetRequiredService<ILogger<SampleBenchmark>>()));
   builder.Services.AddSingleton<SampleDataJobs>();
   builder.Services.AddHostedService(services => services.GetRequiredService<SampleDataJobs>());
   sites = [.. sites.Where(site => site.Id != SampleDataStore.Site && site.Id != BenchmarkReportStore.Site),
@@ -35,15 +35,8 @@ if (watchDashboard)
   builder.Services.AddHostedService(services => services.GetRequiredService<DashboardDevelopmentServer>());
 }
 
-builder.Services.AddZoneTreeAnalytics(options =>
-{
-  options.DataDirectory = builder.Configuration["Analytics:DataDirectory"] ?? "data/analytics";
-  options.TimeZone = timeZone;
-  options.Web.Bots = BotTraffic.TrackSeparately;
-  options.Web.GeoLocator = new ExampleGeoLocator();
-  options.Rollups.ValueAggregates["load_time"] = ValueAggregates.Percentiles;
-  SampleAnalyticsOptions.ConfigureIndexes(options);
-});
+builder.Services.AddZoneTreeAnalytics(options => DashboardAnalyticsOptions.ConfigurePrimary(options,
+    builder.Configuration["Analytics:DataDirectory"] ?? DashboardAnalyticsOptions.DefaultDataDirectory, timeZone));
 
 var app = builder.Build();
 if (builder.Configuration.GetValue<bool>("Analytics:SeedDemo"))
@@ -123,8 +116,13 @@ reportingApi.MapGet("/config", (HttpContext context) =>
     timeZone = timeZone.Id,
     sites,
     refreshSeconds,
-    sampleData = sampleDataEnabled ? new { siteId = SampleDataStore.Site, apiBaseUrl = SampleDataStore.ApiPath,
-      managementUrl = "/_analytics/sample-data", benchmark = new { siteId = BenchmarkReportStore.Site, apiBaseUrl = BenchmarkReportStore.ApiPath } } : null,
+    sampleData = sampleDataEnabled ? new
+    {
+      siteId = SampleDataStore.Site,
+      apiBaseUrl = SampleDataStore.ApiPath,
+      managementUrl = "/_analytics/sample-data",
+      benchmark = new { siteId = BenchmarkReportStore.Site, apiBaseUrl = BenchmarkReportStore.ApiPath }
+    } : null,
   });
 });
 using var files = watchDashboard ? null : new PhysicalFileProvider(dashboardPath);
@@ -148,9 +146,3 @@ if (sampleDataEnabled)
 await app.RunAsync();
 
 sealed record DashboardSite(string Id, string Name);
-
-sealed class ExampleGeoLocator : IGeoLocator
-{
-  public GeoLocation Locate(string ipAddress) =>
-      new(ipAddress.EndsWith(".1", StringComparison.Ordinal) ? "US" : "DE");
-}

@@ -49,7 +49,7 @@ public sealed class RollupIndexTests : DirectoryTest
     {
       options.Queries.MaxDegreeOfParallelism = 2;
       options.Ingestion.WorkerCount = 1;
-      SampleAnalyticsOptions.ConfigureIndexes(options);
+      DashboardAnalyticsOptions.ConfigureIndexes(options);
     }
     using (var seeded = TestEngine.Create(directory, options =>
     {

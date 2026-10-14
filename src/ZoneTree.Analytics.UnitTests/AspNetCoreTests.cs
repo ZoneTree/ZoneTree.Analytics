@@ -40,7 +40,7 @@ public sealed class AspNetCoreTests : DirectoryTest
           TestEngine.UseTestDefaults(options);
           options.Web.Bots = BotTraffic.TrackSeparately;
           if (TestContext.CurrentContext.Test.MethodName == nameof(ReportingApiOverviewUsesCoveringRollups))
-            SampleAnalyticsOptions.ConfigureIndexes(options);
+            DashboardAnalyticsOptions.ConfigureIndexes(options);
           // Options are fixed once the engine exists: the timeout test needs its own value.
           if (TestContext.CurrentContext.Test.MethodName == nameof(ReportingApiReportsTimeouts))
             options.Queries.Timeout = TimeSpan.FromTicks(1);

@@ -4,16 +4,14 @@ using System.Globalization;
 using System.Runtime;
 using Microsoft.Extensions.Logging;
 using ZoneTree.Analytics;
-using ZoneTree.Analytics.AspNetCore;
-using ZoneTree.Analytics.Web;
 
-sealed record SampleBenchmarkRequest(int Events = 5_000_000, int Days = 90, int Workers = 20, bool Percentiles = false);
+sealed record SampleBenchmarkRequest(int Events = 5_000_000, int Days = 365, int Workers = 20, bool Percentiles = false);
 sealed record SampleBenchmarkResult(int Events, int Days, int Workers, bool Percentiles,
     double PreparationMs, double SubmissionMs, double IngestionMs, double EventsPerSecond,
     long Ingested, long Errors, long Dropped, long Rejected, string Build, string GarbageCollection, string TieredCompilation,
     string FromDate = "", string ToDate = "");
 sealed record SampleBenchmarkStatus(string State = "idle", int Requested = 0, int Prepared = 0, int Submitted = 0,
-    int Workers = 20, int Days = 90, bool Percentiles = false, string? Error = null, SampleBenchmarkResult? Result = null,
+    int Workers = 20, int Days = 365, bool Percentiles = false, string? Error = null, SampleBenchmarkResult? Result = null,
     long Ingested = 0, double ElapsedMs = 0, double EventsPerSecond = 0);
 sealed record SampleBenchmarkProgress(string State, int Prepared = 0, int Submitted = 0,
     long Ingested = 0, double ElapsedMs = 0, double EventsPerSecond = 0);
@@ -23,20 +21,6 @@ sealed record SampleBenchmarkProgress(string State, int Prepared = 0, int Submit
 sealed class SampleBenchmark(string contentRoot, TimeZoneInfo timeZone, ILogger? logger = null) : IAsyncDisposable
 {
   public BenchmarkReportStore Reports { get; } = new(contentRoot, logger);
-  public static AnalyticsOptions CreateOptions(string directory, int workers, bool percentiles, ILogger? logger = null)
-  {
-    var options = new AnalyticsOptions
-    {
-      DataDirectory = directory,
-      DefaultSite = BenchmarkReportStore.Site,
-      Ingestion = { WorkerCount = workers, QueueFullBehavior = QueueFullBehavior.Wait },
-      Web = { Bots = BotTraffic.TrackSeparately, GeoLocator = new SampleBenchmarkGeoLocator() },
-    };
-    SampleAnalyticsOptions.ConfigureIndexes(options);
-    if (logger != null) options.UseLogger(logger);
-    if (percentiles) options.Rollups.ValueAggregates["load_time"] = ValueAggregates.Percentiles;
-    return options;
-  }
 
   public static AnalyticsEvent[] PrepareEvents(SampleBenchmarkRequest request, TimeZoneInfo timeZone,
       Action<int> progress, DateTimeOffset? endingAt = null, CancellationToken cancellationToken = default)
@@ -76,8 +60,7 @@ sealed class SampleBenchmark(string contentRoot, TimeZoneInfo timeZone, ILogger?
   async Task<SampleBenchmarkResult?> MeasureAsync(string directory, AnalyticsEvent[] events, SampleBenchmarkRequest request, DateTimeOffset end,
       double preparationMs, Action<SampleBenchmarkProgress> progress, CancellationToken cancellationToken, CancellationToken applicationStopping)
   {
-    var options = CreateOptions(directory, request.Workers, request.Percentiles, logger);
-    options.TimeZone = timeZone;
+    var options = DashboardAnalyticsOptions.CreateBenchmark(directory, timeZone, request.Workers, request.Percentiles, logger);
     await using var engine = new AnalyticsEngine(options);
     progress(new("running", Prepared: events.Length));
     var stopwatch = Stopwatch.StartNew();
@@ -151,9 +134,4 @@ sealed class SampleBenchmark(string contentRoot, TimeZoneInfo timeZone, ILogger?
   }
 
   public ValueTask DisposeAsync() => Reports.DisposeAsync();
-}
-
-sealed class SampleBenchmarkGeoLocator : IGeoLocator
-{
-  public GeoLocation Locate(string ipAddress) => new(ipAddress.EndsWith(".1", StringComparison.Ordinal) ? "US" : "DE");
 }

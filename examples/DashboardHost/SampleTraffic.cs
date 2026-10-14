@@ -11,8 +11,8 @@ static class SampleTraffic
       AnalyticsEngine engine, int eventCount, int days = 60, string? site = null,
       Action<int>? progress = null, int workers = 1, CancellationToken cancellationToken = default)
   {
-    if (eventCount is < 1 or > 10_000_000 || days is < 1 or > 90 || workers is < 1 or > 64)
-      throw new ArgumentException("Choose 1–10,000,000 events, 1–90 days, and 1–64 workers.");
+    if (eventCount is < 1 or > 10_000_000 || days is < 1 or > 365 || workers is < 1 or > 64)
+      throw new ArgumentException("Choose 1–10,000,000 events, 365 days, and 1–64 workers.");
     workers = Math.Min(workers, eventCount);
     using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
     var progressSync = new object();
@@ -52,7 +52,7 @@ static class SampleTraffic
   {
     if (eventCount is < 1 or > 10_000_000)
       throw new ArgumentOutOfRangeException(nameof(eventCount), "Choose between 1 and 10,000,000 events.");
-    if (days is < 1 or > 90)
+    if (days is < 1 or > 365)
       throw new ArgumentOutOfRangeException(nameof(days), "Choose between 1 and 90 days.");
     var random = new Random(42);
     var batch = Guid.NewGuid().ToString("N");
