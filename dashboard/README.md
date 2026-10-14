@@ -99,7 +99,13 @@ their copied keys and values. To configure other combinations in your own host, 
 `Storage.RollupIndexes.Definitions`; the core library leaves the list empty by default.
 
 The example host, performance sample store and ingestion benchmark all enable covering indexes
-for `source`, `country`, `device` and `page`. Existing retained events are indexed when each
+for `source`, `country`, `device` and `page`. These four logical indexes share one partitioned
+store under `indexes/<partition date>`, with separate dimension key prefixes and full copied
+event payloads. The default ten-million-row partition target counts combined copies; an event
+with all four dimensions contributes four index rows. Mutable segments, WALs, caches,
+worker leases and maintenance are shared. Index backfills compact their data to disk before
+startup completes. This shared layout uses a fresh data directory.
+Existing retained events are indexed when each
 store first opens with this configuration; this can add startup time for large datasets, with
 progress in the host log. Later clean opens reuse the indexes. Query plans expose indexed reads
 as `DimensionIndex` with an `indexDimension`. Benchmark throughput now includes writing these

@@ -1,11 +1,12 @@
-using System.Security.Cryptography;
-using System.Text;
 using ZoneTree.Analytics.Internal;
 using ZoneTree.Logger;
 
 namespace ZoneTree.Analytics.Storage;
 
-sealed record DimensionIndex(string Dimension, string Id, PartitionedStore<Memory<byte>, Memory<byte>> Store);
+sealed record DimensionIndex(string Dimension, PartitionedStore<Memory<byte>, Memory<byte>> Store)
+{
+  public byte[] KeyPrefix { get; } = DimensionIndexKeyCodec.Namespace(Dimension);
+}
 
 sealed record DimensionIndexSelection(DimensionIndex Index, string[] Values, long Revision);
 
@@ -20,6 +21,8 @@ sealed class DimensionIndexStore : IDisposable
 {
   const string DimensionsKey = "dimension-index.dimensions";
   const string CleanKey = "dimension-index.clean";
+  const string Format = "2";
+  const string PartitionsKey = "dimension-index.partitions.shared";
   const int ProbeLimit = 1024;
   readonly MetaStore meta;
   readonly string manifest;
@@ -35,6 +38,8 @@ sealed class DimensionIndexStore : IDisposable
   long revision;
 
   public IReadOnlyList<DimensionIndex> Indexes => indexes;
+  public PartitionedStore<Memory<byte>, Memory<byte>> Store { get; private set; }
+  public IEnumerable<PartitionedStore<Memory<byte>, Memory<byte>>> AllStores => Store == null ? [] : [Store];
 
   public bool IsAvailable => Volatile.Read(ref invalid) == 0 && Volatile.Read(ref suspended) == 0;
   public bool IsHealthy => Volatile.Read(ref invalid) == 0;
@@ -55,61 +60,57 @@ sealed class DimensionIndexStore : IDisposable
   {
     using var startup = new StartupLog(logger, "Dimension index initialization", directory);
     using var check = new StartupLog(logger, "Dimension index backfill check", directory);
+    if (meta.Get("dimension-index.format") is { } format && format != Format)
+      throw new AnalyticsConfigurationException("Dimension indexes use a new shared storage format. Start with a fresh analytics data directory.");
     var reasons = new List<string>();
     if (meta.Get(CleanKey) != "true") reasons.Add("missing or unclean checkpoint");
     if (meta.Get(DimensionsKey) != manifest) reasons.Add("configuration changed");
-    if (meta.Get("dimension-index.format") != "1") reasons.Add("format changed");
-    var registered = (meta.Get("dimension-index.registry") ?? meta.Get(DimensionsKey) ?? "")
-        .Split('\n', StringSplitOptions.RemoveEmptyEntries).Union(options.Dimensions, StringComparer.Ordinal).ToArray();
+    if (meta.Get("dimension-index.format") != Format) reasons.Add("format changed");
     // Includes engines opened with no indexes: disabling and re-enabling an index must
     // never reuse copies that missed the events ingested while it was disabled.
     meta.Update(entries =>
     {
       entries[CleanKey] = "false";
-      entries["dimension-index.registry"] = string.Join('\n', registered.Order(StringComparer.Ordinal));
+      entries["dimension-index.format"] = Format;
     });
     var partitions = 0;
-    foreach (var dimension in options.Dimensions)
+    if (options.Dimensions.Count > 0)
     {
-      var index = Open(dimension);
-      indexes.Add(index);
-      var names = index.Store.ListPartitions();
-      partitions += names.Count;
-      if (meta.Get(PartitionsKey(index.Id)) != string.Join(',', names)) reasons.Add($"partition manifest changed: {dimension}");
+      Store = Open();
+      foreach (var dimension in options.Dimensions) indexes.Add(new(dimension, Store));
+      var names = Store.ListPartitions();
+      partitions = names.Count;
+      if (meta.Get(PartitionsKey) != string.Join(',', names)) reasons.Add("partition manifest changed");
     }
     var rebuild = reasons.Count > 0;
     var decision = indexes.Count == 0 ? "disabled" : rebuild ? "rebuild required" : "reuse existing indexes";
     var reason = indexes.Count == 0 ? "no configured dimensions" : rebuild ? string.Join(", ", reasons) : "clean checkpoint and matching manifests";
-    check.Complete($"decision={decision}; indexes={indexes.Count}; partitions={partitions}; reasons={reason}");
-    // Removed indexes must not retain copies of private data. The registry is durable
-    // before creation/deletion, so interrupted cleanup is retried on the next open.
-    foreach (var dimension in registered.Except(options.Dimensions, StringComparer.Ordinal))
+    check.Complete($"decision={decision}; indexes={indexes.Count}; physical stores={(Store == null ? 0 : 1)}; partitions={partitions}; reasons={reason}");
+    // Configuration changes rebuild the shared tree, removing discarded namespaces.
+    // Disabling every dimension drops its partitions; interrupted cleanup is retried.
+    if (Store == null && Directory.Exists(directory))
     {
-      var obsolete = Open(dimension);
-      foreach (var partition in obsolete.Store.ListPartitions()) obsolete.Store.Drop(partition);
+      var obsolete = Open();
+      foreach (var partition in obsolete.ListPartitions()) obsolete.Drop(partition);
     }
     if (rebuild && indexes.Count > 0)
       Backfill(rawEvents);
-    startup.Complete($"decision={(rebuild && indexes.Count > 0 ? "rebuild completed" : decision)}; indexes={indexes.Count}");
+    startup.Complete($"decision={(rebuild && indexes.Count > 0 ? "rebuild completed" : decision)}; indexes={indexes.Count}; physical stores={(Store == null ? 0 : 1)}");
   }
 
-  DimensionIndex Open(string dimension)
+  PartitionedStore<Memory<byte>, Memory<byte>> Open()
   {
-    var id = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(dimension))).ToLowerInvariant();
-    var store = new PartitionedStore<Memory<byte>, Memory<byte>>(Path.Combine(directory, id),
+    var store = new PartitionedStore<Memory<byte>, Memory<byte>>(directory,
         options.RecordsPerPartition, factory.OpenDimensionIndex, logger,
         factory.CreateDimensionIndexMaintainer, factory.WriteAheadLogDirectoryOf);
     resources.Add(store);
-    return new(dimension, id, store);
+    return store;
   }
-
-  static string PartitionsKey(string id) => "dimension-index.partitions." + id;
 
   void Backfill(RawEventStore rawEvents)
   {
     using var build = new StartupLog(logger, "Dimension index backfill", directory);
-    foreach (var index in indexes)
-      foreach (var partition in index.Store.ListPartitions()) index.Store.Drop(partition);
+    foreach (var partition in Store.ListPartitions()) Store.Drop(partition);
     var record = new RawEvent();
     var selector = new DimensionSelector(options.Dimensions);
     long records = 0;
@@ -138,7 +139,9 @@ sealed class DimensionIndexStore : IDisposable
       }
     }
     writer.Dispose();
-    build.Complete($"indexes={indexes.Count}; raw partitions={partitions}; events={records}; skipped events={skipped}; index rows written={rows}; payload bytes copied={bytes}", records, "events");
+    Store.Compact();
+    Store.CloseIdle(TimeSpan.Zero, keepLatestOpen: false);
+    build.Complete($"indexes={indexes.Count}; physical stores=1; raw partitions={partitions}; events={records}; skipped events={skipped}; index rows written={rows}; payload bytes copied={bytes}", records, "events");
   }
 
   public DimensionIndexWriter CreateWriter() => new(this);
@@ -241,10 +244,8 @@ sealed class DimensionIndexStore : IDisposable
     meta.Update(entries =>
     {
       entries[DimensionsKey] = manifest;
-      entries["dimension-index.registry"] = manifest;
-      entries["dimension-index.format"] = "1";
-      foreach (var index in indexes)
-        entries[PartitionsKey(index.Id)] = string.Join(',', index.Store.ListPartitions());
+      entries["dimension-index.format"] = Format;
+      entries[PartitionsKey] = Store == null ? "" : string.Join(',', Store.ListPartitions());
       entries[CleanKey] = "true";
     });
   }

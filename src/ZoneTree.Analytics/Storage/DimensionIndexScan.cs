@@ -48,7 +48,7 @@ static class DimensionIndexScan
       if (lease == null) continue;
       foreach (var value in selection.Values)
       {
-        using var cursor = new Cursor(lease.Tree, DimensionIndexKeyCodec.Prefix(site, value), Math.Max(from, partition.From), Math.Min(to, partition.To));
+        using var cursor = new Cursor(lease.Tree, DimensionIndexKeyCodec.Prefix(selection.Index.KeyPrefix, site, value), Math.Max(from, partition.From), Math.Min(to, partition.To));
         while (cursor.Next())
         {
           if (++count >= limit) return count;
@@ -77,7 +77,7 @@ static class DimensionIndexScan
         ranges.Add(new(lease.Tree, Math.Max(from, partition.From), Math.Min(to, partition.To)));
       }
       var slices = parallelism == 1 ? ranges : Split(ranges, parallelism * 4);
-      var prefixes = selection.Values.Select(value => DimensionIndexKeyCodec.Prefix(site, value)).ToArray();
+      var prefixes = selection.Values.Select(value => DimensionIndexKeyCodec.Prefix(selection.Index.KeyPrefix, site, value)).ToArray();
       var states = new TState[slices.Count];
       ParallelWork.For(slices.Count, parallelism, i =>
       {

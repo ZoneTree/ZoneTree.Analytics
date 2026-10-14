@@ -520,7 +520,7 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
     await Task.Run(() =>
     {
       rawEvents?.Store.Compact();
-      foreach (var index in dimensionIndexes.Indexes) index.Store.Compact();
+      foreach (var store in dimensionIndexes.AllStores) store.Compact();
       foreach (var store in rollups.AllStores)
         store.Compact();
       if (sessionsMaintainer != null)
@@ -779,8 +779,8 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
     if (rawEvents != null && cutoffs.RawEvents != long.MinValue)
       dropped += rawEvents.Store.DropPartitionsEndingBefore(cutoffs.RawEvents);
     if (cutoffs.RawEvents != long.MinValue)
-      foreach (var index in dimensionIndexes.Indexes)
-        dropped += index.Store.DropPartitionsEndingBefore(cutoffs.RawEvents);
+      foreach (var store in dimensionIndexes.AllStores)
+        dropped += store.DropPartitionsEndingBefore(cutoffs.RawEvents);
     foreach (var granularity in RollupStore.Granularities)
     {
       if (!rollups.IsEnabled(granularity) || cutoffs.Of(granularity) == long.MinValue)
@@ -808,8 +808,8 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
     {
       rawEvents.Store.RemoveExpired(
           cutoffs.RawEvents, tree => ExpiredRecords.DeleteFirstOfExpiredHeads(tree, 1, retentionClock.IsRawEventExpired));
-      foreach (var index in dimensionIndexes.Indexes)
-        index.Store.RemoveExpired(cutoffs.RawEvents,
+      foreach (var store in dimensionIndexes.AllStores)
+        store.RemoveExpired(cutoffs.RawEvents,
             tree => DimensionIndexKeyCodec.DeleteFirstExpired(tree, retentionClock.IsRawEventExpired));
       removedUpTo = removedUpTo with { RawEvents = cutoffs.RawEvents };
     }
@@ -843,8 +843,8 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
     var started = 0;
     if (rawEvents != null && rawEvents.Store.RollOver(earliestStart))
       ++started;
-    foreach (var index in dimensionIndexes.Indexes)
-      if (index.Store.RollOver(earliestStart)) ++started;
+    foreach (var store in dimensionIndexes.AllStores)
+      if (store.RollOver(earliestStart)) ++started;
     foreach (var store in rollups.AllStores)
     {
       if (store.RollOver(earliestStart))
@@ -865,7 +865,7 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
   public AnalyticsStatistics GetStatistics(bool includePartitions)
   {
     var openPartitions = includePartitions ? rollups.AllStores.Sum(x => x.OpenPartitionCount) +
-        (rawEvents?.Store.OpenPartitionCount ?? 0) + dimensionIndexes.Indexes.Sum(x => x.Store.OpenPartitionCount) : 0;
+        (rawEvents?.Store.OpenPartitionCount ?? 0) + dimensionIndexes.AllStores.Sum(x => x.OpenPartitionCount) : 0;
     return new AnalyticsStatistics
     {
       EventsAccepted = Interlocked.Read(ref counters.EventsAccepted),
@@ -896,7 +896,7 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
     }
     if (rawEvents != null)
       Add(rawEvents.Store);
-    foreach (var index in dimensionIndexes.Indexes) Add(index.Store);
+    foreach (var store in dimensionIndexes.AllStores) Add(store);
     foreach (var store in rollups.AllStores)
       Add(store);
     return result;
@@ -931,7 +931,7 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
           var idle = options.Storage.PartitionIdleTimeout;
           // Ingestion writes to the latest raw partition continuously.
           rawEvents?.Store.CloseIdle(idle, keepLatestOpen: true);
-          foreach (var index in dimensionIndexes.Indexes) index.Store.CloseIdle(idle, keepLatestOpen: true);
+          foreach (var store in dimensionIndexes.AllStores) store.CloseIdle(idle, keepLatestOpen: true);
           foreach (var store in rollups.AllStores)
             store.CloseIdle(idle, keepLatestOpen: false);
           RollOverPartitions(current);

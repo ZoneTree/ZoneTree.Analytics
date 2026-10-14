@@ -753,9 +753,9 @@ Only recently used trees are open: a partition that has not been written or read
 #### Ordered dimension indexes
 
 Optional covering indexes accelerate raw query fallbacks for equality filters without fetching
-each match from the primary store. Each index keeps the complete encoded event payload under
-`site -> dimension value -> timestamp -> sequence`; the payload and event identity are shared
-with the primary raw record. No separate compound index is needed to group matching events by
+each match from the primary store. Each logical index keeps the complete encoded event payload
+under `dimension -> site -> dimension value -> timestamp -> sequence`; the copied payload and
+event identity match the primary raw record. No separate compound index is needed to group matching events by
 other dimensions or evaluate additional filters.
 
 ```csharp
@@ -767,10 +767,15 @@ options.Storage.DimensionIndexes.Store.MutableSegmentMaxItemCount = 50_000;
 
 Indexes are disabled by default and require `Storage.StoreRawEvents`. Only retained events
 carrying a configured dimension are copied; missing and empty values remain distinct. Index
-trees live under `indexes/<SHA-256 of the dimension name>/<partition start day>/`, keeping
-arbitrary dimension names out of filesystem paths. Each indexed dimension adds payload storage,
-WAL traffic and compaction work. Events are encoded once; per-worker partition leases avoid
-locking the partition registry for every copy.
+namespaces share one partitioned store under `indexes/<partition start day>/`. Dimension names
+appear in key prefixes rather than filesystem paths. All dimensions share the tree's mutable
+segments, WAL, caches and maintenance. `RecordsPerPartition` counts combined copied rows: an
+event carrying four indexed dimensions produces four rows, so 2.5 million such events produce
+10 million index rows. Each indexed dimension still adds payload storage, WAL traffic and
+compaction work. Events are encoded once; each worker caches one shared partition lease,
+avoiding registry locks for every copy. The default mutable-segment threshold is separately
+50,000 rows. The shared index format requires a fresh data directory when upgrading from
+the earlier per-dimension-tree layout.
 
 `QuerySource.Auto` still prefers eligible rollups. For raw portions, it can choose a mandatory,
 case-sensitive equality filter, including equality value lists and same-dimension OR groups.
@@ -790,16 +795,21 @@ and `indexDimension` on those steps. Indexes follow raw retention and cannot rec
 events; a year-long raw fallback remains incomplete if its older raw data has expired.
 
 On first enablement or a dimension configuration change, the engine backfills retained primary
-events before starting ingestion. Build progress is logged every 100,000 records. A durable dirty
+events before starting ingestion, then compacts and closes the shared index partitions before
+reporting readiness. Logged duration includes this final compaction. Build progress is logged
+every 100,000 records. A durable dirty
 marker is set before writes and cleared only after all stores close successfully. An unclean
 shutdown or an index write failure triggers a rebuild on the next open. Optional index failures
 are logged and counted without discarding successfully written primary events; subsequent
 queries use primary raw scans. In-flight index reads invalidated by erasure or failures are
 rejected for retry, never returned partially. Stores configured without a WAL are rebuilt on
-reopen even after orderly shutdown. Removing an index drops its payload partitions; a durable
-registry makes interrupted removal retryable. Retention, idle closure, compaction, partition
-statistics and visitor erasure include index stores. `analytics.Storage.IndexedDimensions` and
-`GetDimensionIndex(name)` expose their existing partitioned stores for advanced inspection.
+reopen even after orderly shutdown. Configuration changes rebuild the shared tree, excluding
+removed dimension namespaces; disabling all indexes drops its partitions. Interrupted cleanup
+is retried on startup. Retention, idle closure, compaction, rollover and partition statistics
+visit the physical store once. Visitor erasure removes every configured dimension copy.
+`analytics.Storage.IndexedDimensions` lists the logical indexes. `GetDimensionIndex(name)`
+exposes their shared physical partitions for advanced inspection; its `KeyPrefix` identifies
+the chosen dimension. Seek to that prefix and stop when iterator keys no longer start with it.
 
 #### Covering rollup indexes
 
@@ -1041,7 +1051,7 @@ data/analytics/
   meta/                       configuration, secrets, daily salts, rollup activations (two checksummed files)
   sessions/                   active sessions keyed by visitor hash (TTL deletion)
   events/2026-10-11/          raw events, 10 million per ZoneTree by default
-  indexes/<dimension-hash>/2026-10-11/  optional full-payload dimension indexes
+  indexes/2026-10-11/                 shared full-payload dimension indexes
   rollups/day/2026-10-11/     daily rollups, likewise
   rollups/hour/2026-10-11/    hourly rollups, likewise
   rollups/minute/2026-10-11/  minute rollups, likewise

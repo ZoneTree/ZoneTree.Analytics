@@ -12,10 +12,10 @@ public sealed class DimensionIndexOptions
   /// </summary>
   public List<string> Dimensions { get; private set; } = [];
 
-  /// <summary>Records per index partition. Default is 10 million.</summary>
+  /// <summary>Combined copied records per shared index partition. Default is 10 million.</summary>
   public long RecordsPerPartition { get; set; } = PartitioningOptions.DefaultRecordsPerPartition;
 
-  /// <summary>ZoneTree settings shared by dimension index partitions.</summary>
+  /// <summary>ZoneTree settings of the shared dimension index store and its partitions.</summary>
   public StoreOptions Store { get; private set; } = new()
   {
     MutableSegmentMaxItemCount = 50_000,

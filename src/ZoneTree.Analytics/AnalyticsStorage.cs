@@ -56,12 +56,16 @@ public sealed class AnalyticsStorage
     get { ensureOpen(); return dimensionIndexes?.Indexes.Select(x => x.Dimension).ToArray() ?? []; }
   }
 
-  /// <summary>Access to a configured covering dimension index, or null when it is disabled.</summary>
+  /// <summary>
+  /// Access to the shared store containing a configured covering dimension index, or null when
+  /// it is disabled. Use the returned key prefix to restrict iterators to that logical index.
+  /// All configured dimensions share the same partitions.
+  /// </summary>
   public AnalyticsPartitionedStorage<Memory<byte>, Memory<byte>> GetDimensionIndex(string dimension)
   {
     ensureOpen();
     var index = dimensionIndexes?.Indexes.FirstOrDefault(x => x.Dimension == dimension);
-    return index == null ? null : new(index.Store, ensureOpen);
+    return index == null ? null : new(index.Store, ensureOpen, index.KeyPrefix.ToArray());
   }
 
   /// <summary>

@@ -147,7 +147,7 @@ public sealed class DimensionIndexTests : DirectoryTest
       Assert.That(iterator.Next(), Is.True);
       var value = iterator.CurrentValue;
       lease.ZoneTree.ForceDelete(iterator.CurrentKey);
-      lease.ZoneTree.Upsert(DimensionIndexKeyCodec.Key("default", "Github", Start.AddMinutes(1).Ticks, 123), value);
+      lease.ZoneTree.Upsert(DimensionIndexKeyCodec.Key(storage.KeyPrefix.Span, "default", "Github", Start.AddMinutes(1).Ticks, 123), value);
     }
     var metadata = new MetaStore(Path.Combine(directory, "meta"));
     metadata.Set("dimension-index.clean", "false");
@@ -168,7 +168,7 @@ public sealed class DimensionIndexTests : DirectoryTest
       options.Ingestion.WorkerCount = 1;
       options.Storage.DimensionIndexes.Store.ConfigureMaintainer = _ =>
       {
-        if (++opens == 2) throw new IOException("Injected secondary index write failure");
+        if (++opens == 1) throw new IOException("Injected secondary index write failure");
       };
     }))
     {
@@ -275,8 +275,8 @@ public sealed class DimensionIndexTests : DirectoryTest
     {
       using var lease = index.Acquire(partition);
       using var iterator = lease.ZoneTree.CreateIterator();
-      iterator.SeekFirst();
-      while (iterator.Next())
+      iterator.Seek(index.KeyPrefix.ToArray());
+      while (iterator.Next() && iterator.CurrentKey.Span.StartsWith(index.KeyPrefix.Span))
       {
         Assert.That(iterator.CurrentValue.ToArray(), Is.EqualTo(primary[DimensionIndexKeyCodec.Sequence(iterator.CurrentKey.Span)]));
         ++count;
@@ -377,7 +377,8 @@ public sealed class DimensionIndexTests : DirectoryTest
     options.Storage.StoreRawEvents = true;
     options.Storage.DimensionIndexes.Dimensions.Add("source");
     Assert.Throws<ArgumentException>(() => new AnalyticsEngine(options));
-    Assert.That(DimensionIndexKeyCodec.Key("default", "a\0b", 123, 456).ToArray(),
-        Is.Not.EqualTo(DimensionIndexKeyCodec.Key("default", "a", 123, 456).ToArray()));
+    var prefix = DimensionIndexKeyCodec.Namespace("source");
+    Assert.That(DimensionIndexKeyCodec.Key(prefix, "default", "a\0b", 123, 456).ToArray(),
+        Is.Not.EqualTo(DimensionIndexKeyCodec.Key(prefix, "default", "a", 123, 456).ToArray()));
   }
 }
