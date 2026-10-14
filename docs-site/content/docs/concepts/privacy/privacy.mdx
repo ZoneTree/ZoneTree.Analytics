@@ -1,0 +1,56 @@
+---
+title: "Privacy and identity"
+description: "Understand how event collection, visitor identity, and stored data fit together."
+order: 4
+template: doc
+---
+
+# Privacy and identity
+
+Choose how visitors are identified and how much context your reports retain. The default collection model avoids cookies and does not store raw IP addresses or user-agent strings.
+
+## Choose an identity strategy
+
+| Strategy | Anonymous visitors | Typical use |
+| --- | --- | --- |
+| DailyRotatingHash | Recognized within a UTC day | Privacy-conscious website traffic |
+| PersistentHash | Recognized across days | Cross-day anonymous analysis |
+| ExplicitOnly | Identified only when your application supplies an ID | Account-based product analytics |
+| None | No visitor identity | Event counts and numeric telemetry |
+
+Explicit visitor IDs are stored as keyed hashes. With daily rotation, anonymous identities use a salt that changes each UTC day; explicit account identities remain stable.
+
+Identity settings affect unique visitors, sessions, segments, and funnels. Choose them before interpreting those reports.
+
+## Understand what is stored
+
+IP addresses and user agents are used in memory for identity and enrichment, then discarded. Derived fields such as country, browser, and device can remain in the analytics dataset.
+
+Custom dimensions are different: your application supplies their contents. An email address placed in a custom dimension remains a string unless your collection policy removes it. Hashing `VisitorId` does not sanitize other fields.
+
+## Minimize collection
+
+Keep only the geography precision your reports require. Query strings are excluded from page dimensions by default because they can contain personal information.
+
+Normalize resource IDs out of page paths when reports should describe routes rather than individual records. Use allow and deny lists to control custom dimensions, and keep event-value limits appropriate to your application.
+
+Custom dimension policy is applied after enrichment. Denials take precedence over allowances. Standard page and session dimensions have their own collection controls; a custom allow list does not disable all built-in context.
+
+## Manage identity secrets
+
+The engine generates and stores a visitor-hashing secret when one is not supplied. Applications can provide `VisitorIdSecret` from their own secret store.
+
+Keep that choice consistent when reopening the dataset. Changing the identity model or secret affects how future events relate to earlier identities.
+
+## Plan the data lifecycle
+
+Retention limits available history. Visitor erasure removes an explicit visitor's retained event records, index copies, and active session state.
+
+Already aggregated rollups are not recomputed by visitor erasure. Choose retention and erasure behavior to match your application's requirements, and consult the [data lifecycle guide](../../operations/retention-and-erasure/retention-and-erasure.mdx) for the exact contract.
+
+## Related pages
+
+- [Tracking events](../../guides/tracking/tracking.mdx)
+- [Retention and visitor erasure](../../operations/retention-and-erasure/retention-and-erasure.mdx)
+- [Configuration reference](../../reference/configuration/configuration.mdx)
+

@@ -1,0 +1,50 @@
+---
+title: "Installation"
+description: "Choose the packages for your application and prepare a persistent data directory."
+order: 1
+template: doc
+---
+
+# Installation
+
+Add analytics to an existing .NET application or start with a small example. The engine stores data locally and runs in the same process as your application.
+
+## Choose a package
+
+| Package | Use it for |
+| --- | --- |
+| `ZoneTree.Analytics` | Tracking events, querying metrics, and reading website reports from .NET |
+| `ZoneTree.Analytics.AspNetCore` | Dependency injection, HTML or browser tracking, and HTTP reporting |
+
+Both packages support .NET 8, 9, and 10. The ASP.NET Core package includes the core engine as a dependency.
+
+<import-codeblock src="./getting-started-installation-1.sh"/>
+
+Install the packages into the application that will collect or report on your data.
+
+## Choose a data location
+
+Use a writable directory that survives application restarts. Existing data is reopened when you start the application again.
+
+Keep one engine open for each dataset while the application runs. In ASP.NET Core, dependency injection manages that lifetime. If you run multiple engines, give each a separate directory.
+
+Relative paths are resolved against the process working directory in the core library and against the content root in ASP.NET Core.
+
+## Choose a reporting calendar
+
+UTC is the default. Choose another reporting time zone before creating the dataset if your reports should follow a local business day. The time zone is saved with the dataset.
+
+## Continue with your application
+
+- **Direct .NET usage:** [Track your first events and read a report](../first-events/first-events.mdx).
+- **Web application:** [Add ASP.NET Core tracking and reporting](../aspnet-core/aspnet-core.mdx).
+- **Ready-made reporting:** [Run the dashboard application](../dashboard/dashboard.mdx).
+
+The dashboard server requires .NET 10. Node.js and Yarn are needed for its UI build; they are not required for the core library.
+
+## Related pages
+
+- [First events and reports](../first-events/first-events.mdx)
+- [ASP.NET Core integration](../aspnet-core/aspnet-core.mdx)
+- [Dashboard application](../dashboard/dashboard.mdx)
+

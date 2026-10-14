@@ -1,0 +1,14 @@
+{
+  "mode": "merge",
+  "pageLinks": true,
+  "sequence": [
+    "index",
+    "getting-started",
+    "concepts",
+    "guides",
+    "performance",
+    "operations",
+    "reference"
+  ]
+}
+

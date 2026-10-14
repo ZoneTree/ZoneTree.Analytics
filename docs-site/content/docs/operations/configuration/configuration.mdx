@@ -1,0 +1,67 @@
+---
+title: "Configuration"
+description: "Organize engine and host settings so their effects are easy to reason about."
+order: 1
+template: doc
+---
+
+# Configuration
+
+Configure common behavior in one place, then apply the settings when you open the engine. Distinguish collection and query choices from settings tied to an existing dataset.
+
+## Choose the configuration scope
+
+| Configuration | Controls |
+| --- | --- |
+| AnalyticsOptions | Events, sessions, rollups, privacy, retention, storage, and queries |
+| AnalyticsWebOptions | Request identity, tracker paths, reporting limits, and site authorization |
+| Dashboard settings | API connection, advertised sites, static UI paths, and watch mode |
+
+The dashboard's defaults are application choices. They are not automatically applied when another application installs the library.
+
+## Start with a small configuration
+
+This complete program chooses a default site, reporting time zone, and raw-event retention:
+
+<import-codeblock src="./operations-configuration-1.cs"/>
+
+Set members of existing option groups in place. Add to collections rather than replacing getter-only groups.
+
+## Apply changes through a new engine
+
+The engine copies its options when opened. Editing the original object afterward does not reconfigure the active engine.
+
+Save remaining work by closing the engine, then reopen it using the revised configuration.
+
+## Know which changes affect history
+
+| Change | Effect |
+| --- | --- |
+| A new ordinary rollup or optional aggregate | Starts coverage at activation |
+| A new index-managed combination | May backfill available retained history |
+| Longer retention | Preserves more future history; does not restore removed records |
+| New custom session dimensions | Applies to newly starting sessions |
+| New enrichment rules | Changes future event classification |
+
+Inspect startup logs and report coverage after a change that affects existing history.
+
+## Respect persisted settings
+
+Reporting time zone, sketch precision, and a separate write-ahead-log location must remain compatible with the dataset. They are not ordinary tuning switches.
+
+Use a new dataset when intentionally changing an incompatible format choice. Keep secrets consistent with the identities already recorded.
+
+## Keep several engines consistent
+
+Create common configuration through a factory, then apply each engine's data directory and workload-specific choices. Use independent option instances.
+
+The dashboard centralizes this in `DashboardAnalyticsOptions.cs`, including primary traffic, samples, and benchmark reports. Restart the host after changing those engine settings.
+
+The [configuration reference](../../reference/configuration/configuration.mdx) lists the public settings, defaults, and dependencies.
+
+## Related pages
+
+- [Configuration reference](../../reference/configuration/configuration.mdx)
+- [Secondary indexes and backfilling](../../performance/secondary-indexes/secondary-indexes.mdx)
+- [Deployment and lifecycle](../deployment/deployment.mdx)
+

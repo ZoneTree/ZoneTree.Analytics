@@ -1,0 +1,60 @@
+---
+title: "Retention and visitor erasure"
+description: "Manage historical coverage and the removal of stored analytics data."
+order: 2
+template: doc
+---
+
+# Retention and visitor erasure
+
+Choose how long to keep event history and aggregates, and understand what visitor erasure removes. These decisions determine which historical reports remain available.
+
+## Choose retention by purpose
+
+| Tier | Library default | Main use |
+| --- | --- | --- |
+| Raw events | 90 days | Ad-hoc queries, segments, funnels, erasure, and backfills |
+| Minute rollups | 2 days | Fine-grained recent reports when enabled |
+| Hour rollups | 400 days | Hourly history and finer report boundaries |
+| Day rollups | Forever | Long-range calendar reports |
+
+The default enabled rollup tiers are Hour and Day. A retention setting for Minute does not enable that tier. Null retention keeps the selected tier indefinitely.
+
+## Understand expiry
+
+Queries hide expired records according to retention cutoffs. Scheduled maintenance, hourly by default, reclaims physical storage through partition removal and merges.
+
+Cutoffs move in whole UTC days, or whole hours for retention shorter than a day. Physical cleanup can finish later than logical expiry.
+
+Indexes follow the retention of their source data. Increasing retention or adding an index cannot restore records already removed.
+
+## Configure cleanup
+
+<import-codeblock src="./retention.cs"/>
+
+This keeps detailed events for 30 days, hourly aggregates for 180 days, and daily aggregates indefinitely. Scheduled cleanup stays enabled.
+
+Set the policy before opening the engine. Changes take effect when it is reopened with revised options. Shortening retention can remove history; extend it before records expire when you need to keep them longer.
+
+For a host that deliberately owns its maintenance schedule, `CheckInterval=null` disables scheduled cleanup and `ApplyRetentionAsync` applies it explicitly. Queries still hide expired records. The [engine reference](../../reference/engine/engine.mdx) covers maintenance controls.
+
+## Erase an identified visitor
+
+<import-codeblock src="./visitor-erasure.cs"/>
+
+Supply the same explicit visitor ID and site used for collection. Erasure removes retained raw events, their configured dimension-index copies, and active session state. Its return value counts deleted raw events.
+
+Already aggregated rollups are not recomputed. Historical aggregate reports can therefore retain contributions after the corresponding detailed event records are erased.
+
+## Plan historical analysis
+
+Keep enough raw history for the segments, funnels, and index backfills you need. Daily totals can preserve long-range trends without preserving ordered individual behavior.
+
+Daily anonymous rotation does not provide a reversible account lookup after its salts are destroyed. Use explicit application identity when retained events must be associated with a known account's erasure request.
+
+## Related pages
+
+- [Privacy and identity](../../concepts/privacy/privacy.mdx)
+- [Time, freshness, and accuracy](../../concepts/time-and-accuracy/time-and-accuracy.mdx)
+- [Engine API reference](../../reference/engine/engine.mdx)
+

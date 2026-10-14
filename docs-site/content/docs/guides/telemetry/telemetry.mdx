@@ -1,0 +1,65 @@
+---
+title: "Service and worker telemetry"
+description: "Report request counts, error rates, and latency distributions from numeric events."
+order: 5
+template: doc
+---
+
+# Service and worker telemetry
+
+Use numeric events to answer operational questions: which routes fail, how latency changes, or how long jobs take. This workflow records completed requests and groups them by normalized route.
+
+The examples use `ZoneTree.Analytics`. Configuration applies before opening the engine; collection and queries use that open engine.
+
+## Configure a telemetry dataset
+
+<import-codeblock src="./telemetry-options.cs"/>
+
+This configuration is for a **separate telemetry engine**, with its own directory. It disables visitor identity and session tracking, replaces website rollups with the dimension sets needed here, and enables percentile state for `duration_ms`.
+
+If your application also collects website traffic, keep its identity and session settings intact. Telemetry can use another site in that engine, but identity and session options apply to the engine as a whole.
+
+## Record one completed request
+
+<import-codeblock src="./telemetry-event.cs"/>
+
+Record the final status and elapsed duration when the request completes. Replace the illustrative values with measurements from your application.
+
+| Field | Convention |
+| --- | --- |
+| route | A route pattern such as /orders/:id, rather than a different URL per order |
+| status | A dimension containing the HTTP status as text |
+| duration_ms | A numeric elapsed duration in milliseconds |
+
+Keep the value unit consistent across producers. The engine stores the number you provide; it does not convert a custom duration from seconds to milliseconds.
+
+## Compare volume, errors, and latency
+
+<import-codeblock src="./telemetry-report.cs"/>
+
+The error metric includes statuses of 500 or higher, while total requests includes all statuses. Filtering the entire query to errors would remove successful requests from the denominator.
+
+The error rate is a fraction; percentage formatting makes it readable. Average and p95 latency stay in milliseconds. P95 describes the slower tail of the recorded distribution, so it can reveal degradation that an average obscures.
+
+## Follow changes over time
+
+<import-codeblock src="./telemetry-timeseries.cs"/>
+
+The time series reports requests per minute and average duration for one route. `FillMode.None` leaves missing buckets absent rather than presenting an interval with no measurements as a zero-millisecond average.
+
+For charts, preserve the bucket timestamps and distinguish a missing observation from a measured zero. Choose coarser intervals for longer ranges.
+
+## Keep the reports efficient
+
+The configured route rollup covers the volume and duration metrics. The route-and-status combination covers the conditional error metric. Percentile state lets eligible aggregate ranges answer p95 without reading every request.
+
+Check `Plan` when a report falls back to event scans. Additional filter dimensions need matching combinations; optional aggregate state only covers history collected after its activation.
+
+For job telemetry, use an event such as `job_completed`, a normalized queue or job-type dimension, and the same duration convention. Adjust the configured combinations to match those reports.
+
+## Related pages
+
+- [Querying and time series](../querying/querying.mdx)
+- [Rollups and query planning](../../performance/rollups/rollups.mdx)
+- [Query model reference](../../reference/query-model/query-model.mdx)
+- [Observability and troubleshooting](../../operations/observability/observability.mdx)

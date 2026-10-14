@@ -1,0 +1,82 @@
+---
+title: "Secondary indexes and backfilling"
+description: "Accelerate selected filtered queries with explicit ordered indexes."
+order: 2
+template: doc
+---
+
+# Secondary indexes and backfilling
+
+Use secondary indexes when important filtered reports need a more selective ordered read path. Indexes copy complete event payloads or aggregate values rather than following raw-event pointers.
+
+## Choose the index family
+
+| Index | Stores | Best fit |
+| --- | --- | --- |
+| Dimension | Full retained event payloads | Narrowing eligible equality-filtered event scans |
+| Rollup | Full joint-rollup keys and values | Reading selected equality-filtered aggregates |
+
+Both are optional and disabled in the core defaults. Each adds storage and ingestion work, so choose from actual report patterns.
+
+## Index an event dimension
+
+Configure dimension indexes before opening the engine:
+
+<import-codeblock src="./dimension-indexes.cs"/>
+
+Each event carrying a configured dimension gets a full indexed copy. A source equality condition can narrow the event history considered, while other filters and grouping operate on those matching payloads.
+
+Dimension indexes require raw-event storage. A popular source can still match a large number of events.
+
+## Index a rollup combination
+
+Select the equality-leading dimension and the additional dimensions required by the report:
+
+<import-codeblock src="./rollup-indexes.cs"/>
+
+The first definition provides a source-leading path for country grouping. The second provides the reverse country-leading path. They share the joint rollup definition but have different ordered keys.
+
+An index over source does not automatically provide the same selective ordering for country or page equality.
+
+With those options applied to the open engine, query the countries represented in GitHub traffic:
+
+<import-codeblock src="./index-query.cs"/>
+
+The source-leading definition can answer this report from matching aggregate rows. To ask for sources within US traffic, swap grouping to source and the equality filter to country; that uses the country-leading definition.
+
+Source values are case-sensitive. Use the value recorded in your dataset, such as `GitHub`, rather than a display spelling that differs from collection.
+
+## Understand the physical layout
+
+Logical dimension indexes share a partitioned store. Logical rollup indexes share a physical store within each enabled time tier. Separate key prefixes preserve their namespaces.
+
+The default ten-million-row partition target counts combined copies. An event carrying four configured dimensions can contribute four dimension-index rows.
+
+A new partition does not hide earlier data. Queries read every overlapping partition needed for their selected range.
+
+## Plan startup work
+
+Opening the engine checks whether indexes can be reused. Missing or incomplete dimension indexes rebuild from retained raw events. Index-managed joint combinations can rebuild eligible aggregate history, then populate their ordered rollup stores.
+
+Backfills complete before normal ingestion starts. Information logs report the decision, progress, duration, counts, and throughput. Clean subsequent opens reuse existing coverage when the checks allow it.
+
+Expired event history cannot be recovered by an index. Check report warnings after adding combinations to an older dataset.
+
+## Verify the selected path
+
+Plans expose dimension-index use through `UsedDimensionIndexes` and covering rollup-index use through `UsedRollupIndexes`. `IndexDimension` identifies the equality path on each relevant step.
+
+Read the plan from the preceding `result`:
+
+<import-codeblock src="./query-plan.cs"/>
+
+A covering index step keeps its time-tier source, such as `DayRollups`, and adds `IndexDimension=source`. A dimension-index step reports `Source=DimensionIndex`. Check warnings and all steps rather than assuming the entire request takes one path.
+
+For advanced inspection, an index accessor returns a shared store and its logical `KeyPrefix`. Restrict scans to that namespace and keep maintenance under engine ownership.
+
+## Related pages
+
+- [Rollups and query planning](../rollups/rollups.mdx)
+- [Configuration](../../operations/configuration/configuration.mdx)
+- [Observability and troubleshooting](../../operations/observability/observability.mdx)
+

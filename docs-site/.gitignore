@@ -17,4 +17,4 @@ node_modules
 .pnp.*
 
 dist
-content/legal/_private
+content/legal/**/_private/

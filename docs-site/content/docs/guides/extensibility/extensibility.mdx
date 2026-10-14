@@ -1,0 +1,63 @@
+---
+title: "Extending enrichment"
+description: "Adapt collection and enrichment to your application's data model."
+order: 8
+template: doc
+---
+
+# Extending enrichment
+
+Adapt collection to your application's vocabulary: exclude internal activity, normalize routes, derive dimensions, or replace a classifier.
+
+Configure extensions before opening the engine.
+
+## Choose an extension point
+
+| Extension | Use it for |
+| --- | --- |
+| IEventFilter | Deciding whether an event should be collected |
+| IEventEnricher | Adding, changing, or removing dimensions |
+| IBotDetector | Recognizing automated clients |
+| IUserAgentParser | Browser, operating-system, and device classification |
+| IGeoLocator | Country, region, and city lookup |
+
+Each interface has a helper factory, such as `EventFilter.Create` or `EventEnricher.Create`, for a lambda implementation.
+
+## Normalize pages for useful reports
+
+Routes containing resource IDs can produce thousands of separate rows. Normalize them into a common route and derive a section for grouping:
+
+<import-codeblock src="./normalize-pages.cs"/>
+
+This example turns numeric path segments into `/:id`. Choose a normalization rule that matches your route structure.
+
+## Apply collection rules
+
+Event filters run before an event is queued. Keep them fast and base exclusions on trusted application context. They can implement an opt-out decision or exclude known internal activity.
+
+The library does not ship a geography database. Supply a locator adapter or trusted geography dimensions when country and region reports are required.
+
+## Understand ordering
+
+Built-in enrichment runs first. Custom enrichers then run in their configured order, followed by custom-dimension privacy policy before storage.
+
+Session-level dimensions are captured from the first event of a session. A value supplied later does not replace that session's original context.
+
+## Handle extension failures
+
+Extensions run concurrently and must be thread-safe. An exception is logged and counted; the event continues without the failing extension's contribution. A throwing enricher's pending changes are discarded.
+
+Write required collection policies as reliable decisions rather than relying on an exception to reject an event.
+
+## Test the behavior you add
+
+Application code that only tracks events can depend on `IAnalyticsTracker` and use a fake in unit tests.
+
+Test enrichment and report behavior against a real engine on a temporary directory. That exercises normalization, sessions, privacy rules, and aggregation together. Changes to enrichment affect future events; they do not rewrite existing history.
+
+## Related pages
+
+- [Tracking events](../tracking/tracking.mdx)
+- [Privacy and identity](../../concepts/privacy/privacy.mdx)
+- [Engine API reference](../../reference/engine/engine.mdx)
+

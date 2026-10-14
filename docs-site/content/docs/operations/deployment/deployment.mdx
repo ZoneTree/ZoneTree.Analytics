@@ -1,0 +1,67 @@
+---
+title: "Deployment and lifecycle"
+description: "Run an embedded analytics engine as part of an application you can operate reliably."
+order: 3
+template: doc
+---
+
+# Deployment and lifecycle
+
+Run analytics as part of your application's lifecycle, with a persistent dataset and clear reporting access.
+
+## Keep the engine open
+
+Use one engine for each data directory while the application runs. ASP.NET Core registration manages that lifetime; custom hosts must arrange disposal.
+
+Do not open a new engine for every request or share one directory between independently running replicas. The engine owns its directory exclusively across processes.
+
+## Choose the data owner when scaling
+
+Separate application replicas with separate directories produce separate datasets. Their counts are not merged automatically, and they cannot read one another's in-memory state or files as one analytics service.
+
+For a shared reporting view, route collection and reports through the host that owns that dataset. Other applications can use its browser collection endpoints and reporting API where appropriate. Direct .NET tracking targets the engine in that process; it is not a remote client.
+
+You can replicate the static dashboard independently of the engine. Keep its API connection pointed at the intended reporting host, and design that host's availability around exclusive dataset ownership.
+
+## Persist the dataset
+
+Keep the data directory on storage that survives restarts and deployments. If write-ahead logs use a separate directory, preserve that directory too.
+
+Metadata, event history, aggregates, sessions, and logs belong to the dataset. Copying event files alone is not a complete transfer.
+
+## Account for startup
+
+Startup checks configuration and index coverage. Clean reuse can be quick; adding indexes to a large retained dataset can require substantial backfill work.
+
+Use initialization logs to explain startup duration and set readiness budgets accordingly. The dashboard prepares retained sample datasets before serving their reports.
+
+## Close cleanly
+
+At shutdown, stop accepting new work and await engine disposal. This saves remaining accepted work and releases storage ownership.
+
+Allow enough shutdown time for the workload and storage in use. Monitor errors and dropped events during normal operation so shutdown is not the first time a storage issue is discovered.
+
+## Protect reporting
+
+Apply your application's authentication and authorization policy to reporting endpoints and dashboard access. For multi-site engines, authorize the normalized site as well.
+
+Configure trusted forwarded headers before request tracking when the application is behind a proxy. Choose reporting concurrency and request limits that share resources fairly with the rest of the host.
+
+## Serve the dashboard
+
+Build its static UI with PureStack and serve the published files alongside the reporting API, or configure the UI to use a separate API origin.
+
+Static files contain the interface; the API supplies live analytics data. Configure cross-origin access only when the deployment needs it.
+
+## Back up and verify recovery
+
+A simple coordinated backup closes the engine cleanly, then copies the whole data directory and any separate write-ahead logs.
+
+Validate a restore in an isolated location before relying on it. For live backup procedures, use supported ZoneTree facilities with a tested consistency plan rather than copying selected files from an active dataset.
+
+## Related pages
+
+- [ASP.NET Core integration](../../getting-started/aspnet-core/aspnet-core.mdx)
+- [Dashboard application](../../getting-started/dashboard/dashboard.mdx)
+- [Observability and troubleshooting](../observability/observability.mdx)
+

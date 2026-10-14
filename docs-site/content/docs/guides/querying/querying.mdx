@@ -1,0 +1,81 @@
+---
+title: "Querying and time series"
+description: "Compose custom analytics from metrics, dimensions, filters, and time buckets."
+order: 3
+template: doc
+---
+
+# Querying and time series
+
+Build a custom report by choosing the events to analyze, the measurements to calculate, and the dimensions to group by.
+
+Examples use an existing `analytics` engine and the `ZoneTree.Analytics` namespace. Each recipe is independent; choose the one that matches your report rather than pasting the whole page into one method.
+
+For a complete application workflow, see [product analytics](../product-analytics/product-analytics.mdx) or [service telemetry](../telemetry/telemetry.mdx).
+
+## Compare acquisition sources
+
+This report compares traffic and conversion by source:
+
+<import-codeblock src="./guides-querying-1.cs"/>
+
+`Event` selects the base activity, page views by default. `Metrics` selects the measures, and `GroupBy` determines one or more categories in each result row.
+
+For purchases, set `Event="purchase"` and choose purchase counts or revenue metrics. For telemetry, choose the recorded job or measurement event.
+
+## Narrow the audience
+
+Add event filters to select the audience or activity your report should cover. Filters in the list combine with AND; use a nested group when an OR condition is needed:
+
+<import-codeblock src="./query-audience.cs"/>
+
+A filter selects matching events. A [behavioral segment](../segments-and-funnels/segments-and-funnels.mdx) instead selects visitors or sessions based on another action.
+
+## Follow changes over time
+
+Set an interval to return a time series. This purchase report combines average order value, cumulative revenue, a moving average, and purchase rate:
+
+<import-codeblock src="./guides-querying-3.cs"/>
+
+Choose an interval that matches the decision: hourly for recent activity, daily for trends, or monthly for longer comparisons. Calendar buckets follow the report's time zone.
+
+## Calculate a focused metric
+
+A conditional metric measures only matching contributions while retaining the surrounding report context. For example, an error rate can combine all requests with the subset carrying an error status.
+
+<import-codeblock src="./conditional-metrics.cs"/>
+
+Here `status` is a dimension containing a numeric HTTP status. The query's base event is `request_completed`, so both the numerator and denominator measure requests. See [service telemetry](../telemetry/telemetry.mdx) for collection and rollup configuration.
+
+Formulas apply to aggregate values. A total average order value is total revenue divided by total orders, rather than the average of displayed row averages.
+
+## Shape the output
+
+Use `OrderBy`, `Limit`, and `Offset` for sorted, paged reports. Use `Having` when rows must meet an aggregate threshold, such as a minimum visitor count.
+
+For the page with the highest recorded load time on each day, use `LimitPerBucket`. The events must carry a numeric `load_time` value in a consistent unit:
+
+<import-codeblock src="./guides-querying-4.cs"/>
+
+Pagination limits returned rows. It does not reduce every group the engine must aggregate.
+
+## Read rows and totals
+
+Rows contain the selected grouping values and metrics. `Totals` covers the full report before pagination, including de-duplicated visitors. This example reads the `result` from the acquisition-source recipe:
+
+<import-codeblock src="./guides-querying-8.cs"/>
+
+With a comparison, rows can carry `Previous` values. A missing comparison is different from a measured zero.
+
+## Check the report's context
+
+Read `From`, `To`, and `Plan.Warnings` when presenting historical reports. Retention and available aggregates can affect coverage.
+
+If a report is slow, follow its [query plan](../../performance/rollups/rollups.mdx). The [query reference](../../reference/query-model/query-model.mdx) provides the full metric, filter, fill, and result contracts.
+
+## Related pages
+
+- [Query model reference](../../reference/query-model/query-model.mdx)
+- [Rollups and query planning](../../performance/rollups/rollups.mdx)
+- [Segments and funnels](../segments-and-funnels/segments-and-funnels.mdx)
+

@@ -1,0 +1,251 @@
+---
+title: "Configuration reference"
+description: "Look up engine, storage, retention, privacy, and web integration settings."
+order: 3
+template: doc
+---
+
+# Configuration reference
+
+Use this page to locate a setting, check its default, and understand its dependencies. Defaults describe the core library; the dashboard applies its own shared configuration.
+
+## Configuration rules
+
+Set group members and add to collections in place. Groups are created by `AnalyticsOptions`; they are not replaced wholesale. Options are cloned when an engine opens, so edits afterward do not reconfigure it.
+
+Reporting time zone, sketch precision, and the chosen separate write-ahead-log directory are persisted dataset choices. Reopening incompatible settings fails. Index changes can trigger startup backfills; ordinary rollup and aggregate changes can introduce activation boundaries.
+
+## Find a setting
+
+| Area | Configuration path | Reference |
+| --- | --- | --- |
+| Engine identity and calendar | options | [AnalyticsOptions](#analyticsoptions) |
+| Collection and queueing | options.Ingestion | [IngestionOptions](#ingestionoptions) |
+| Visitor policy and minimization | options.Privacy | [PrivacyOptions](#privacyoptions) |
+| Sessions and attribution | options.Sessions | [SessionOptions](#sessionoptions) |
+| Aggregation | options.Rollups | [RollupOptions](#rollupoptions) |
+| Query budgets | options.Queries | [QueryOptions](#queryoptions) |
+| History and cleanup | options.Retention | [RetentionOptions](#retentionoptions) |
+| Physical storage | options.Storage | [StorageOptions](#storageoptions) |
+| Dimension indexes | options.Storage.DimensionIndexes | [DimensionIndexOptions](#dimensionindexoptions) |
+| Rollup indexes | options.Storage.RollupIndexes | [RollupIndexOptions](#rollupindexoptions) |
+| Web enrichment | options.Web | [WebOptions](#weboptions) |
+| HTTP integration | configureWeb callback | [AnalyticsWebOptions](#analyticsweboptions) |
+
+Group members are configured in place. See the [configuration guide](../../operations/configuration/configuration.mdx) for a complete example and change management.
+
+## Important defaults
+
+| Area | Core default |
+| --- | --- |
+| Data directory / site / calendar | data/analytics / default / UTC; Monday starts the week |
+| Workers / queue / flush | 1 / 100,000 per worker / 2 seconds |
+| Full synchronous queue | Drop |
+| Sessions | Enabled; 30-minute inactivity timeout |
+| Rollup tiers | Hour and Day |
+| Raw / hourly / daily retention | 90 days / 400 days / forever |
+| Query timeout / raw parallelism | 30 seconds / processor count |
+| Partition targets | 10 million rows per tier or shared index store |
+| Dimension and rollup indexes | None configured |
+| Bots / geolocation | Exclude / no supplied geolocation database |
+| Anonymous identity | Daily rotating hash |
+| Reporting admission / POST / response | 4 concurrent / 64 KiB / 16 MiB |
+
+The dashboard extends raw retention and enables selected aggregates and indexes. These application defaults do not apply automatically to library consumers.
+
+## AnalyticsOptions
+
+| Setting | Type | Behavior and default |
+| --- | --- | --- |
+| `DataDirectory` | `string` | The root directory of all analytics data. Default is "data/analytics". |
+| `DefaultSite` | `string` | The site used for events and queries that do not specify one. Default is "default". Must contain valid Unicode and no control characters. |
+| `TimeZone` | `TimeZoneInfo` | The reporting time zone. Daily rollups and day, week, month and year query intervals use calendar boundaries of this time zone. It is persisted when the data directory is created and cannot be changed afterwards. Default is UTC. |
+| `FirstDayOfWeek` | `DayOfWeek` | The first day of week for weekly query intervals. Default is Monday. |
+| `EventFilters` | `List<IEventFilter>` | Filters that decide whether an event is tracked. All must pass. They run inside `AnalyticsEngine.Track(AnalyticsEvent)` on the calling thread. Create one from a lambda with `EventFilter.Create`. |
+| `Enrichers` | `List<IEventEnricher>` | Enrichers that add, change or remove dimensions after the built-in enrichment, in order. Create one from a lambda with `EventEnricher.Create` or use `EventEnricher.NormalizePage`. |
+| `Ingestion` | `IngestionOptions` | Ingestion pipeline options. |
+| `Sessions` | `SessionOptions` | Session tracking options. |
+| `Rollups` | `RollupOptions` | Pre-aggregation options. |
+| `Retention` | `RetentionOptions` | Data retention options. |
+| `Privacy` | `PrivacyOptions` | Privacy options. |
+| `Web` | `WebOptions` | Web enrichment options. |
+| `Storage` | `StorageOptions` | Storage options. |
+| `Queries` | `QueryOptions` | Query options. |
+
+## AnalyticsWebOptions
+
+| Setting | Type | Behavior and default |
+| --- | --- | --- |
+| `PathPrefix` | `string` | Path prefix of the tracker script and beacon endpoint. Default is "/_analytics". The script is served at {prefix}/script.js and events are posted to {prefix}/event. |
+| `SiteResolver` | `Func<HttpContext, string>` | Resolves the site of a request. Default is null, which uses `AnalyticsOptions.DefaultSite`. Use it to separate hosts or tenants, for example `context => context.Request.Host.Host`. |
+| `VisitorIdResolver` | `Func<HttpContext, string>` | Resolves an explicit visitor id, for example the authenticated user id. Default is null: visitors are identified anonymously. |
+| `ShouldTrack` | `Func<HttpContext, bool>` | Decides whether a request is tracked by the server-side middleware. Runs after the response is produced. Default is null: every successful HTML page view outside `ExcludedPaths` is tracked. |
+| `ExcludedPaths` | `List<string>` | Path prefixes the middleware never tracks. The `PathPrefix` is always excluded. |
+| `AllowedClientEvents` | `ISet<string>` | Event names accepted from the browser beacon. Null accepts any non-reserved name. |
+| `MaxPayloadBytes` | `int` | Maximum beacon payload size in bytes. Default is 8 KiB. |
+| `MaxReportingPayloadBytes` | `int` | Maximum reporting POST body size in bytes, including requests without Content-Length. Default is 64 KiB. |
+| `MaxConcurrentReportingRequests` | `int` | Maximum number of reporting requests being parsed, executed or sent at once. Excess requests receive 503 without waiting. Default is 4; configure before startup. |
+| `MaxReportingResponseBytes` | `int` | Maximum serialized successful reporting response size in bytes. Larger reports receive 503 before any success body is sent. Default is 16 MiB. |
+| `AuthorizeSite` | `Func<HttpContext, string, bool>` | Authorizes access to the normalized site executed by the reporting API. Omitted and empty sites resolve to `AnalyticsOptions.DefaultSite`. Default is null: every site is allowed, so protect the API itself, for example with `RequireAuthorization()`. |
+
+## DimensionIndexOptions
+
+| Setting | Type | Behavior and default |
+| --- | --- | --- |
+| `Dimensions` | `List<string>` | Dimensions to index, compared ordinally. Empty by default. Each configured dimension stores a complete copy of every retained raw event carrying it. Existing retained events are indexed before the engine starts accepting events. Requires raw event storage. |
+| `RecordsPerPartition` | `long` | Combined copied records per shared index partition. Default is 10 million. |
+| `Store` | `StoreOptions` | ZoneTree settings of the shared dimension index store and its partitions. |
+
+## IngestionOptions
+
+| Setting | Type | Behavior and default |
+| --- | --- | --- |
+| `QueueCapacity` | `int` | Maximum number of queued events per worker. Default is 100,000. |
+| `WorkerCount` | `int` | Number of background ingestion workers. Events are routed to workers by visitor, so each visitor's events are processed in order. Default is 1, which handles well over a hundred thousand events per second. |
+| `FlushInterval` | `TimeSpan` | How often buffered aggregates and session states are written to storage. Rollup-based queries lag behind ingestion by at most this interval. Default is 2 seconds. Must not exceed approximately 49.7 days, the timer's maximum period. |
+| `MaxBufferedRollupRows` | `int` | Forces a flush when a worker buffers more distinct rollup rows than this. Default is 100,000. |
+| `QueueFullBehavior` | `QueueFullBehavior` | Behavior of `AnalyticsEngine.Track` when the queue is full. Default is `QueueFullBehavior.Drop`, so request threads never block. |
+| `MaxFutureSkew` | `TimeSpan` | Events with a timestamp further in the future than this are rejected. Default is 1 hour. |
+
+## PrivacyOptions
+
+| Setting | Type | Behavior and default |
+| --- | --- | --- |
+| `VisitorIdentification` | `VisitorIdentification` | Visitor identification strategy. Default is `VisitorIdentification.DailyRotatingHash`. |
+| `VisitorIdSecret` | `byte[]` | The secret key (at least 16 bytes) used to hash explicit visitor ids. When null, a random secret is generated and stored in the data directory. Supply it from a secret store to keep it away from the data files. |
+| `GeoPrecision` | `GeoPrecision` | Geolocation precision. Default is `GeoPrecision.City`. |
+| `CollectUserAgentDetails` | `bool` | Derives browser, OS and device dimensions from the user agent. Default is true. |
+| `CollectVersions` | `bool` | Also stores browser and OS versions. Default is false. |
+| `IncludeQueryString` | `bool` | Keeps the query string in the page dimension. Query strings often contain personal data, so the default is false. UTM parameters are always extracted. |
+| `AllowedDimensions` | `ISet<string>` | When set, only these custom dimensions are kept, including those added by enrichers. Null (the default) keeps all. Custom session dimensions must also be allowed. |
+| `DeniedDimensions` | `ISet<string>` | Custom dimensions that are always discarded, including those added by enrichers. Takes precedence over AllowedDimensions. Custom session dimensions cannot be denied. Empty by default. |
+| `MaxCustomDimensions` | `int` | Maximum number of custom event dimensions kept after enrichment. Default is 32. Tracked dimensions and enricher additions share this limit; the first remaining dimensions are kept. Page, hostname, engine-maintained bot dimensions and session-level dimensions do not count toward it. |
+| `MaxCustomValues` | `int` | Maximum number of values (`AnalyticsEvent.Values`) kept per event. Default is 32. |
+| `MaxValueLength` | `int` | Maximum length of dimension values. Longer values are truncated. Default is 512. Names (events, sites, dimensions and values) are limited to 128 characters. |
+
+## QueryOptions
+
+| Setting | Type | Behavior and default |
+| --- | --- | --- |
+| `Timeout` | `TimeSpan?` | The longest a query or funnel may run before it is cancelled with an `AnalyticsQueryTimeoutException`. It protects the host application from expensive ad-hoc queries, for example long raw event scans requested through a reporting API. Null means no limit. Default is 30 seconds. Must not exceed approximately 49.7 days, the cancellation timer's maximum delay. |
+| `MaxDegreeOfParallelism` | `int` | The most threads one raw event scan uses: queries, segments and funnels, the live visitor count and visitor erasure. Ranges are split into time slices that are scanned concurrently and merged; 1 scans on the calling thread only. Rollup reads are not affected. Lower it when many raw queries run at the same time and should share the processors. Default is the number of processors. |
+| `MaxGroupBy` | `int` | The most group-by dimensions of one query. Default is 8. |
+| `MaxGroups` | `int` | The most aggregate groups held while reading one query period. Default is 100,000. Each time bucket and dimension combination counts separately for each metric source; temporary groups of parallel raw scans also count until merged. The limit is enforced before allocating a group, regardless of Limit, Having or LimitPerBucket. Exceeding it raises `AnalyticsQueryException`. Comparison periods use separate budgets. |
+| `MaxTimeBuckets` | `int` | The most time buckets of one query: longer time series are rejected rather than truncated. Default is 100,000, for example 69 days of minutes or 11 years of hours. |
+| `MaxFilledRows` | `int` | The most rows filling a time series may create: the groups with data times the buckets (see `AnalyticsQuery.Fill`). Larger fills are rejected. Default is 1,000,000. |
+
+## RetentionOptions
+
+| Setting | Type | Behavior and default |
+| --- | --- | --- |
+| `RawEvents` | `TimeSpan?` | Retention of raw events. Default is 90 days. |
+| `MinuteRollups` | `TimeSpan?` | Retention of minute rollups. Default is 2 days. |
+| `HourRollups` | `TimeSpan?` | Retention of hourly rollups. Default is 400 days. |
+| `DayRollups` | `TimeSpan?` | Retention of daily rollups. Default is forever. |
+| `CheckInterval` | `TimeSpan?` | How often expired data is removed from disk. Default is 1 hour; a tier rewrites data only when its cutoff has moved, once a day (once an hour for retention under a day). Set to null to remove expired data only through `AnalyticsEngine.ApplyRetention`; queries hide it either way. |
+
+## RollupIndexOptions
+
+| Setting | Type | Behavior and default |
+| --- | --- | --- |
+| `Definitions` | `List<RollupIndexDefinition>` | Indexed combinations. Empty by default. Missing joint rollup definitions are added to the engine's configuration copy. Retained raw events backfill newly added combinations. |
+| `RecordsPerPartition` | `long` | Combined rows per shared index tier partition. Default is ten million. |
+| `Store` | `StoreOptions` | ZoneTree settings shared by all logical indexes in each rollup tier. |
+
+## RollupOptions
+
+| Setting | Type | Behavior and default |
+| --- | --- | --- |
+| `Granularities` | `Granularity` | Rollup granularities. Default is `Granularity.Hour` \| `Granularity.Day`. Week, month and year intervals are computed from daily rollups. |
+| `Definitions` | `List<RollupDefinition>` | The dimension sets to pre-aggregate. A query is answered from rollups when the union of its group-by and filter dimensions equals one of these sets; otherwise it is answered by scanning raw events. Default is `RollupDefinition.WebDefaults`; clear the list to start from scratch. |
+| `HyperLogLogPrecision` | `int` | Precision of unique visitor sketches. Distinct counts up to 2^precision / 4 are exact; larger ones have a standard error of about 1.04 / sqrt(2^precision). It is persisted when the data directory is created and cannot be changed afterwards. Default is 14: exact up to 4,096 visitors per row, then about 0.8% error. |
+| `ValueAggregates` | `Dictionary<string, ValueAggregates>` | Additional aggregates kept in rollups for values tracked on events (`AnalyticsEvent.Values`), by value name. Every value has sum, count, min, max, average and variance; these are opt-in because they cost storage in every rollup row the value reaches: `ValueAggregates.Percentiles` for `Metric.Percentile` and `Metric.Median`, `ValueAggregates.FirstAndLast` for `Metric.First` and `Metric.Last`. Queries of a value without them, and of ranges before they were configured, are answered from raw events. |
+| `DistinctDimensions` | `List<string>` | Dimensions whose distinct values are counted in every rollup row, for `Metric.Distinct`, for example a tenant or product id. Each costs a distinct count sketch per rollup row. Queries of other dimensions, and of ranges before a dimension was configured, are answered from raw events. |
+
+## SessionOptions
+
+| Setting | Type | Behavior and default |
+| --- | --- | --- |
+| `Enabled` | `bool` | Enables sessions, bounce rate, session duration, entry and exit pages. Default is true. |
+| `Timeout` | `TimeSpan` | Inactivity timeout that ends a session. Default is 30 minutes. |
+| `MaxCachedSessions` | `int` | Maximum number of sessions cached in memory per worker. Evicted sessions remain available in storage. Default is 250,000. |
+| `Dimensions` | `List<string>` | Custom dimensions that are session-level, for example an experiment variant or a plan. |
+
+### Custom session dimensions
+
+Capture a custom session attribute from the first event and add a rollup when its reports should use aggregates:
+
+<import-codeblock src="./concepts-data-model-1.cs"/>
+
+Track the attribute as an event dimension, such as an experiment variant. Later values do not replace the session's original attribution, and the name must be allowed by the privacy policy.
+
+## StorageOptions
+
+| Setting | Type | Behavior and default |
+| --- | --- | --- |
+| `StoreRawEvents` | `bool` | Stores every enriched event. Raw events answer ad-hoc queries over any dimension combination, real-time visitor counts and visitor erasure requests. When disabled, only rollups are kept. Default is true. |
+| `Partitioning` | `PartitioningOptions` | How many records each ZoneTree partition of a data tier holds before the tier starts a new one. It can be changed at any time; it applies to the partitions started afterwards. |
+| `RawEvents` | `StoreOptions` | ZoneTree settings of raw event partitions. Raw events are only scanned, never point-read, so by default the mutable segment holds 50,000 events and has no Bloom filter. |
+| `DimensionIndexes` | `DimensionIndexOptions` | Opt-in full-payload ordered dimension indexes over retained raw events. |
+| `RollupIndexes` | `RollupIndexOptions` | Opt-in full-key, full-value ordered indexes of joint rollups. |
+| `Rollups` | `StoreOptions` | ZoneTree settings of rollup partitions. By default the mutable segment holds 100,000 rows. |
+| `Sessions` | `StoreOptions` | ZoneTree settings of the active session store. By default the mutable segment holds 50,000 sessions. |
+| `WriteAheadLogDirectory` | `string` | A separate root directory for write-ahead logs, for example on a faster disk. Each store keeps its log under the same relative path as its data. Null (the default) keeps logs next to the data. It is persisted when the data directory is created and cannot be changed afterwards, because unflushed records live in the log. |
+| `PartitionIdleTimeout` | `TimeSpan` | Partitions that were not used for this long are closed. Default is 10 minutes. |
+| `Logger` | `ILogger` | The logger used by the engine and its ZoneTree stores. Default is a console logger at warning level. |
+
+## PartitioningOptions
+
+| Setting | Type | Behavior and default |
+| --- | --- | --- |
+| `RawEvents` | `long` | Raw events per partition. Default is `DefaultRecordsPerPartition`. |
+| `MinuteRollups` | `long` | Minute rollup rows per partition. Default is `DefaultRecordsPerPartition`. |
+| `HourRollups` | `long` | Hourly rollup rows per partition. Default is `DefaultRecordsPerPartition`. |
+| `DayRollups` | `long` | Daily rollup rows per partition. Default is `DefaultRecordsPerPartition`. |
+
+## StoreOptions
+
+| Setting | Type | Behavior and default |
+| --- | --- | --- |
+| `WriteAheadLogMode` | `WriteAheadLogMode` | The write-ahead-log mode. Default is `WriteAheadLogMode.AsyncCompressed`. |
+| `MutableSegmentMaxItemCount` | `int?` | How many recent records are held in the mutable (in-memory) segment before it moves toward disk. |
+| `MutableSegmentBloomFilterBitsPerItem` | `int?` | Bloom filter bits per mutable segment record, 0 to 64. Zero disables the filter, which suits stores that are only scanned and never point-read. |
+| `DiskSegmentMaxItemCount` | `int?` | How many records a disk segment holds before merges start a new one. |
+| `BTreeLockMode` | `BTreeLockMode?` | The lock mode of the in-memory B+tree. |
+| `BTreeNodeSize` | `int?` | The node size of the in-memory B+tree. |
+| `BTreeLeafSize` | `int?` | The leaf size of the in-memory B+tree. |
+| `EnableSingleSegmentGarbageCollection` | `bool?` | Removes deleted records on load when a tree consists of its mutable segment only. |
+| `AllowUnsafeOptionValues` | `bool` | Lets ZoneTree accept option values outside its recommended ranges. |
+| `ConfigureWriteAheadLog` | `Action<WriteAheadLogOptions>` | Tunes the write-ahead log, for example compression or incremental backup. Runs after `WriteAheadLogMode` is applied. |
+| `ConfigureDiskSegments` | `Action<DiskSegmentOptions>` | Tunes disk segments, for example the segment mode, compression or caches. |
+| `ConfigureMaintainer` | `Action<IMaintainer>` | Tunes the maintainer of every tree, for example merge thresholds or block cache cleanup. |
+
+## WebOptions
+
+| Setting | Type | Behavior and default |
+| --- | --- | --- |
+| `GeoLocator` | `IGeoLocator` | Resolves IP addresses to locations. Default is null: no geolocation. The library ships no geolocation database; adapt one, or pass geography through event dimensions, for example from a CDN header. |
+| `UserAgentParser` | `IUserAgentParser` | Parses user agents into browser, operating system and device. Default is `UserAgentParser.Default`. |
+| `Bots` | `BotTraffic` | What happens to bot traffic. Default is `BotTraffic.Exclude`. |
+| `BotDetectors` | `List<IBotDetector>` | Bot detectors, in order; the first that recognizes a bot wins. Default is `BotDetector.UserAgent`. Add detectors (for example based on IP ranges) or clear the list to treat all traffic as human. |
+| `TrimTrailingSlash` | `bool` | Removes a trailing slash from page paths (except the root). Default is true. |
+| `LowercasePaths` | `bool` | Lowercases page paths. Default is false. |
+| `ReferrerSources` | `IDictionary<string, string>` | Additional referrer host to source name mappings, for example "news.ycombinator.com" to "Hacker News". Hosts match exactly or as a parent domain, ignoring case. Empty by default. |
+| `InternalHosts` | `ISet<string>` | Hosts treated as internal, ignoring case. Referrers from these hosts, or from the page host itself, count as direct traffic. Empty by default. |
+
+## Validation and dependencies
+
+Worker count is 1–64. Queue capacities, segment sizes, and partition targets must be positive. Query timeout and flush timers have the platform timer limit. Custom session dimensions must be valid, unique, and permitted by privacy policy.
+
+Dimension indexes require raw-event storage. Derived time dimensions belong in queries rather than stored rollup definitions. Optional aggregate flags must be valid combinations.
+
+Store properties left null preserve ZoneTree's defaults. The engine chooses serializers, comparers, key hashers, and deletion behavior because they are part of the analytics storage format.
+
+Use the [configuration guide](../../operations/configuration/configuration.mdx) for change management and [storage tuning](../../performance/tuning/tuning.mdx) for the tradeoffs behind these controls.
+
+## Related pages
+
+- [Configuration guide](../../operations/configuration/configuration.mdx)
+- [Ingestion and storage tuning](../../performance/tuning/tuning.mdx)
+- [HTTP API](../http-api/http-api.mdx)
+

@@ -1,0 +1,69 @@
+---
+title: "Ingestion and storage tuning"
+description: "Balance ingestion, query latency, memory, and disk for a real workload."
+order: 3
+template: doc
+---
+
+# Ingestion and storage tuning
+
+Tune the engine around the events you collect and the reports you serve. Balance throughput, response time, memory, and disk rather than optimizing one number in isolation.
+
+## Establish a baseline
+
+Record event size, visitor reuse, sessions, dimension cardinality, optional aggregates, indexes, retention, and reporting concurrency.
+
+Measure a consistent Release build. Include representative filtered and unfiltered reports, and note which plans read raw history.
+
+## Match workers to ingestion
+
+| Setting | Tradeoff |
+| --- | --- |
+| WorkerCount | More processing concurrency, with larger combined per-worker budgets |
+| QueueCapacity | More burst capacity, with more queued memory |
+| MaxBufferedRollupRows | More aggregation state held per worker before writing |
+| Sessions.MaxCachedSessions | More active-session state held per worker |
+| FlushInterval | Aggregate update frequency and write cadence |
+
+Increase workers only when the workload and storage can benefit. Queued activity, rejected events, dropped events, and errors explain more than requested throughput alone.
+
+Synchronous `Track` follows the configured Drop or Wait behavior. Public `TrackAsync` waits asynchronously for queue space. Normal report calls do not require a manual flush.
+
+## Separate memory segments from partitions
+
+Mutable-segment limits control how much recent data a tree holds before moving it toward disk. Partition targets control when a growing tier begins another time-ranged tree.
+
+The default partition target is ten million rows. It does not imply a ten-million-row memory segment.
+
+Raw and session mutable segments default to 50,000 items; rollup segments default to 100,000. Shared index stores have their own segment settings. Consult the [configuration reference](../../reference/configuration/configuration.mdx) for the exact defaults.
+
+## Choose aggregate and index work deliberately
+
+Each unique dimension combination can create another aggregate row. Percentile and distinct-count sketches increase the state held in those rows.
+
+Dimension indexes copy full event payloads. Rollup indexes copy aggregate keys and values. Logical indexes share physical stores, but their copied rows still count toward capacity.
+
+Use [rollups](../rollups/rollups.mdx) for recurring combinations and [secondary indexes](../secondary-indexes/secondary-indexes.mdx) for selected equality-filtered read paths.
+
+## Balance reporting concurrency
+
+`Queries.MaxDegreeOfParallelism` controls event-scan concurrency. It does not accelerate ordinary rollup reads.
+
+A large parallel scan may finish faster alone while competing with other requests. Balance per-query parallelism with the host's concurrent reporting limit and other application work.
+
+Query group and time-bucket budgets protect computation independently of output pagination.
+
+## Tune lower-level storage only with evidence
+
+Per-store hooks configure write-ahead logs, compression, disk caches, and maintenance. Properties left unset preserve ZoneTree defaults; the engine owns its storage comparers and serializers.
+
+Measure query latency, steady-state memory, disk usage, ingestion-through-flush time, and startup duration after each change. The [benchmarking guide](../benchmarking/benchmarking.mdx) describes comparable measurements.
+
+Close the engine cleanly at shutdown. For bulk-workload or storage-maintenance controls, use the [engine reference](../../reference/engine/engine.mdx) rather than adding maintenance calls to routine report requests.
+
+## Related pages
+
+- [Benchmarking](../benchmarking/benchmarking.mdx)
+- [Secondary indexes and backfilling](../secondary-indexes/secondary-indexes.mdx)
+- [Configuration reference](../../reference/configuration/configuration.mdx)
+

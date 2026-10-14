@@ -1,0 +1,105 @@
+---
+title: "Your data. Your application. Your answers."
+description: "Embedded analytics for .NET. Collect events, query metrics, and host your own reporting dashboard."
+order: 1
+template: doc
+nav:
+  title: Home
+layout:
+  fullWidth: true
+  showNav: false
+  showToc: false
+---
+
+<section class="docs-hero">
+  <div class="docs-hero-layout">
+    <div>
+      <Badge tone="accent" variant="surface">Embedded analytics for .NET</Badge>
+      <h1>Your data.<br/>Your application.<br/><span>Your answers.</span></h1>
+      <p class="docs-hero-copy">
+        Understand where visitors come from, what they do, and which actions convert. Collect website and product analytics inside your .NET application, with a dashboard you can host yourself.
+      </p>
+      <Flex class="docs-hero-actions">
+        <BtnLink
+          href="./docs/getting-started/first-events/first-events.mdx"
+          tone="accent"
+          variant="solid"
+          icon="tabler:arrow-right"
+          iconPosition="end"
+          >Track your first event</BtnLink
+        >
+        <BtnLink
+          href="./docs/getting-started/dashboard/dashboard.mdx"
+          tone="neutral"
+          variant="outline"
+          >Explore the dashboard</BtnLink
+        >
+      </Flex>
+      <div class="docs-facts">
+        <span>.NET 8 · 9 · 10</span><span>Embedded storage</span
+        ><span>Open source · MIT</span>
+      </div>
+    </div>
+
+    <figure class="docs-dashboard-preview">
+      <img
+        src="./dashboard-overview.png"
+        alt="ZoneTree Analytics dashboard showing benchmark traffic, comparisons, and the visitor time series"
+        width="1600"
+        height="1100"
+        fetchpriority="high"/>
+      <figcaption>
+        Traffic, engagement, and conversions in one dashboard.
+      </figcaption>
+    </figure>
+  </div>
+</section>
+
+## Understand the activity that matters
+
+<Grid columns="1" columnsSm="3" class="docs-map">
+  <DocCard number="01" title="See your audience" summary="Follow traffic trends, discover acquisition sources, and understand which content and devices visitors use." href="./docs/guides/web-reports/web-reports.mdx" icon="tabler:chart-line"/>
+  <DocCard number="02" title="Measure outcomes" summary="Connect visits with signups, purchases, revenue, and the steps that lead to a conversion." href="./docs/guides/segments-and-funnels/segments-and-funnels.mdx" icon="tabler:target"/>
+  <DocCard number="03" title="Keep ownership" summary="Run analytics with your application and choose the identity, retention, and reporting access that fit it." href="./docs/concepts/privacy/privacy.mdx" icon="tabler:shield"/>
+</Grid>
+
+## Website traffic, product behavior, and telemetry
+
+| Your application | What you can measure |
+| --- | --- |
+| [Website](./docs/guides/web-reports/web-reports.mdx) | Visitors, popular pages, sources, campaigns, and engagement |
+| [Product](./docs/guides/product-analytics/product-analytics.mdx) | Custom actions, purchases, revenue, and conversion paths |
+| [Service or worker](./docs/guides/telemetry/telemetry.mdx) | Job counts, durations, error rates, and other numeric metrics |
+
+Use the website reports as a starting point, then build custom queries as your questions grow.
+
+## Add analytics to your application
+
+<Tabs
+  group="home-start"
+  selectedTab="core-example"
+  ariaLabel="Choose a first integration"
+  tone="neutral"
+  variant="none"
+>
+  <TabPane id="core-example" label="Direct .NET"
+    ><import-codeblock src="./homepage.cs" lang="cs"/></TabPane>
+  <TabPane id="web-example" label="ASP.NET Core"
+    ><import-codeblock src="./aspnet-host.cs" lang="cs"/></TabPane>
+</Tabs>
+
+Track visits and purchases directly from .NET, or add analytics to your ASP.NET Core application.
+
+## Technology stack
+
+ZoneTree Analytics uses **ZoneTree** for persistent storage, **PureStack** to generate its dashboard and documentation, and **Regor** for reactive dashboard interfaces.
+
+<import-content src="./_technology-stack.mdx"/>
+
+
+## Choose your starting point
+
+[Start with the library](./docs/getting-started/first-events/first-events.mdx), [integrate a web application](./docs/getting-started/aspnet-core/aspnet-core.mdx), or [run the dashboard](./docs/getting-started/dashboard/dashboard.mdx).
+
+Explore the [documentation](./docs/index.mdx) for practical guides, concepts, performance, operations, and API reference.
+

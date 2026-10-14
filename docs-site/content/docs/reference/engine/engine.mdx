@@ -1,0 +1,140 @@
+---
+title: "Engine API reference"
+description: "Public entry points for tracking, reporting, maintenance, and inspection."
+order: 1
+template: doc
+---
+
+# Engine API reference
+
+`AnalyticsEngine` is the application-lifetime owner of a dataset. It implements `IAnalyticsTracker`, synchronous disposal, and asynchronous disposal.
+
+## Creation and ownership
+
+| Member | Purpose |
+| --- | --- |
+| AnalyticsEngine(AnalyticsOptions) | Open or create a dataset with explicit configuration |
+| Open(directory, configure) | Convenience factory with a configuration callback |
+| TimeZone and DefaultSite | Read the active reporting defaults |
+| Web | Typed website reporting facade |
+| Storage | Advanced access to engine-owned stores |
+
+Options are copied at construction. One engine exclusively owns the directory until it closes.
+
+Keep the engine open while the application runs. Ordinary queries do not require an explicit flush. Dispose the engine at shutdown to save remaining work, or let ASP.NET Core dependency injection manage its lifetime.
+
+## Tracking
+
+| Member | Return | Queue behavior |
+| --- | --- | --- |
+| Track(event) | bool | Accept immediately if space exists; otherwise Drop or synchronous Wait |
+| TrackAsync(event, cancellationToken) | ValueTask of bool | Always wait asynchronously for queue space |
+| IAnalyticsTracker | Tracking interface | Useful for application code and test fakes |
+
+False indicates that input was not queued, such as policy filtering, rejection, disposal, or a full dropping queue. Processing happens later. Event names and invalid arguments can still throw; inspect statistics and logs for ingestion outcomes.
+
+Input is copied before queuing. Reuse it after `Track` returns or the asynchronous call completes. `AnalyticsEvent` supports name, timestamp, site, visitor ID, URL/referrer context, dimensions, values, hash routing, and non-interactive custom events.
+
+## Queries and discovery
+
+| Pair | Result |
+| --- | --- |
+| Query / QueryAsync with AnalyticsQuery | AnalyticsResult |
+| Query / QueryAsync with FunnelQuery | FunnelResult |
+| GetEventNames / GetEventNamesAsync | Event names over the selected range and site |
+| Web.GetSummary / GetSummaryAsync | WebSummaryReport |
+| Web.GetTimeseries / GetTimeseriesAsync | Time-series report |
+| Web.GetBreakdown / GetBreakdownAsync | Dimension breakdown |
+| Web.GetPages / GetPagesAsync | Page report |
+| Web.GetExitPages / GetExitPagesAsync | Exit-page report |
+| Web.GetGoals / GetGoalsAsync | Custom-action report |
+| Web.GetBots / GetBotsAsync | Separate bot report |
+| Web.GetCurrentVisitors / GetCurrentVisitorsAsync | Nullable recent visitor count |
+
+Storage-reading asynchronous forms run the work on a thread-pool thread. They do not change query semantics. Pass a cancellation token for work tied to a request.
+
+## Maintenance and privacy
+
+| Pair | Contract |
+| --- | --- |
+| Flush / FlushAsync | Drain prior accepted work and write buffered aggregates and session state |
+| Compact / CompactAsync | Flush and merge open stores toward disk |
+| ApplyRetention / ApplyRetentionAsync | Run physical retention maintenance |
+| EraseVisitor / EraseVisitorAsync | Remove an explicit visitor's retained raw events, index copies, and session |
+| Dispose / DisposeAsync | Stop ingestion, drain accepted work, flush, and release ownership |
+
+Erasure returns deleted raw-event count and does not subtract already aggregated rollup history. Compaction is useful after bulk imports but is separate from ordinary periodic flushing.
+
+## Statistics
+
+`GetStatistics()` includes partition information. `GetStatistics(includePartitions:false)` gives lightweight counters without inspecting those stores.
+
+| Group | Fields |
+| --- | --- |
+| Ingestion | EventsAccepted, EventsProcessed, EventsDropped, EventsRejected, EventsFiltered |
+| Health | QueueLength, Errors, Flushes |
+| Web activity | SessionsStarted, BotsExcluded, BotsTracked |
+| Storage | OpenPartitions, PartitionsDropped, Partitions |
+
+Partition record counts are approximate and may be null for partitions not opened since startup. Counters start again with a new engine instance.
+
+## Errors and cancellation
+
+`AnalyticsException` is the base for engine-specific errors. `AnalyticsConfigurationException` reports incompatible options or dataset configuration. `AnalyticsQueryException` reports unanswerable or bounded queries; `AnalyticsQueryTimeoutException` is its timeout subclass.
+
+Invalid arguments use standard argument exceptions. Caller cancellation uses the cancellation token; configured query timeout additionally protects expensive report execution.
+
+## Advanced storage access
+
+`analytics.Storage` exposes the actual ZoneTrees and their existing maintainers. Raw events and
+rollups are partitioned: list the partition names, then acquire a disposable lease. Acquiring a
+closed partition opens it; listing names does not. A lease keeps the partition open and defers
+retention deletion until it is released.
+
+<import-codeblock src="./reference-engine-1.cs"/>
+
+`Acquire` and `AcquireAsync` accept a cancellation token and return null for a missing partition;
+they never create partitions. `GetRollups` takes exactly one of `Minute`, `Hour` or `Day`.
+`RollupValue`, `SessionState` and the rollup statistics and sketches are public for typed access;
+public codecs interpret encoded keys and raw event values without requiring a serializer or
+knowledge of byte offsets.
+
+### Storage codecs
+
+`RawEventCodec.Decode(key, value)` returns a `RawEvent` with its site, UTC timestamp, sequence,
+event name, visitor hash, session information, dimensions and measured values. Use
+`TryGetDimension` and `TryGetValue` for named lookups. An empty value decodes to null (a deletion).
+`RawEventCodec.EncodeKey(record)` and `Encode(record)` convert it back to stored bytes;
+`Encode(null)` produces a deletion marker.
+
+`StorageKeyCodec.DecodeRawEvent(key)` decodes just the raw key, while `DecodeRollup(key)` returns
+the rollup's site, event, bucket and a dictionary of named dimensions. Missing dimensions decode
+to null and explicitly empty values to `""`. `EncodeRawEvent(key)` and `EncodeRollup(key)` convert
+the decoded keys back to bytes, ordering rollup dimensions canonically.
+
+<import-codeblock src="./reference-engine-2.cs"/>
+
+The rollup key does not contain its granularity: pass the tier's granularity and the engine's
+time zone to `GetBucketStart`. Minute and hour buckets store UTC ticks; daily buckets store a
+local calendar date. Session keys and values are already typed as `ulong` and `SessionState`.
+Codecs preserve stored data without applying ingestion normalization. Encoders reject invalid
+Unicode and out-of-range event or session dates rather than silently replacing text or producing
+unreadable records. `DefaultSite` must also contain valid Unicode and no control characters.
+Each decoded raw event keeps only its own data, without a scan cache. Malformed encoded keys
+and raw event payloads raise `FormatException`.
+
+Release leases before disposing the engine. The engine owns all trees and maintainers: do not
+dispose or drop them, or create another maintainer. A lease does not stop ingestion, compaction
+or record expiration. Treat stored values, arrays and sketches as immutable, and construct
+replacement values for writes. Direct writes bypass ingestion and aggregation and can make
+raw events, rollups and cached sessions inconsistent. The metadata store uses files rather
+than ZoneTree and is not exposed.
+
+For shared indexes, restrict iterators using the returned logical `KeyPrefix`. Each accessor exposes a logical namespace within the shared physical store.
+
+## Related pages
+
+- [First events and reports](../../getting-started/first-events/first-events.mdx)
+- [Query model reference](../query-model/query-model.mdx)
+- [Observability and troubleshooting](../../operations/observability/observability.mdx)
+

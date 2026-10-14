@@ -1,0 +1,204 @@
+---
+title: "Query model reference"
+description: "Query fields, metrics, filters, time ranges, and execution-plan results."
+order: 2
+template: doc
+---
+
+# Query model reference
+
+A query describes an event set, aggregate metrics, presentation order, and time range. The result carries both values and the plan used to produce them.
+
+## AnalyticsQuery properties
+
+| Property | Default | Meaning |
+| --- | --- | --- |
+| Site | Engine default | Dataset site |
+| Event | pageview | Base event for unqualified metrics |
+| Range | Last 30 calendar days | Selected history |
+| TimeZone | Engine time zone | Calendar ranges and day-or-coarser buckets |
+| Interval | None | One aggregate bucket or a time series |
+| GroupBy | Empty | Ordered list of grouping dimensions |
+| Filters | Empty | Conditions on every event sub-query |
+| Segments | Empty | Behavioral visitor or session membership |
+| Metrics | Events and Visitors when omitted | Selected measures |
+| OrderBy | Bucket order, otherwise first metric descending | Result sort keys |
+| Limit / Offset | All / zero | Overall pagination |
+| LimitPerBucket | All | Top groups within each bucket before global pagination |
+| Fill | Zero | Time-series gaps for groups with data |
+| Having | Empty | Conditions on aggregated rows |
+| OnlyRowsWithBaseEvent | false | Restrict joined results to base-event rows |
+| Compare | None | Comparison period |
+| Source | Auto | Automatic, forced rollup, or forced raw execution |
+
+Metrics that read different events execute as separate sub-queries and join by bucket and dimensions. Missing dimension values group under null.
+
+## Metric families
+
+| Metric | Reads | Meaning |
+| --- | --- | --- |
+| `Events`, `Visitors` | base event | count and unique visitors |
+| `EventsOf(e)`, `VisitorsOf(e)` | event `e` | count and unique visitors of another event |
+| `PageViews` | page views | page view count |
+| `Sessions`, `Bounces`, `BounceRate`, `SessionDuration`, `AverageSessionDuration`, `PageViewsPerSession` | sessions | session metrics; rates are 0 to 1, durations are seconds |
+| `Entrances`, `Exits`, `ExitRate` | page views | sessions that started or ended on a page |
+| `Sum(v)`, `Average(v)`, `Min(v)`, `Max(v)`, `Count(v)` | base event, or `Sum(v, e)` | aggregates of a tracked value |
+| `StandardDeviation(v)`, `Variance(v)` | base event, or with `e` | population spread of a tracked value |
+| `Percentile(v, p)`, `Median(v)` | base event, or with `e` | quantile estimates; exact minimum at 0 and maximum at 100 ¹ |
+| `First(v)`, `Last(v)` | base event, or with `e` | the first and last value by time: gauges such as a temperature ¹ |
+| `Distinct(d)` | base event, or with `e` | distinct values of a dimension, such as tenants or countries ¹ |
+| `CountBetween(v, lower, upper)`, `Histogram(v, edges)` | base event, or with `e` | approximate counts in `[lower, upper)`; a histogram returns one metric per bin ¹ |
+| `m.Where(filters)` | as `m` | `m` over the events that match the filters: CountIf, SumIf and so on |
+| `VisitorsOf(goal)`, `ConversionRate(goal)` | goal event | goal visitors, and goal visitors ÷ base visitors |
+| `PercentOfTotal(m)` | as `m` | each row's share of the total |
+| `BotHits` | bot events | automated requests, see [bot collection](../../guides/tracking/tracking.mdx#keep-automated-traffic-separate) |
+
+¹ Answered from rollups when configured (see [rollups and query planning](../../performance/rollups/rollups.mdx)), otherwise from retained raw events. See [accuracy and optional aggregate state](#accuracy-and-optional-aggregate-state) for estimation limits.
+
+The engine runs sub-queries for the events and metric-local conditions needed by a request, then joins results by bucket and group values. By default, any metric can contribute a result row. Set `OnlyRowsWithBaseEvent=true` to keep only groups with base-event activity. Query filters apply to every sub-query.
+
+<import-codeblock src="./conditional-metrics.cs"/>
+
+A conditional metric is answered from rollups when a rollup definition covers the group-by and filter dimensions together with the dimensions of its conditions, otherwise from raw events; on a formula, the conditions apply to every aggregate in it. Histograms and `CountBetween` read the percentile sketches, so they need `ValueAggregates.Percentiles` to be answered from rollups.
+
+Session metrics can only be grouped and filtered by session-level dimensions (standard and `Sessions.Dimensions`) and the entry page; entrances and exits also by page and hostname. Use a segment to select sessions by anything else. Bot metrics can only be grouped and filtered by page, hostname, `event`, `bot` and `bot_category`, and cannot be combined with segments.
+
+Every metric has a stable key, for example `visitors`, `bounce_rate`, `sum:revenue`, `avg:duration_ms@job_completed`, `p95:load_time`, `distinct:tenant`, `conversion_rate:signup`, `percent(visitors)`, `div(sum:revenue,events:purchase)`, `moving_avg(visitors,7)`, `count_between(load_time,100,500)` or `where(events,"status>=500")` (filters in double quotes, with backslash escapes); `Metric.Parse` turns keys back into metrics.
+
+## Formulas and series functions
+
+Arithmetic operators compose metrics. `PercentOfTotal`, `Rate`, `Cumulative`, `MovingAverage`, `Difference`, `Increase`, `Lag`, and `Lead` transform aggregate series. Metric keys provide a round-trippable text representation through `Parse` and `TryParse`.
+
+| Function | Result rows | Totals |
+| --- | --- | --- |
+| Rate(metric, per) | Rate over each bucket's covered duration | Average rate over the range |
+| Cumulative(metric) | Running total | Metric total |
+| MovingAverage(metric, buckets) | Window average | Metric total |
+| Difference(metric) | Change from the previous observation | Sum of changes |
+| Increase(metric) | Counter increase, treating a decrease as a reset | Sum of increases |
+| Lag / Lead | Value at an earlier or later interval position | Metric total |
+
+Series functions require an interval, except Rate. Lag, Lead, and moving-average windows count interval positions. With no gap fill, an absent target contributes zero to these calculations. Difference and Increase compare consecutive returned observations.
+
+Formulas are evaluated from aggregate totals for the totals row. Division by zero and non-finite formula results evaluate to zero; individual numeric aggregates can still be non-finite.
+
+Fill runs on aggregates before formulas and series functions. Previous fill uses the nearest available value for leading gaps; linear fill interpolates between observed buckets and uses nearest values at the edges. Groups with no data anywhere in the selected range are not invented.
+
+## Accuracy and optional aggregate state
+
+At default sketch precision 14, distinct counts are exact up to 4,096 identities per row and have approximately 0.8% standard error above that threshold.
+
+Percentiles use a mergeable quantile sketch. Retained logarithmic buckets have at most 1% relative value error. Magnitudes below `1e-9` share a zero bucket; each sign retains at most 2,048 buckets, and smaller magnitudes can collapse when its span is exceeded. The relative-error guarantee excludes zero and collapsed buckets. Percentiles zero and 100 remain exact.
+
+Histogram and CountBetween results use quantile buckets. Their bin counts are approximate; relative value precision is not a guarantee of relative error in each bin's count.
+
+Percentiles, first/last values, and distinct dimension counts need their configured optional state for rollup execution. Without it, retained raw events can answer the metric. Retention and activation coverage remain independent of sketch accuracy.
+
+## Filter families
+
+| Factory | Meaning |
+| --- | --- |
+| Equal / NotEqual | Match or exclude specified values |
+| Contains / NotContains | Substring tests |
+| StartsWith / EndsWith | Prefix and suffix tests |
+| Matches / NotMatches | Regular-expression tests |
+| GreaterThan / GreaterThanOrEqual / LessThan / LessThanOrEqual | Numeric dimension comparisons |
+| IsSet / IsNotSet | Presence and absence |
+| AnyOf / AllOf | Nested Boolean groups |
+
+Conditions in a query's filter list are combined with AND. Alternative values inside a condition match with OR. Missing values satisfy negative comparisons but not positive value matches; use presence tests when absence must be explicit.
+
+`Metric.Where` is a metric-local contribution filter. `MetricFilter` is a post-aggregation HAVING condition and does not change totals or comparison source rows.
+
+### Histograms
+
+Histogram returns one metric per adjacent pair of edges. Add those metrics to a query to report a distribution:
+
+<import-codeblock src="./histogram.cs"/>
+
+Configure percentile aggregate state for rollup execution; retained raw events can supply the measurement when that state is unavailable.
+
+## Ranges, intervals, and comparisons
+
+<import-codeblock src="./concepts-time-and-accuracy-1.cs"/>
+
+**Text forms.** Ranges, comparison periods, filters, metrics, conditions, sort keys, segments and intervals each have a text form: `Parse` reads it, `TryParse` tries to, and `ToString()` writes it back. The reporting API uses the same syntax.
+
+| Type | Examples |
+| --- | --- |
+| `DateRange` | `today`, `yesterday`, `30d`, `today-7..today-1`, `12h`, `30m`, `this-month`, `last-month`, `this-year`, `last-year`, `2026`, `2026-02`, `2026-02-28`, `2026-02-01..2026-02-28`, two ISO 8601 date-times separated by `..` |
+| `ComparisonPeriod` | `previous-period`, `previous-year`, or a date range |
+| `Filter` | `country==DE\|AT`, `page^=/blog/`, `load_time>=500`, `utm_source?` |
+| `Metric` | `visitors`, `sum:revenue`, `p95:load_time`, `percent(visitors)` |
+| `MetricFilter` | `visitors>10` |
+| `Order` | `-visitors`, `page` (a group-by dimension), `bucket` |
+| `Segment` | `visitors with purchase where plan==pro; country==DE`, `not sessions with signup` |
+| `TimeInterval` | `day`, `hour`, `5m`, `6h` |
+
+Invalid text raises `FormatException`; a null text raises `ArgumentNullException`.
+
+Calendar ranges and day, week, month and year buckets follow the query's time zone (the engine's reporting time zone by default). Daily rollups are stored in the reporting time zone; other time zones are answered from hourly rollups. A time series has at most `Queries.MaxTimeBuckets` buckets (100,000 by default); longer ones are rejected rather than truncated. A query groups by at most `Queries.MaxGroupBy` dimensions (8 by default).
+
+`Queries.MaxGroups` bounds aggregate entries while reading a query (100,000 by default), before
+`Limit`, `Having` or `LimitPerBucket` are applied. Each time bucket and dimension combination
+counts separately for each metric source; partial groups of parallel raw scans count until
+merged. A query that exceeds the budget raises `AnalyticsQueryException`. Narrow its range,
+group by fewer dimensions, lower `Queries.MaxDegreeOfParallelism`, or raise `MaxGroups`.
+Comparison periods have separate budgets; gap-filled rows use `Queries.MaxFilledRows`.
+
+Queries and funnels that run longer than `Queries.Timeout` (30 seconds by default) are cancelled with an `AnalyticsQueryTimeoutException`, a kind of `AnalyticsQueryException`, so an expensive ad-hoc query cannot tie up the host application.
+
+## Behavioral requests
+
+### Derived time dimensions
+
+`StandardDimensions.HourOfDay` (`$hour_of_day`) and `DayOfWeek` (`$day_of_week`) are computed in the query's time zone. Hours are 0–23; weekdays are Monday=1 through Sunday=7.
+
+<import-codeblock src="./guides-querying-7.cs"/>
+
+Use them in grouping, filters, and conditional metrics. They are computed rather than stored dimensions, so omit them from rollup definitions.
+
+### Segments and funnels
+
+`Segment.VisitorsWho`, `SessionsWith`, and `VisitorsWhoViewed` select identities with matching events. `Exclude` inverts that membership.
+
+`FunnelQuery` supplies site, range, time zone, two to 64 ordered steps, optional global filters and segments, and an optional completion window. Null window requires a single session. Step factories include page and goal helpers.
+
+## Results and plans
+
+| Type | Important fields |
+| --- | --- |
+| AnalyticsResult | From, To, TimeZone, Rows, TotalRows, Totals, Comparison, Plan |
+| AnalyticsRow | Bucket, Dimensions, Values, Previous, metric and dimension indexers |
+| QueryPlan | Steps, Warnings, RollupSuggestions, IsComplete, source-use flags |
+| QueryPlanStep | Event, Source, From, To, IndexDimension |
+| FunnelResult | From, To, Steps, ConversionRate, Plan |
+
+`TotalRows` is the count before global pagination. Totals precede pagination, and distinct counts merge state rather than adding row values. `Change(metric)` returns relative change, or null when no matching comparison exists or the previous value is zero.
+
+Plan sources are DayRollups, HourRollups, MinuteRollups, RawEvents, and DimensionIndex. A covering rollup index keeps its tier source and sets `IndexDimension`. Suggestions identify missing ordinary rollup definitions; they do not make historical coverage complete.
+
+## Standard web vocabulary
+
+| Dimension | Source |
+| --- | --- |
+| `page`, `hostname` | Page URL. Query strings are removed by default; UTM parameters are extracted. |
+| `entry_page` | First page of the session. |
+| `source` | `utm_source`, a known referrer name ("Google", "Twitter", "Hacker News", "ChatGPT", ...), the referrer host, or "Direct". |
+| `referrer` | Referrer host, empty for direct traffic. |
+| `channel` | Direct, Organic Search, Paid Search, Organic Social, Paid Social, Email, Affiliates, AI Assistants, Video, Referral or Paid Other (constants in `Channels`). |
+| `utm_source`, `utm_medium`, `utm_campaign`, `utm_term`, `utm_content` | Campaign parameters of the landing URL. |
+| `country`, `region`, `city` | Your `IGeoLocator`, or values you pass as dimensions (for example from a CDN header). |
+| `browser`, `os`, `device` (+ `browser_version`, `os_version`) | Built-in, dependency-free user agent parser, or your `IUserAgentParser`. |
+| `bot`, `bot_category`, `event` | On bot events only: the bot, its category and the original event name. |
+
+Source, campaign, geography and device are **session-level**: captured from the first event of a session and attached to every event of the session, so all page views and goals of a visit share them. Standard dimensions can be overridden per event, for example `Dimensions = { [StandardDimensions.Country] = cdnCountry }`.
+
+For runnable composition patterns, use the [query guide](../../guides/querying/querying.mdx) and [web-report guide](../../guides/web-reports/web-reports.mdx).
+
+## Related pages
+
+- [Querying and time series](../../guides/querying/querying.mdx)
+- [Web reports](../../guides/web-reports/web-reports.mdx)
+- [Rollups and query planning](../../performance/rollups/rollups.mdx)
+

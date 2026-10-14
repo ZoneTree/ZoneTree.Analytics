@@ -1,0 +1,94 @@
+---
+title: "Rollups and query planning"
+description: "Understand why some reports read a few aggregate rows while others scan event history."
+order: 1
+template: doc
+---
+
+# Rollups and query planning
+
+Rollups pre-aggregate recurring questions so reports read summary rows instead of replaying every event. Query plans show when those summaries can answer a request.
+
+## Understand a matching rollup
+
+A rollup groups events by a configured dimension set within a time bucket. For a source report filtered to a country, the engine needs the joint source-and-country combination.
+
+Separate source and country totals cannot reconstruct the relationship between them.
+
+Here is the report we want to accelerate:
+
+<import-codeblock src="./rollup-query.cs"/>
+
+Add the matching joint definition to the options before opening the engine:
+
+<import-codeblock src="./performance-rollups-1.cs"/>
+
+Configure definitions before opening the engine. Ordinary definitions added later cover new data; earlier ranges can still use retained raw events.
+
+The first definition covers the union of the report's `source` grouping and `country` filter. The second independently prepares purchase reports grouped by plan. A definition's dimension set must match the stored dimensions needed by the query; adding unrelated dimensions is not a substitute for the required set.
+
+## Follow a report's plan
+
+The planner considers the dimensions used by grouping, event filters, and conditional metrics, as well as the requested aggregates and historical coverage.
+
+It can read daily summaries for aligned days, hourly or minute summaries for finer portions, and event history where aggregate coverage is unsuitable. A request can combine sources.
+
+| Plan signal | Meaning |
+| --- | --- |
+| UsedRollups | A configured aggregate tier contributed |
+| UsedRawEvents | Event-level data contributed |
+| UsedDimensionIndexes | An ordered copy narrowed raw reads |
+| UsedRollupIndexes | A covering equality index read aggregate rows |
+| Warnings | A condition affects coverage or interpretation |
+
+Each step names an event, a time range, and a source. Indexed steps also identify the equality dimension.
+
+Inspect the `result` returned by the report:
+
+<import-codeblock src="./query-plan.cs"/>
+
+`UsedRawEvents` also includes dimension-index reads because those still aggregate individual event payloads. `UsedRollupIndexes` identifies the aggregate-index path. These flags can both be true when different parts of a report use different sources.
+
+## Use suggestions for recurring queries
+
+When automatic execution falls back because a suitable dimension set is missing, the plan can suggest a definition:
+
+<import-codeblock src="./performance-rollups-2.cs"/>
+
+Apply a suggestion to the configuration used to open the next engine. It accelerates newly tracked activity; an ordinary added definition does not rebuild expired or existing history.
+
+Several event metrics can suggest the same dimension set. The example merges their event scopes and updates an existing restricted definition instead of adding duplicate definitions.
+
+Suggestions are advisory. They do not resolve every cause of raw execution, such as segments, range boundaries, or missing optional aggregate state.
+
+## Enable the aggregates your reports need
+
+Counts and standard numeric aggregates are stored in rollups. Percentiles, first and last values, and distinct dimension counts require additional state:
+
+<import-codeblock src="./performance-rollups-3.cs"/>
+
+Without the required aggregate state, the engine uses retained raw events where available. A query that needs unavailable history or disabled raw storage can produce a warning or fail, depending on the request.
+
+## Explain slow filtered reports
+
+An unfiltered report may read a few summary rows. Adding a filter can require a different joint combination and much more event-level work.
+
+| Report | Required stored dimension set | Selective rollup-index leader |
+| --- | --- | --- |
+| Group by source | source | Usually unnecessary for this unfiltered report |
+| Filter source, group by country | source + country | source |
+| Filter country, group by source | source + country | country |
+| Filter page, group by source | page + source | page |
+
+The two middle reports share an aggregate combination but need different leading keys for selective equality reads. Session and goal metrics can add separate plan steps with their own requirements.
+
+Dimension indexes narrow matching events. [Rollup indexes](../secondary-indexes/secondary-indexes.mdx) provide an ordered aggregate path for explicitly selected equality filters. Choose the approach from the report's plan rather than its displayed row count.
+
+Coverage also depends on activation dates, retention, and enabled time tiers. Enabling an index cannot recover expired raw history.
+
+## Related pages
+
+- [Secondary indexes and backfilling](../secondary-indexes/secondary-indexes.mdx)
+- [Querying and time series](../../guides/querying/querying.mdx)
+- [Observability and troubleshooting](../../operations/observability/observability.mdx)
+

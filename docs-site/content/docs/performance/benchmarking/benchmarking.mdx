@@ -1,0 +1,66 @@
+---
+title: "Benchmarking"
+description: "Compare ingestion and reporting performance with reproducible workloads."
+order: 4
+template: doc
+---
+
+# Benchmarking
+
+Measure performance with a representative workload and record the conditions of the run. Compare results only when the event shape, enabled features, and storage state are understood.
+
+## Choose a tool
+
+| Tool | Purpose |
+| --- | --- |
+| Playground | Direct library ingestion and query workloads |
+| Dashboard sample generation | Realistic data for browsing and investigating reports |
+| Dashboard ingestion benchmark | Timed ingestion with a retained dataset for later queries |
+
+The dashboard generates varied sessions, sources, geography, devices, conversions, and load times. Its percentile option changes aggregate maintenance without removing the underlying measurement values.
+
+## Use a consistent build
+
+Run the playground from the repository root:
+
+<import-codeblock src="./playground-benchmark.ps1"/>
+
+For dashboard benchmarks, publish its UI and start the server:
+
+<import-codeblock src="./dashboard-benchmark.ps1"/>
+
+Use the same Release build, runtime, GC mode, compilation settings, and disk conditions across comparisons. The supplied commands disable tiered compilation to reduce timing variation.
+
+## Read benchmark phases
+
+| Phase | Meaning |
+| --- | --- |
+| Preparation | Creating input before the measured interval |
+| Submission | Handing events to the ingestion pipeline |
+| Ingestion plus flush | Submission and processing through final aggregate saving |
+| Preparing reports | Final compaction and publication of the retained dataset |
+
+Submission and processing overlap. Submission time is already included in ingestion-plus-flush time; do not add them together.
+
+Throughput uses successfully processed events divided by the measured ingestion interval. Confirm rejected, dropped, and error counts alongside the result.
+
+## Compare equivalent work
+
+A workload with sessions, percentile sketches, many aggregate combinations, and copied indexes requires more work than a minimal event stream.
+
+Record those features with event count, date span, worker count, and average event size. A throughput difference between unlike workloads does not identify its cause by itself.
+
+## Investigate reporting
+
+Browse the retained benchmark dataset over its full date range. Compare filtered and unfiltered reports and inspect their plans.
+
+Record whether storage is newly written, compacted, or warmed by earlier reads. Measure more than one run and report the typical result and variation.
+
+Keep benchmark measurements separate from normal application guidance: routine reporting does not require a manual flush or compaction call.
+
+## Related pages
+
+- [Dashboard application](../../getting-started/dashboard/dashboard.mdx)
+- [Rollups and query planning](../rollups/rollups.mdx)
+- [Ingestion and storage tuning](../tuning/tuning.mdx)
+

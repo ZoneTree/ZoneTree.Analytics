@@ -8,7 +8,7 @@
     "themes": ["light", "dark"],
     "pretty": false,
     "theme": {
-      "skin": "standard"
+      "skin": "analytics"
     }
   },
   "auth": {
@@ -47,7 +47,8 @@
   },
   "consent": {
     "enabled": true,
-    "policyVersion": "2023-02-17",
+    "policyVersion": "2026-10-07",
+    "privacyPolicyUrl": "/legal/privacy/",
     "categories": [
       {
         "id": "necessary",
@@ -59,15 +60,15 @@
   },
   "pagefind": {
     "enabled": true,
-    "excludePaths": []
+    "excludePaths": ["/docs/guides/tracking/browser-tracker.html"]
   },
   "preview": {
     "title": "ZoneTree Analytics",
-    "description": "...",
-    "image": "/docs/assets/ZoneTree-org-logo.png",
-    "imageAlt": "...",
-    "imageWidth": 1448,
-    "imageHeight": 1086,
+    "description": "Embedded analytics for .NET. Collect events, query metrics, and host your own reporting dashboard.",
+    "image": "/dashboard-overview.png",
+    "imageAlt": "ZoneTree Analytics dashboard with benchmark traffic and visitor comparisons",
+    "imageWidth": 1600,
+    "imageHeight": 1100,
     "siteName": "ZoneTree Analytics",
     "twitterCard": "summary_large_image"
   },

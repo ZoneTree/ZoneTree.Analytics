@@ -1,0 +1,70 @@
+---
+title: "ASP.NET Core integration"
+description: "Connect the engine to application hosting, request tracking, and reporting endpoints."
+order: 3
+template: doc
+---
+
+# ASP.NET Core integration
+
+Add analytics to an ASP.NET Core application with a registered engine, a collection method, and reporting endpoints.
+
+## 1. Install the integration package
+
+Create a minimal web project and install the package:
+
+<import-codeblock src="./create-web-host.sh"/>
+
+## 2. Register tracking and reports
+
+Replace `Program.cs` with this development example:
+
+<import-codeblock src="./aspnet-host.cs"/>
+
+`AddZoneTreeAnalytics` registers a shared engine with dependency injection. Your application can inject `IAnalyticsTracker` to record custom actions or `AnalyticsEngine` to read reports.
+
+`UseZoneTreeAnalytics` records successful HTML GET responses.
+
+Host shutdown saves remaining work and closes the engine automatically.
+
+## 3. Run and read a report
+
+<import-codeblock src="./run-web-host.sh"/>
+
+Open **http://localhost:5000/** to collect a visit, then **http://localhost:5000/_analytics/api/summary?range=30d** to read the report. On a fresh dataset, `summary.pageViews` becomes one after background processing. Refresh the report to see new activity.
+
+The API path is JSON, so reading it does not add another page view. Each reload of the HTML home page adds a page view; repeated visits can still belong to one visitor.
+
+## 4. Choose how to collect page views
+
+| Collection method | Best fit |
+| --- | --- |
+| Server middleware | Server-rendered pages and automated clients requesting HTML |
+| Browser tracker | Browser navigation and client-side actions |
+
+Use one method for each page view. Enabling both for the same visits counts them twice.
+
+For browser collection, map `MapZoneTreeAnalytics()` and add the tracker script to your pages. The [tracking guide](../../guides/tracking/tracking.mdx) includes the script and custom-event example.
+
+## 5. Connect application identity
+
+Use `SiteResolver` when requests belong to different sites or tenants. Use `VisitorIdResolver` when a trusted application identity should identify a visitor.
+
+Collection rules and excluded paths can limit which requests are tracked. Applications behind a proxy should configure trusted forwarded headers before the tracking middleware.
+
+## 6. Protect reporting access
+
+The example exposes reports for local development. In your deployed application, apply the host's authorization policy to the reporting route group:
+
+<import-codeblock src="./authorized-reporting.cs"/>
+
+Register that policy in your host first. For multiple sites, also configure `AuthorizeSite` to restrict which site's data a caller can read.
+
+See [sites and tenants](../../guides/sites-and-tenants/sites-and-tenants.mdx) for site scoping and the [HTTP reference](../../reference/http-api/http-api.mdx) for endpoint contracts.
+
+## Related pages
+
+- [Tracking events](../../guides/tracking/tracking.mdx)
+- [Sites and tenants](../../guides/sites-and-tenants/sites-and-tenants.mdx)
+- [HTTP API](../../reference/http-api/http-api.mdx)
+

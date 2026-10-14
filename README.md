@@ -8,7 +8,7 @@ ZoneTree.Analytics is a lightweight analytics engine that runs inside your appli
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Platform](https://img.shields.io/badge/platform-.NET%208%20%7C%209%20%7C%2010-blue.svg)
 
-[Documentation](docs/index.md) · [Getting started](docs/getting-started/index.md) · [API reference](docs/reference/index.md)
+[Documentation](docs-site/content/docs/index.mdx) · [Getting started](docs-site/content/docs/getting-started/index.mdx) · [API reference](docs-site/content/docs/reference/index.mdx)
 
 ```csharp
 using var analytics = AnalyticsEngine.Open("data/analytics");

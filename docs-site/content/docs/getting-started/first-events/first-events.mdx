@@ -1,0 +1,49 @@
+---
+title: "First events and reports"
+description: "Follow the smallest complete path from opening an engine to reading a report."
+order: 2
+template: doc
+---
+
+# First events and reports
+
+Record website activity and a business event, then read traffic and revenue reports. This example is a complete console program.
+
+## 1. Create the application
+
+<import-codeblock src="./create-console.sh"/>
+
+## 2. Track events and read reports
+
+Replace `Program.cs` with:
+
+<import-codeblock src="./first-events.cs"/>
+
+The page view contributes to website reports. The purchase records a customer action, its plan, and its revenue amount. Both carry the same example customer ID so they belong to the same visitor.
+
+Both use the same engine. Reports update automatically as events are processed, and your application can keep querying while tracking continues.
+
+## 3. Run the program
+
+<import-codeblock src="./run-console.sh"/>
+
+Press **Enter** to read the reports, and press it again to refresh. On a fresh dataset, the page-view total becomes **1** and revenue becomes **49.00** as the accepted events are processed. If you read immediately, a first report may still show zero; refresh after the next automatic update.
+
+The program stores its dataset in `data/analytics`. Each run adds another page view and purchase. It does not create a new visitor because the example uses the same customer ID.
+
+Type **q** to close. The `await using` declaration saves remaining work at shutdown. In a service or web application, keep the engine open while the application runs.
+
+## 4. Choose your next report
+
+Use `analytics.Web` for visitors, page views, sources, and other website reports. Use `AnalyticsQuery` for custom event counts, revenue, telemetry, or combinations of metrics.
+
+A web summary returns `Summary`. A general query returns `Rows` and `Totals`. The example reads a total, so it does not need to loop over grouped rows.
+
+Continue with [web reports](../../guides/web-reports/web-reports.mdx) or [custom queries](../../guides/querying/querying.mdx). For a web-hosted integration, use the [ASP.NET Core guide](../aspnet-core/aspnet-core.mdx).
+
+## Related pages
+
+- [Event and report model](../../concepts/data-model/data-model.mdx)
+- [Tracking events](../../guides/tracking/tracking.mdx)
+- [Web reports](../../guides/web-reports/web-reports.mdx)
+

@@ -1,0 +1,185 @@
+---
+title: "HTTP API reference"
+description: "Send collection and reporting requests, interpret JSON results, and handle API limits."
+order: 4
+template: doc
+---
+
+# HTTP API reference
+
+The ASP.NET Core integration exposes browser collection and reporting routes. This reference uses the default tracker prefix `/_analytics` and report prefix `/_analytics/api`.
+
+## Register routes
+
+<import-codeblock src="./http-routes.cs"/>
+
+The host configures its authentication and authorization policies. Override collection paths through `AnalyticsWebOptions.PathPrefix` and reporting paths through `MapZoneTreeAnalyticsApi`.
+
+## Browser collection
+
+| Route | Purpose |
+| --- | --- |
+| GET /_analytics/script.js | Serve the tracker |
+| POST /_analytics/event | Accept an event beacon |
+
+The script exposes `zta(name, dimensions, numericValues)`, records the initial page view, and observes history navigation by default. Pre-installation queued calls are replayed.
+
+| Script attribute | Effect |
+| --- | --- |
+| data-endpoint | Override the beacon URL |
+| data-track-navigation="false" | Disable page views from history-state changes |
+| data-hash-routing="true" | Treat hash-route changes as navigation |
+| data-allow-localhost="true" | Enable collection on loopback hosts |
+
+Automation identified through `navigator.webdriver` is excluded by the script. Repeated automatic page views for the same current URL are suppressed.
+
+### Beacon payload
+
+<import-codeblock src="./beacon.json"/>
+
+| Field | Meaning |
+| --- | --- |
+| n | Required non-reserved event name |
+| u / r | Page URL and referrer |
+| p | Scalar dimensions |
+| m | Numeric values |
+| h | Optional true value for hash-route interpretation |
+
+The tracker normally sends JSON as text/plain. Site and explicit visitor identity come from host resolvers, not a browser-supplied site field.
+
+The default beacon limit is 8 KiB.
+
+## Reporting routes
+
+All routes below are relative to `/_analytics/api`.
+
+| Method and route | Result |
+| --- | --- |
+| GET /summary | Traffic and engagement totals |
+| GET /timeseries | Summary metrics by interval |
+| GET /breakdown | A selected dimension's rows |
+| GET /pages | Page statistics |
+| GET /exit-pages | Page statistics restricted to exits |
+| GET /goals | Custom-event counts and conversions |
+| GET /bots | Separate automated traffic |
+| GET /realtime | Recent distinct visitor count |
+| POST /query | General analytics query |
+| POST /funnel | Ordered funnel |
+
+List reports contain from, to, totalRows, rows, and plan. Summary reports contain summary instead of rows. General queries include grouping, metric keys, totals, and result rows.
+
+### Send a report request
+
+These examples use HTTP-file syntax. Replace `http://localhost:5000` with your reporting host and supply its authentication credentials when required. The local address matches the [ASP.NET Core quick start](../../getting-started/aspnet-core/aspnet-core.mdx).
+
+<Tabs group="reporting-http" selectedTab="reporting-get" ariaLabel="Reporting request examples" tone="neutral" variant="none">
+  <TabPane id="reporting-get" label="GET reports"><import-codeblock src="./reporting-get.http"/></TabPane>
+  <TabPane id="reporting-post" label="POST a query"><import-codeblock src="./reporting-post.http"/></TabPane>
+</Tabs>
+
+The second GET URL encodes `source==GitHub` and groups the matching traffic by country. The POST uses the event fields from the [product analytics guide](../../guides/product-analytics/product-analytics.mdx); a different site or value name must match your own collection.
+
+### Common scope
+
+| Parameter | Meaning |
+| --- | --- |
+| site | Site ID; defaults to the engine's default |
+| range | Parsed range; defaults to 30d |
+| from / to | Both required together; either two dates or two ISO 8601 date-times |
+| tz | Reporting time zone |
+| filter / filters | Event filter expressions |
+| segment / segments | Behavioral membership expressions |
+| compare | Previous period, previous year, or explicit range |
+| limit / offset | Pagination |
+| interval | Time-series width, such as day or 6h |
+
+GET filters and segments can be repeated. JSON accepts the corresponding arrays; segments also accept supported objects. Use the same text forms as the .NET parsers and URL-encode GET expressions.
+
+Breakdown requires dimension. Realtime accepts minutes, defaulting to five.
+
+Date-only bounds include both calendar days in `tz`. Date-time bounds include the start and exclude the end. Explicit `from` and `to` take precedence over `range`; returned `from` and `to` are the resolved start and exclusive end. See [time ranges](../../concepts/time-and-accuracy/time-and-accuracy.mdx#calendar-ranges-and-rolling-windows).
+
+### General query
+
+<import-codeblock src="./reference-http-api-1.json"/>
+
+Post this JSON object to `/query` to compare source traffic and signup conversion within Germany and Austria. It assumes the corresponding page views and signup events carry matching visitor identity and geography. The `having` condition keeps groups with more than ten visitors; omit it to include smaller audiences.
+
+Additional fields include event, groupBy, metrics, source, fill, having, orderBy, limitPerBucket, and onlyRowsWithBaseEvent.
+
+Source chooses Auto, Rollups, or RawEvents. Fill chooses none, zero, previous, or linear. See the [query model](../query-model/query-model.mdx) for calculation semantics.
+
+### Funnel
+
+<import-codeblock src="./funnel.json"/>
+
+Each step requires an event and can supply a name and filters. Omit windowMinutes for a single-session funnel; a supplied window must be positive.
+
+Global filters and step filters have different scopes.
+
+## Optional web metrics
+
+`includeSessionMetrics=false` skips session metrics on summary, time-series, and breakdown requests. `includePageFlowMetrics=false` skips entrances and exits on page reports.
+
+Both default to true. Disabled fields are null, including comparison fields. Exit-page requests require page-flow metrics.
+
+## Result interpretation
+
+A general query returns metric-keyed objects. Here is an example response for a daily purchase report with no grouping or gap filling:
+
+<import-codeblock src="./query-response.json"/>
+
+| Field | How to use it |
+| --- | --- |
+| metrics | Stable keys used in every values object |
+| rows[].bucket | Timestamp for the chart position; absent for an unbucketed row |
+| rows[].dimensions | Grouping values; absent when no dimensions are requested |
+| rows[].values | Measurements addressed by metric key |
+| totals.values | Full-report aggregates before pagination |
+| totalRows | Result-row count before global pagination |
+| previous | Comparison object, when one is available |
+| plan.complete / warnings | Historical coverage and interpretation concerns |
+
+Numeric rates such as bounce rate and conversion rate are fractions: `0.25` means 25%. Built-in session durations are seconds. Custom numeric values retain their producer's unit, such as `duration_ms` or `revenue_usd`.
+
+Plans include source steps, warnings, completeness, and rollup suggestions. Use them when historical coverage matters.
+
+HTTP plans expose `steps[].source` and optional `steps[].indexDimension`. The .NET-only convenience flags such as `UsedRollupIndexes` are not additional fields in the JSON contract.
+
+Non-finite .NET numeric values are serialized as null. The API adds a plan warning and marks the response incomplete. Missing pages are excluded before page-report pagination; exit-page reports additionally exclude rows without exits.
+
+## Status codes
+
+| Status | Collection | Reporting |
+| --- | --- | --- |
+| 202 | Accepted | — |
+| 204 | Filtered by policy | — |
+| 400 | Invalid or disallowed event | Invalid request or unsupported/bounded query |
+| 403 | Host policy may deny access | AuthorizeSite denied the normalized site |
+| 413 | Beacon payload too large | POST payload too large |
+| 503 | Temporarily unavailable | Timeout, concurrency saturation, or response size exceeded |
+
+Collection unavailability and reporting concurrency saturation return Retry-After: 1. A successful beacon means acceptance, not completed aggregate processing.
+
+Reporting errors contain an `error` string. Keep that message with the status when diagnosing a failure; a 503 can have different causes. Retry transient admission failures with backoff, while a response-size or query-budget problem needs a narrower request. Host authentication can add its own 401 or 403 responses.
+
+## Limits and authorization
+
+Reporting POST bodies must be JSON objects. Defaults are 64 KiB for a body, four concurrent requests, and 16 MiB for a successful serialized response.
+
+Admission covers body reading through delivery and rejects excess requests immediately. Responses are serialized before committing success headers, so oversized output can return a complete error. Engine query budgets govern computation independently.
+
+Protect report access with host authorization. `AuthorizeSite` receives the normalized executed site, including the default for an omitted or empty site. Attach rate limiting through the host when required.
+
+## Dashboard-specific routes
+
+The dashboard adds API connection settings and Development-only sample-data tools. Those routes are not automatically installed by the library's reporting mapping.
+
+Sample and benchmark report prefixes address separate datasets. See the [dashboard guide](../../getting-started/dashboard/dashboard.mdx) for how readers select them.
+
+## Related pages
+
+- [ASP.NET Core integration](../../getting-started/aspnet-core/aspnet-core.mdx)
+- [Sites and tenants](../../guides/sites-and-tenants/sites-and-tenants.mdx)
+- [Dashboard application](../../getting-started/dashboard/dashboard.mdx)
+

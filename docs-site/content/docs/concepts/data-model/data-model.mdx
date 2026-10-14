@@ -1,0 +1,80 @@
+---
+title: "Event and report model"
+description: "Understand events, dimensions, values, visitors, sessions, and sites as one analytics model."
+order: 2
+template: doc
+---
+
+# Event and report model
+
+Events describe what happened. Dimensions describe its context. Numeric values measure its result. This model supports website traffic, product actions, telemetry, and business metrics.
+
+## Events and fields
+
+| Field | Purpose | Example |
+| --- | --- | --- |
+| Name | Action or measurement category | purchase |
+| Timestamp | When it happened | Defaults to tracking time |
+| Site | Website, application, or tenant | shop |
+| Dimensions | Categories for grouping and filtering | plan = pro |
+| Values | Numeric measurements | revenue = 49 |
+| VisitorId | Optional explicit identity | A trusted account identifier |
+| Url and Referrer | Website context | Checkout page and acquisition source |
+
+Only the event name is required. Names beginning with `$` are reserved for engine-maintained events.
+
+<import-codeblock src="./event-model.cs"/>
+
+An event can also describe a completed job with a queue dimension and duration value, without a visitor or URL.
+
+See [product analytics](../../guides/product-analytics/product-analytics.mdx) for a complete purchase workflow, or [service telemetry](../../guides/telemetry/telemetry.mdx) for request counts, errors, and latency.
+
+## Standard website context
+
+The engine derives useful dimensions from the event context:
+
+| Area | Examples |
+| --- | --- |
+| Content | Page, hostname, entry page |
+| Acquisition | Source, channel, referrer, UTM campaign fields |
+| Audience | Country, region, city, browser, operating system, device |
+| Automated traffic | Bot name, category, and original event |
+
+The core library ships a user-agent classifier but no geography database. Supply a geolocation adapter or trusted geography dimensions when those reports are needed.
+
+Standard dimension values supplied on an event can override derived context.
+
+## Visitors and sessions
+
+A visitor is a hashed identity used for distinct counts and behavior analysis. Identity policy determines whether it is recognizable only within a day or across days.
+
+A session groups a visitor's activity until the configured inactivity timeout, 30 minutes by default. Session context captures acquisition, geography, device, and configured custom session dimensions from its first event.
+
+That attribution stays with the session. A later source value does not retroactively reclassify how the visit began.
+
+## Metrics
+
+Event counts measure actions. Visitor counts measure distinct identities. Sums and averages measure numeric values. Session metrics describe visits.
+
+The same visitor can appear in several rows. Totals merge distinct identities instead of adding those row counts.
+
+Session duration spans observed activity. A bounce is a single-page-view session without an interactive custom action. An event marked non-interactive can extend activity without preventing a bounce.
+
+## Reports and queries
+
+Use `analytics.Web` for consistent website reports. Use `AnalyticsQuery` to select metrics, categories, filters, and time intervals yourself.
+
+A general query can read several event types for different metrics. For example, a website report can compare page-view visitors with signup conversions.
+
+## Sites
+
+Every event and report belongs to a site. Sites separate logical datasets within one engine, while your host authorizes access.
+
+A tenant dimension is an ordinary category; it does not automatically provide the same reporting boundary as a site. See [sites and tenants](../../guides/sites-and-tenants/sites-and-tenants.mdx) for integration choices.
+
+## Related pages
+
+- [Time, freshness, and accuracy](../time-and-accuracy/time-and-accuracy.mdx)
+- [Tracking events](../../guides/tracking/tracking.mdx)
+- [Sites and tenants](../../guides/sites-and-tenants/sites-and-tenants.mdx)
+

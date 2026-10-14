@@ -1,0 +1,75 @@
+---
+title: "Tracking events"
+description: "Design a collection path for page views, product events, and numeric telemetry."
+order: 1
+template: doc
+---
+
+# Tracking events
+
+Use events to describe actions that matter to your application: a page view, a signup, a purchase, or a completed job.
+
+The .NET examples on this page use an existing `analytics` engine. Keep that engine open while your application runs.
+
+## Record visits and business actions
+
+<import-codeblock src="./tracking.cs"/>
+
+Page views provide website context. Named custom events describe product activity, and numeric values provide measurements such as revenue or duration.
+
+The example uses the same customer ID for both actions. In an application, pass the trusted identity associated with the activity. Without that consistency, the purchase may belong to a different visitor from the page view.
+
+Use stable event names across your application so reports remain comparable over time.
+
+## Choose fields for useful reports
+
+| Question | Event data |
+| --- | --- |
+| Which plan is purchased? | A plan dimension on purchase events |
+| How much revenue is generated? | A numeric revenue value |
+| Which route attracts traffic? | A normalized page URL |
+| How long does a job take? | A duration value on completed-job events |
+| Which visitors convert? | Consistent visitor identity across relevant actions |
+
+Dimensions group and filter events; values are measured and aggregated. Prefer categories such as plan or region to high-cardinality identifiers that do not help the report.
+
+Use an explicit timestamp when importing historical events. Retention determines which tiers can retain that history.
+
+## Collect browser events
+
+Map the tracker endpoints in your ASP.NET Core host, then add the script and record a custom action:
+
+<import-codeblock src="./browser-tracker.html"/>
+
+The browser tracker records page views automatically. Use one collection method for each visit: server middleware or automatic browser page views. See [ASP.NET Core integration](../../getting-started/aspnet-core/aspnet-core.mdx) for the choice.
+
+Client-event rules and tracker attributes are documented in the [HTTP reference](../../reference/http-api/http-api.mdx).
+
+## Identify visitors deliberately
+
+Supply `VisitorId` when your application has a trusted user identity. Without it, the engine uses the configured anonymous identity policy.
+
+Daily anonymous rotation is appropriate for website traffic; explicit or persistent identity is needed for cross-day behavior. Read [privacy and identity](../../concepts/privacy/privacy.mdx) before choosing.
+
+## Keep automated traffic separate
+
+Bots are excluded by default. Enable `BotTraffic.TrackSeparately` to report automated hits alongside human traffic:
+
+<import-codeblock src="./guides-tracking-1.cs"/>
+
+Bot hits do not count as human visitors, sessions, or conversions. Browser tracking sees only automated clients that execute the script; server tracking can observe clients requesting HTML.
+
+## Understand submission and reporting
+
+`Track` returns whether the event was accepted. `TrackAsync` waits asynchronously for queue space. The [engine reference](../../reference/engine/engine.mdx) describes their queue behavior and outcomes.
+
+Normal reports update automatically while collection continues. Close the engine cleanly at application shutdown to save remaining work. Use statistics to investigate rejected, dropped, or failed processing rather than adding a flush to every report request.
+
+## Related pages
+
+- [Event and report model](../../concepts/data-model/data-model.mdx)
+- [Product analytics and revenue](../product-analytics/product-analytics.mdx)
+- [Service and worker telemetry](../telemetry/telemetry.mdx)
+- [Extending enrichment](../extensibility/extensibility.mdx)
+- [Ingestion and storage tuning](../../performance/tuning/tuning.mdx)
+

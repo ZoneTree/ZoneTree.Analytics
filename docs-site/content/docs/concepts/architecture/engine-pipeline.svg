@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1040 520" role="img" aria-labelledby="title desc">
+<title id="title">How events become analytics reports</title>
+<desc id="desc">Tracking feeds background ingestion. Workers maintain raw history, sessions and rollups. The query planner reads those stores and optional copied indexes to produce reports.</desc>
+<defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 8 4 0 8" fill="#84957a"/></marker></defs>
+<rect width="1040" height="520" rx="18" fill="#101211"/>
+<g fill="none" stroke="#84957a" stroke-width="2" marker-end="url(#arrow)">
+<path d="M218 256H270"/><path d="M456 256H506V130H550"/><path d="M506 256V356H550"/>
+<path d="M756 130H800V245H842"/><path d="M756 356H800V275H842"/>
+</g>
+<g stroke="#3c423a" stroke-width="1.5">
+<rect x="30" y="199" width="188" height="114" rx="12" fill="#1c1f1d"/>
+<rect x="270" y="199" width="186" height="114" rx="12" fill="#242f15" stroke="#465d26"/>
+<rect x="550" y="72" width="206" height="114" rx="12" fill="#1c1f1d"/>
+<rect x="550" y="300" width="206" height="114" rx="12" fill="#1c1f1d"/>
+<rect x="842" y="199" width="168" height="114" rx="12" fill="#242f15" stroke="#465d26"/>
+</g>
+<g font-family="Segoe UI,Arial,sans-serif" text-anchor="middle">
+<g fill="#f2f3ed" font-size="21" font-weight="600"><text x="124" y="240">Track events</text><text x="363" y="240">Ingestion</text><text x="653" y="112">Event history</text><text x="653" y="340">Rollups</text><text x="926" y="240">Query planner</text></g>
+<g fill="#aeb3a9" font-size="15"><text x="124" y="272">Validate · copy · queue</text><text x="363" y="272">Enrich · sessionize</text><text x="653" y="144">Raw events + sessions</text><text x="653" y="372">Configured aggregates</text><text x="926" y="272">Read · merge · report</text></g>
+<g fill="#d2fa56" font-size="15"><text x="653" y="226">Optional dimension indexes</text><text x="653" y="453">Optional rollup indexes</text></g>
+<text x="520" y="492" fill="#aeb3a9" font-size="14">Ordered ZoneTree stores · full copied payloads and aggregate values</text>
+</g></svg>
+

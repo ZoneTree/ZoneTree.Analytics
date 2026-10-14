@@ -1,0 +1,82 @@
+---
+title: "Dashboard application"
+description: "Run the included analytics product and connect it to your engine."
+order: 4
+template: doc
+---
+
+# Dashboard application
+
+Use the dashboard to explore website traffic, acquisition, audience, events, and conversion funnels. It combines the library's reporting API with a ready-to-use interface.
+
+<figure><img src="./dashboard-overview.png" alt="Dashboard overview with visitor growth, page views, sessions, engagement, and a daily traffic chart" width="1600" height="1100" loading="lazy"/><figcaption>Traffic and engagement for the selected site, date range, and comparison period.</figcaption></figure>
+
+## 1. Run the dashboard
+
+Install UI dependencies from the repository root:
+
+<import-codeblock src="./dashboard-install.sh"/>
+
+Then run the server from the repository root:
+
+<import-codeblock src="./dashboard-run.sh"/>
+
+Open **http://127.0.0.1:5088/**. The development profile starts the UI watcher automatically, so page and style changes update in the browser.
+
+## 2. Connect your reports
+
+The included server supplies API connection settings. To connect another reporting API, open **Connection** and choose its URL, sites, reporting time zone, and refresh interval.
+
+The default reporting prefix is `/_analytics/api`. Site IDs in the dashboard must match those used to collect events.
+
+## 3. Explore your data
+
+| Page | Question |
+| --- | --- |
+| Overview | How are traffic and engagement changing? |
+| Pages | Which content attracts visitors? |
+| Acquisition | Which sources and campaigns bring traffic? |
+| Audience | Where do visitors come from, and how do they browse? |
+| Events and goals | Which actions and conversions happen? |
+| Funnels | Where do visitors stop before completing a goal? |
+| Bot traffic | Which automated clients visit? |
+| Query explorer | What does a custom report reveal? |
+
+Choose a site and date range, then add filters or comparisons to explore a specific audience. Export reports when you need to work with the results elsewhere.
+
+## 4. Try sample datasets
+
+In Development mode, open **Tools → Sample data** to generate reporting data or run an ingestion benchmark.
+
+| Dataset | Purpose |
+| --- | --- |
+| Default site | Traffic collected by the running application |
+| Performance samples | Generated traffic for exploring report behavior |
+| Latest benchmark | The retained dataset from a successful ingestion benchmark |
+
+Sample tools operate on their own datasets. They do not replace your primary traffic. The latest successful benchmark remains available after restarting the host.
+
+<figure><img src="./dashboard-mobile.png" alt="Mobile dashboard overview with site selection, date controls, and metric cards" width="390" height="844" loading="lazy"/><figcaption>The same reports are available on narrow screens.</figcaption></figure>
+
+## Interface technology
+
+**PureStack** generates the dashboard's pages and provides shared layouts, themes, and UI components. **Regor** powers reports, filters, and charts, with an independent application on each page. See the [technology stack](../../concepts/technology-stack/technology-stack.mdx) for how the interface connects to the .NET engine.
+
+## Deploy the dashboard
+
+Generate the static UI:
+
+<import-codeblock src="./dashboard-publish.sh"/>
+
+The server serves the published output from `ui/dist/publish`. Use `Dashboard:Watch=false` for static serving in Development, or `Dashboard:Path` for another output directory.
+
+The application listens on all network interfaces by default. Apply your host's authorization policy before giving others access to reports.
+
+Shared engine settings live in `DashboardAnalyticsOptions.cs`. Its settings apply to the primary, sample, and benchmark engines, and differ from the library defaults. See [configuration](../../operations/configuration/configuration.mdx) before changing an existing dataset.
+
+## Related pages
+
+- [Deployment and lifecycle](../../operations/deployment/deployment.mdx)
+- [Benchmarking](../../performance/benchmarking/benchmarking.mdx)
+- [Web reports](../../guides/web-reports/web-reports.mdx)
+

@@ -1,0 +1,71 @@
+---
+title: "Product analytics and revenue"
+description: "Measure purchases, revenue, and checkout completion with consistent application identity."
+order: 4
+template: doc
+---
+
+# Product analytics and revenue
+
+Record the actions that represent progress in your product, then measure how often they happen and what they are worth. This workflow follows checkout activity for a shop.
+
+Examples use an engine already open for your application's lifetime and the `ZoneTree.Analytics` namespace. Every example uses the site **shop**; use your own site consistently in collection and reporting.
+
+## Define a small event vocabulary
+
+| Event | Record it when | Context |
+| --- | --- | --- |
+| checkout_started | The customer starts checkout | Customer ID and selected plan |
+| purchase | The order is successfully completed | The same customer ID, plan, and revenue_usd |
+
+Use a trusted application ID for `VisitorId`. It lets the engine recognize the same customer across actions and days without storing the original ID.
+
+Keep units explicit. This example records revenue in US dollars; a report must not add amounts in different currencies as if they were interchangeable.
+
+## Record the completed actions
+
+<import-codeblock src="./product-events.cs"/>
+
+Replace the sample customer and amounts with values from your application. Emit a purchase from the business operation that confirms the order, rather than every time a confirmation page is rendered.
+
+Events are counted as submitted. A visitor ID joins activity; it does not deduplicate purchases. If an integration retries the same business operation, prevent duplicate tracking at that integration boundary.
+
+## Compare purchases and revenue by plan
+
+<import-codeblock src="./product-revenue.cs"/>
+
+The report answers four different questions:
+
+| Metric | Meaning |
+| --- | --- |
+| Events | Completed purchases |
+| Visitors | Distinct customers who purchased |
+| Sum(revenue_usd) | Revenue recorded on those purchases |
+| Revenue / Events | Average revenue per purchase |
+
+One customer buying twice contributes two purchases and one buyer. Overall distinct buyers come from `Totals`, because a customer can appear under more than one plan.
+
+## Measure checkout completion
+
+<import-codeblock src="./product-funnel.cs"/>
+
+This funnel counts customers who start checkout and later purchase within one day. Other actions may occur between the two steps. It measures completion of that path, rather than dividing unrelated event totals.
+
+A one-day window can span sessions. The explicit customer ID keeps the identity consistent across those sessions. Put plan-specific conditions on the relevant step when another step does not carry that dimension.
+
+## Prepare recurring reports
+
+For a frequently used plan report, add its rollup before opening the engine:
+
+<import-codeblock src="./product-rollup.cs"/>
+
+The purchase report can then use pre-aggregated plan rows for eligible ranges. A new ordinary definition starts coverage at activation; it does not rebuild existing purchases automatically.
+
+The checkout funnel still needs retained event history. Keep raw retention at least as long as the periods you intend to investigate. Check each result's plan for coverage warnings.
+
+## Related pages
+
+- [Segments and funnels](../segments-and-funnels/segments-and-funnels.mdx)
+- [Querying and time series](../querying/querying.mdx)
+- [Privacy and identity](../../concepts/privacy/privacy.mdx)
+- [Rollups and query planning](../../performance/rollups/rollups.mdx)

@@ -1,0 +1,28 @@
+---
+title: "Performance"
+description: "Choose aggregation, indexing, and resource settings for your workload."
+order: 5
+template: doc
+---
+
+# Performance
+
+Use query plans and representative measurements to decide what to aggregate, index, or tune. Start with the records a report actually reads.
+
+## Recommended investigation
+
+Read [query planning](./rollups/rollups.mdx), choose [index paths](./secondary-indexes/secondary-indexes.mdx) where appropriate, and measure the result with [benchmarking](./benchmarking/benchmarking.mdx).
+
+## In this section
+
+<Grid columns="1" columnsSm="2" class="docs-map">
+  <DocCard number="01" title="Rollups and query planning" summary="Understand why some reports read a few aggregate rows while others scan event history." href="/docs/performance/rollups/" icon="tabler:bolt"/>
+  <DocCard number="02" title="Secondary indexes and backfilling" summary="Accelerate selected filtered queries with explicit ordered indexes." href="/docs/performance/secondary-indexes/" icon="tabler:bolt"/>
+  <DocCard number="03" title="Ingestion and storage tuning" summary="Balance ingestion, query latency, memory, and disk for a real workload." href="/docs/performance/tuning/" icon="tabler:bolt"/>
+  <DocCard number="04" title="Benchmarking" summary="Compare ingestion and reporting performance with reproducible workloads." href="/docs/performance/benchmarking/" icon="tabler:bolt"/>
+</Grid>
+
+## Continue exploring
+
+Check [operational settings](../operations/configuration/configuration.mdx) before applying tuning changes to an existing dataset. Index changes may involve startup work and limited historical coverage.
+

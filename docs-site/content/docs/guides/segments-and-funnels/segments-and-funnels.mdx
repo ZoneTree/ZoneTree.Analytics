@@ -1,0 +1,59 @@
+---
+title: "Segments and funnels"
+description: "Analyze behavior across events rather than treating each event independently."
+order: 6
+template: doc
+---
+
+# Segments and funnels
+
+Use segments to study a selected audience and funnels to understand progress toward a goal. Both analyze behavior across events.
+
+Examples use an existing engine and retained event history.
+
+## Choose a segment scope
+
+| Scope | Example question |
+| --- | --- |
+| Visitors | What do people who purchased do elsewhere? |
+| Sessions | What happens during visits that include the pricing page? |
+| Excluded membership | How does the audience that did not sign up behave? |
+
+A visitor segment includes considered events from matching visitor identities. A session segment includes considered events from matching sessions. An ordinary event filter only selects individual matching events.
+
+<import-codeblock src="./guides-segments-and-funnels-1.cs"/>
+
+Use one segment at a time when comparing these audiences. Adding several segments to a query requires membership in all of them.
+
+## Define the conversion path
+
+A funnel matches required steps in order, allowing other actions between them:
+
+<import-codeblock src="./guides-segments-and-funnels-2.cs"/>
+
+The result shows visitors reaching each step, conversion from the first step, conversion from the previous step, and drop-off.
+
+## Choose the completion window
+
+With no `Window`, all steps must happen within one session. Set a positive window for behavior that can span visits within the specified duration from the first step.
+
+Cross-day analysis requires identity that remains consistent across days. Daily anonymous rotation cannot connect the same person across those boundaries.
+
+## Place filters at the right level
+
+A step filter applies only to that step. A global funnel filter applies to every considered event.
+
+Put a pricing-page condition on the pricing step. Applying it globally would also exclude later events that do not carry that page, including purchases.
+
+## Compare funnels consistently
+
+Keep the site, audience, range, identity policy, and completion window consistent across comparisons. Repeated actions from one visitor do not represent independent visitors.
+
+Segments and funnels require retained raw events. Long-lived daily totals cannot reconstruct an ordered conversion path after its event history expires.
+
+## Related pages
+
+- [Event and report model](../../concepts/data-model/data-model.mdx)
+- [Query model reference](../../reference/query-model/query-model.mdx)
+- [Retention and visitor erasure](../../operations/retention-and-erasure/retention-and-erasure.mdx)
+

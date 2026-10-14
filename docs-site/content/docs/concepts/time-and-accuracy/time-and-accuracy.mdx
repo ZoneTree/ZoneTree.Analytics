@@ -1,0 +1,60 @@
+---
+title: "Time, freshness, and accuracy"
+description: "Understand what a report's time range, visibility, and counts mean."
+order: 3
+template: doc
+---
+
+# Time, freshness, and accuracy
+
+Reports describe a selected period, a set of identities, and the data currently available to the engine. Understanding those three choices makes comparisons and counts easier to interpret.
+
+## Calendar ranges and rolling windows
+
+| Range | Meaning | Use it for |
+| --- | --- | --- |
+| Today, yesterday, last 30 days | Calendar days in the report's time zone | Website and business reports |
+| This month or this year | A calendar period | Monthly or annual comparisons |
+| Last 30 minutes or 12 hours | A rolling duration ending now | Recent activity and monitoring |
+| From and to | An explicit range | A campaign, release, or investigation |
+
+`DateRange.LastDays(30)` includes today by default. An absolute date-time range includes its start and excludes its end. Calendar-day ranges include the selected end day.
+
+Day, week, month, and year buckets follow the query's time zone. Minute and hour buckets are aligned in UTC. The engine uses its configured reporting time zone unless the request supplies another.
+
+## Comparisons
+
+A previous-period comparison uses a preceding period of the corresponding length. A previous-year comparison follows the corresponding calendar period in the prior year.
+
+Keep the site, filters, and time zone consistent when comparing reports. A different audience or calendar can explain a change without any change in overall activity.
+
+## Report freshness
+
+Tracking and reporting can run together. The engine processes new activity in the background and updates reports automatically; no explicit flush is required before normal queries.
+
+The default aggregate update interval is two seconds. Dashboard refresh settings add their own delay, so several visits may appear together in the next update.
+
+The live visitor count describes a recent sliding window. It can decrease when a visitor's last event leaves that window, even while total page views increase.
+
+## Unique visitors
+
+A visitor count merges distinct identities across the selected range. The same identity can appear in several page or source rows; use report totals rather than adding row counts.
+
+Anonymous identity rotates daily by default. A person visiting on multiple days can therefore count as multiple identities in a multi-day report. Explicit IDs or persistent anonymous hashing support cross-day recognition.
+
+At default precision, unique-count sketches are exact up to 4,096 identities per row and have about 0.8% standard error above that range.
+
+## Numeric metrics and coverage
+
+Averages, sums, and percentiles describe different aspects of a measurement. A percentile is a distribution estimate, not an average. Its accuracy limits are documented in the [query reference](../../reference/query-model/query-model.mdx).
+
+Accuracy and coverage are separate: a report may accurately aggregate the data it has while some requested history has expired. `Plan.Warnings` and `Plan.IsComplete` describe coverage concerns.
+
+A null metric means it is unavailable or does not apply to that report context. Treat it differently from a measured zero.
+
+## Related pages
+
+- [Privacy and identity](../privacy/privacy.mdx)
+- [Rollups and query planning](../../performance/rollups/rollups.mdx)
+- [Retention and visitor erasure](../../operations/retention-and-erasure/retention-and-erasure.mdx)
+

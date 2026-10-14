@@ -1,0 +1,68 @@
+---
+title: "Web reports"
+description: "Build website reports with consistent visitor, page, session, and conversion metrics."
+order: 2
+template: doc
+---
+
+# Web reports
+
+Use `analytics.Web` to build familiar website reports: traffic totals, trends, popular pages, acquisition sources, audience, and conversions.
+
+Examples use an open `analytics` engine. Import `ZoneTree.Analytics` and `ZoneTree.Analytics.Web`.
+
+## Build a consistent report set
+
+Create a request with the site, period, filters, and comparison you want, then use it for related reports:
+
+<import-codeblock src="./web-reports.cs"/>
+
+Using the same report context makes cards and charts comparable. Keep the request stable while reports execute.
+
+## Choose the report for the question
+
+| Question | Method |
+| --- | --- |
+| How many people visit, and how engaged are they? | GetSummaryAsync |
+| How does traffic change over time? | GetTimeseriesAsync |
+| Which pages receive visits? | GetPagesAsync |
+| Where do sessions end? | GetExitPagesAsync |
+| Which sources, countries, or devices appear? | GetBreakdownAsync |
+| Which custom actions convert? | GetGoalsAsync |
+| Which bots visit? | GetBotsAsync |
+| Who has been active recently? | GetCurrentVisitorsAsync |
+
+Every method also has a synchronous form. Prefer asynchronous report calls in request handlers.
+
+## Interpret traffic and engagement
+
+**Visitors** count distinct identities with a page view. **Page views** count viewed pages. **Sessions** group activity into visits according to the configured inactivity timeout.
+
+Bounce rate describes single-page-view sessions without an interactive custom action. Session duration spans observed activity, not time spent after the last recorded action.
+
+A visitor can appear in multiple page or source rows. Use totals for distinct audience size rather than adding row counts.
+
+## Apply comparisons and filters
+
+Use `Compare` to request a previous period or year. Breakdown and page rows can include matching previous values.
+
+Filters select the report's audience. Session-level dimensions such as source, country, and device support session metrics. A null metric can mean it does not apply to that breakdown.
+
+## Match the requested metrics to the report
+
+Set `IncludeSessionMetrics=false` when only visitors and page views are needed. Page reports can set `IncludePageFlowMetrics=false` when entrances and exits are unnecessary.
+
+Disabled fields remain null, not zero. Exit-page reports require page-flow metrics. See the [HTTP reference](../../reference/http-api/http-api.mdx) for equivalent request parameters.
+
+## Present the result
+
+A summary exposes `Summary`; list and time-series reports expose `Rows`. Use `TotalRows` for pagination and choose a time interval appropriate to the chart.
+
+Keep the selected range and filters visible to readers. Check plan warnings when a range extends beyond available history, and distinguish unavailable metrics from zero activity.
+
+## Related pages
+
+- [Querying and time series](../querying/querying.mdx)
+- [Segments and funnels](../segments-and-funnels/segments-and-funnels.mdx)
+- [Time, freshness, and accuracy](../../concepts/time-and-accuracy/time-and-accuracy.mdx)
+

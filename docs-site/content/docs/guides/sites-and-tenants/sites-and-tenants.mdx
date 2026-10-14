@@ -1,0 +1,54 @@
+---
+title: "Sites and tenants"
+description: "Organize multiple websites, applications, or tenants within an analytics host."
+order: 7
+template: doc
+---
+
+# Sites and tenants
+
+Use sites to separate website, application, or tenant activity within one engine. Align collection, reporting, and authorization around the same site IDs.
+
+## Choose stable IDs
+
+Set `AnalyticsEvent.Site` for direct collection. Unspecified event and query sites use `AnalyticsOptions.DefaultSite`.
+
+Choose IDs from trusted application context and advertise the same IDs in reporting clients. Changing the default does not rename events already stored under another site.
+
+## Resolve requests to a site
+
+<import-codeblock src="./tenant-integration.cs"/>
+
+The hostname example requires validated host and proxy configuration. A tenant-aware application can instead resolve its site from trusted routing or identity claims.
+
+## Authorize the executed site
+
+Site selection separates data logically; it does not authenticate a caller. Attach the host's authorization policy to reporting routes.
+
+`AuthorizeSite` receives the normalized site that the report executes against, including the configured default for an omitted or empty request site. Use it to enforce tenant access.
+
+A dashboard selector only chooses a report context. It is not an authorization boundary.
+
+## Choose engine boundaries
+
+| One shared engine | Separate engines |
+| --- | --- |
+| Multiple sites with one lifecycle | Independent dataset lifecycles |
+| Shared worker and query budgets | Independent resource settings |
+| Shared physical stores | Separate data directories |
+| Common retention and configuration | Independent retention and configuration |
+
+Give each separate engine its own directory. An engine holds exclusive ownership of that directory while open.
+
+## Scope maintenance and imports
+
+Use the intended site when importing historical events, reading reports, or erasing an explicit visitor. Keep the same conventions across live collection and background jobs.
+
+For the endpoint contract, see the [HTTP reference](../../reference/http-api/http-api.mdx).
+
+## Related pages
+
+- [ASP.NET Core integration](../../getting-started/aspnet-core/aspnet-core.mdx)
+- [Deployment and lifecycle](../../operations/deployment/deployment.mdx)
+- [HTTP API](../../reference/http-api/http-api.mdx)
+

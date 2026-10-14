@@ -1,0 +1,56 @@
+---
+title: "Documentation"
+description: "Start with a complete integration, then explore reports, query planning, performance, and operations."
+order: 1
+template: doc
+nav:
+  title: Documentation
+---
+
+# Documentation
+
+Build your first integration, learn what reports mean, and find the contracts you need as your application grows.
+
+## Start with your application
+
+<Grid columns="1" columnsSm="3" class="docs-map">
+  <DocCard number="01" title="Use the .NET library" summary="Create an engine, record visits and purchases, and read traffic and revenue reports." href="./getting-started/first-events/first-events.mdx" icon="tabler:code"/>
+  <DocCard number="02" title="Integrate a web host" summary="Collect website activity and expose reports through your ASP.NET Core application." href="./getting-started/aspnet-core/aspnet-core.mdx" icon="tabler:world"/>
+  <DocCard number="03" title="Run the dashboard" summary="Explore traffic, audience, acquisition, events, and funnels in a ready-to-use interface." href="./getting-started/dashboard/dashboard.mdx" icon="tabler:layout-dashboard"/>
+</Grid>
+
+## Explore by task
+
+| Section | Use it when you need to |
+| --- | --- |
+| [Getting started](./getting-started/index.mdx) | Install the packages and complete your first integration |
+| [Concepts](./concepts/index.mdx) | Understand events, visitors, time ranges, and privacy |
+| [Practical guides](./guides/index.mdx) | Build reports, analyze behavior, or adapt collection |
+| [Performance](./performance/index.mdx) | Explain a query plan or choose aggregation and indexes |
+| [Operations](./operations/index.mdx) | Configure, deploy, maintain, and observe a dataset |
+| [Reference](./reference/index.mdx) | Look up APIs, settings, query semantics, and HTTP contracts |
+
+## Choose the right package
+
+`ZoneTree.Analytics` provides tracking, storage, queries, and typed web reports. `ZoneTree.Analytics.AspNetCore` adds dependency injection, request and browser tracking, and reporting endpoints.
+
+The dashboard is a separate application built on those packages. Its host settings are not the core library defaults.
+
+## Build a useful report
+
+Once collection is working, choose a workflow close to your application:
+
+- **Website:** [Traffic, acquisition, and engagement](./guides/web-reports/web-reports.mdx).
+- **Product:** [Purchases, revenue, and checkout completion](./guides/product-analytics/product-analytics.mdx).
+- **Service or worker:** [Volume, errors, and latency](./guides/telemetry/telemetry.mdx).
+
+Each guide connects the recorded fields to the questions the report answers. Use the [query reference](./reference/query-model/query-model.mdx) when you need the exact contracts.
+
+## Read at the right depth
+
+Start with a guide to accomplish a task. Use concepts to understand the model behind the result. Use reference pages for exact defaults and behavior.
+
+For your first report, follow [installation](./getting-started/installation/installation.mdx), [first events](./getting-started/first-events/first-events.mdx), and [web reports](./guides/web-reports/web-reports.mdx).
+
+For performance work, follow [query planning](./performance/rollups/rollups.mdx), [secondary indexes](./performance/secondary-indexes/secondary-indexes.mdx), and [benchmarking](./performance/benchmarking/benchmarking.mdx).
+
