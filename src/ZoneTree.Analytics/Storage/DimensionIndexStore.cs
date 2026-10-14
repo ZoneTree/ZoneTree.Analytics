@@ -14,8 +14,8 @@ sealed class DimensionIndexUnavailableException : Exception;
 
 /// <summary>
 /// Owns optional covering indexes. The primary raw store is authoritative. A durable dirty
-/// marker is set before any writes; an unclean shutdown, configuration change or failed write
-/// rebuilds indexes from retained raw events at the next open, before workers start.
+/// intent is saved before writes. Completed builds survive abrupt shutdown; only affected
+/// days are reconciled at the next open, before workers start.
 /// </summary>
 sealed class DimensionIndexStore : IDisposable
 {
@@ -31,6 +31,7 @@ sealed class DimensionIndexStore : IDisposable
   readonly RawEventStore rawEvents;
   readonly StoreFactory factory;
   readonly ILogger logger;
+  readonly IndexRecovery recovery;
   readonly List<DimensionIndex> indexes = [];
   readonly List<IDisposable> resources = [];
   int invalid;
@@ -53,6 +54,7 @@ sealed class DimensionIndexStore : IDisposable
     this.rawEvents = rawEvents;
     this.factory = factory;
     this.logger = logger;
+    recovery = new(meta, "dimension-index.dirty.");
     manifest = string.Join('\n', options.Dimensions.Order(StringComparer.Ordinal));
   }
 
@@ -66,13 +68,8 @@ sealed class DimensionIndexStore : IDisposable
     if (meta.Get(CleanKey) != "true") reasons.Add("missing or unclean checkpoint");
     if (meta.Get(DimensionsKey) != manifest) reasons.Add("configuration changed");
     if (meta.Get("dimension-index.format") != Format) reasons.Add("format changed");
-    // Includes engines opened with no indexes: disabling and re-enabling an index must
-    // never reuse copies that missed the events ingested while it was disabled.
-    meta.Update(entries =>
-    {
-      entries[CleanKey] = "false";
-      entries["dimension-index.format"] = Format;
-    });
+    if (!factory.RawEventsDurable || !factory.DimensionIndexesDurable) reasons.Add("write-ahead logging disabled");
+    var dirtyDays = recovery.Days;
     var partitions = 0;
     if (options.Dimensions.Count > 0)
     {
@@ -80,12 +77,14 @@ sealed class DimensionIndexStore : IDisposable
       foreach (var dimension in options.Dimensions) indexes.Add(new(dimension, Store));
       var names = Store.ListPartitions();
       partitions = names.Count;
-      if (meta.Get(PartitionsKey) != string.Join(',', names)) reasons.Add("partition manifest changed");
+      var expected = (meta.Get(PartitionsKey) ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries);
+      if (IndexRecoveryScan.MissingRetainedPartitions(expected, names, factory.RawRetentionCutoff))
+        reasons.Add("partition manifest changed");
     }
     var rebuild = reasons.Count > 0;
-    var decision = indexes.Count == 0 ? "disabled" : rebuild ? "rebuild required" : "reuse existing indexes";
-    var reason = indexes.Count == 0 ? "no configured dimensions" : rebuild ? string.Join(", ", reasons) : "clean checkpoint and matching manifests";
-    check.Complete($"decision={decision}; indexes={indexes.Count}; physical stores={(Store == null ? 0 : 1)}; partitions={partitions}; reasons={reason}");
+    var decision = indexes.Count == 0 ? "disabled" : rebuild ? "rebuild required" : dirtyDays.Length > 0 ? "repair affected days" : "reuse existing indexes";
+    var reason = indexes.Count == 0 ? "no configured dimensions" : rebuild ? string.Join(", ", reasons) : dirtyDays.Length > 0 ? "durable write intents require reconciliation" : "clean checkpoint and matching manifests";
+    check.Complete($"decision={decision}; indexes={indexes.Count}; physical stores={(Store == null ? 0 : 1)}; partitions={partitions}; dirty days={dirtyDays.Length}; reasons={reason}");
     // Configuration changes rebuild the shared tree, removing discarded namespaces.
     // Disabling every dimension drops its partitions; interrupted cleanup is retried.
     if (Store == null && Directory.Exists(directory))
@@ -93,9 +92,10 @@ sealed class DimensionIndexStore : IDisposable
       var obsolete = Open();
       foreach (var partition in obsolete.ListPartitions()) obsolete.Drop(partition);
     }
-    if (rebuild && indexes.Count > 0)
-      Backfill(rawEvents);
-    startup.Complete($"decision={(rebuild && indexes.Count > 0 ? "rebuild completed" : decision)}; indexes={indexes.Count}; physical stores={(Store == null ? 0 : 1)}");
+    if ((rebuild || dirtyDays.Length > 0) && indexes.Count > 0)
+      Backfill(rawEvents, rebuild ? null : dirtyDays);
+    MarkClean();
+    startup.Complete($"decision={(rebuild && indexes.Count > 0 ? "rebuild completed" : dirtyDays.Length > 0 && indexes.Count > 0 ? "repair completed" : decision)}; indexes={indexes.Count}; physical stores={(Store == null ? 0 : 1)}");
   }
 
   PartitionedStore<Memory<byte>, Memory<byte>> Open()
@@ -107,41 +107,76 @@ sealed class DimensionIndexStore : IDisposable
     return store;
   }
 
-  void Backfill(RawEventStore rawEvents)
+  void Backfill(RawEventStore rawEvents, long[] days)
   {
     using var build = new StartupLog(logger, "Dimension index backfill", directory);
-    foreach (var partition in Store.ListPartitions()) Store.Drop(partition);
+    var source = rawEvents.Store.ListPartitions();
+    var checkpoint = new IndexBackfillCheckpoint(meta, "dimension-index.backfill",
+        manifest + "\n" + string.Join(',', source) + "\n" + (days == null ? "all" : string.Join(',', days)));
+    if (days == null) meta.Set(CleanKey, "false");
+    if (!checkpoint.Resuming) checkpoint.Begin();
+    if (!checkpoint.Copying)
+    {
+      if (days == null)
+        foreach (var partition in Store.ListPartitions()) Store.Drop(partition);
+      else
+        foreach (var partition in Store.ListPartitions())
+        {
+          using var lease = Store.Acquire(partition);
+          if (lease == null) continue;
+          IndexRecoveryScan.Visit(lease.Tree, days, key => key.Length - 16, (key, _) => lease.Tree.ForceDelete(key));
+        }
+      IndexRecoveryScan.Persist(AllStores);
+      checkpoint.Cleared();
+    }
     var record = new RawEvent();
     var selector = new DimensionSelector(options.Dimensions);
-    long records = 0;
+    long records = checkpoint.Count;
+    var resumed = records;
     long rows = 0;
     long bytes = 0;
     long skipped = 0;
     var partitions = 0;
     using var writer = CreateWriter();
-    foreach (var partition in rawEvents.Store.ListPartitions())
+    var resumePartition = checkpoint.Partition;
+    var resumeKey = checkpoint.Key;
+    foreach (var partition in source)
     {
+      if (string.CompareOrdinal(partition, resumePartition) < 0) continue;
       using var lease = rawEvents.Store.Acquire(partition);
       if (lease == null) continue;
       partitions++;
-      using var iterator = lease.Tree.CreateIterator(new IteratorOptions { ContributeToTheBlockCache = true });
-      iterator.SeekFirst();
-      while (iterator.Next())
+      Memory<byte> lastKey = default;
+      IndexRecoveryScan.Visit(lease.Tree, days, key => KeyCodec.HeadLength(key, 1), (key, value) =>
       {
-        var key = iterator.CurrentKey;
-        var value = iterator.CurrentValue;
+        lastKey = key;
         var rawKey = StorageKeyCodec.DecodeRawEvent(key.Span);
-        if (!RawEventCodec.TryDecode(value.Span, rawKey.Ticks, null, default, record, selector)) { skipped++; continue; }
+        if (!RawEventCodec.TryDecode(value.Span, rawKey.Ticks, null, default, record, selector)) { skipped++; return; }
         var copies = writer.Write(rawKey.Site, rawKey.Ticks, rawKey.Sequence, record.Dimensions, value);
         rows += copies;
         bytes += (long)copies * value.Length;
-        if (++records % 100_000 == 0) build.Progress($"events={records}; index rows written={rows}; payload bytes copied={bytes}", records, "events");
-      }
+        if (++records % IndexBackfillCheckpoint.Interval == 0)
+        {
+          writer.Dispose();
+          IndexRecoveryScan.Persist(AllStores);
+          checkpoint.Save(partition, lastKey, records);
+          build.Progress($"checkpoint saved; events={records}; resumed events={resumed}; index rows written={rows}; payload bytes copied={bytes}", records - resumed, "events");
+        }
+      }, partition == resumePartition ? resumeKey : default);
+      writer.Dispose();
+      IndexRecoveryScan.Persist(AllStores);
+      checkpoint.Save(partition, lastKey.IsEmpty && partition == resumePartition ? resumeKey : lastKey, records);
+      build.Progress($"checkpoint saved; partition={partition}; events={records}; resumed events={resumed}", records - resumed, "events");
     }
     writer.Dispose();
     Store.Compact();
     Store.CloseIdle(TimeSpan.Zero, keepLatestOpen: false);
-    build.Complete($"indexes={indexes.Count}; physical stores=1; raw partitions={partitions}; events={records}; skipped events={skipped}; index rows written={rows}; payload bytes copied={bytes}", records, "events");
+    build.Complete($"indexes={indexes.Count}; physical stores=1; raw partitions={partitions}; events={records}; resumed events={resumed}; dirty days={(days == null ? 0 : days.Length)}; skipped events={skipped}; index rows written={rows}; payload bytes copied={bytes}", records - resumed, "events");
+  }
+
+  public void BeforeWrite(long ticks)
+  {
+    if (indexes.Count > 0) recovery.Track(ticks);
   }
 
   public DimensionIndexWriter CreateWriter() => new(this);
@@ -240,13 +275,15 @@ sealed class DimensionIndexStore : IDisposable
 
   public void MarkClean()
   {
-    if (Volatile.Read(ref invalid) != 0 || !factory.RawEventsDurable || !factory.DimensionIndexesDurable) return;
+    if (Volatile.Read(ref invalid) != 0) return;
     meta.Update(entries =>
     {
       entries[DimensionsKey] = manifest;
       entries["dimension-index.format"] = Format;
       entries[PartitionsKey] = Store == null ? "" : string.Join(',', Store.ListPartitions());
-      entries[CleanKey] = "true";
+      entries[CleanKey] = factory.RawEventsDurable && factory.DimensionIndexesDurable ? "true" : "false";
+      recovery.Clear(entries);
+      new IndexBackfillCheckpoint(meta, "dimension-index.backfill", manifest).Clear(entries);
     });
   }
 

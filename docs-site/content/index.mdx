@@ -1,6 +1,6 @@
 ---
 title: "Your data. Your application. Your answers."
-description: "Embedded analytics for .NET. Collect events, query metrics, and host your own reporting dashboard."
+description: "Analytics Engine for .NET. Collect events, query metrics, and host your own reporting dashboard."
 order: 1
 template: doc
 nav:
@@ -14,10 +14,12 @@ layout:
 <section class="docs-hero">
   <div class="docs-hero-layout">
     <div>
-      <Badge tone="accent" variant="surface">Embedded analytics for .NET</Badge>
+      <Badge tone="accent" variant="surface">Analytics Engine for .NET</Badge>
       <h1>Your data.<br/>Your application.<br/><span>Your answers.</span></h1>
       <p class="docs-hero-copy">
-        Understand where visitors come from, what they do, and which actions convert. Collect website and product analytics inside your .NET application, with a dashboard you can host yourself.
+        Understand where visitors come from, what they do, and which actions
+        convert. Collect website and product analytics inside your .NET
+        application, with a dashboard you can host yourself.
       </p>
       <Flex class="docs-hero-actions">
         <BtnLink
@@ -58,10 +60,52 @@ layout:
 ## Understand the activity that matters
 
 <Grid columns="1" columnsSm="3" class="docs-map">
-  <DocCard number="01" title="See your audience" summary="Follow traffic trends, discover acquisition sources, and understand which content and devices visitors use." href="./docs/guides/web-reports/web-reports.mdx" icon="tabler:chart-line"/>
-  <DocCard number="02" title="Measure outcomes" summary="Connect visits with signups, purchases, revenue, and the steps that lead to a conversion." href="./docs/guides/segments-and-funnels/segments-and-funnels.mdx" icon="tabler:target"/>
-  <DocCard number="03" title="Keep ownership" summary="Run analytics with your application and choose the identity, retention, and reporting access that fit it." href="./docs/concepts/privacy/privacy.mdx" icon="tabler:shield"/>
+  <DocCard
+    number="01"
+    title="See your audience"
+    summary="Follow traffic trends, discover acquisition sources, and understand which content and devices visitors use."
+    href="./docs/guides/web-reports/web-reports.mdx"
+    icon="tabler:chart-line"/>
+  <DocCard
+    number="02"
+    title="Measure outcomes"
+    summary="Connect visits with signups, purchases, revenue, and the steps that lead to a conversion."
+    href="./docs/guides/segments-and-funnels/segments-and-funnels.mdx"
+    icon="tabler:target"/>
+  <DocCard
+    number="03"
+    title="Keep ownership"
+    summary="Run analytics with your application and choose the identity, retention, and reporting access that fit it."
+    href="./docs/concepts/privacy/privacy.mdx"
+    icon="tabler:shield"/>
 </Grid>
+
+## Measured on 5 million events
+
+Six annual overview reports completed in **84 ms median**, with previous-period comparisons enabled. The retained benchmark spans **365 days** of generated traffic.
+
+<Grid columns="1" columnsSm="3" class="docs-map">
+  <DocCard
+    number="DATASET"
+    title="5 million events"
+    summary="A retained year of generated traffic, including visits and custom actions."
+    href="./docs/performance/query-benchmarks/query-benchmarks.mdx#workload-and-environment"
+    icon="tabler:database"/>
+  <DocCard
+    number="OVERVIEW"
+    title="84 ms median"
+    summary="All six reports completed; 87 ms at the 95th percentile."
+    href="./docs/performance/query-benchmarks/query-benchmarks.mdx#complete-overview"
+    icon="tabler:bolt"/>
+  <DocCard
+    number="FILTERED"
+    title="13.5 ms median"
+    summary="Country breakdown for GitHub traffic through a covering rollup index."
+    href="./docs/performance/query-benchmarks/query-benchmarks.mdx#github-traffic"
+    icon="tabler:filter"/>
+</Grid>
+
+Measured locally in a .NET 10 host, over 30 loads per scope. [Read the query timings, environment, and methodology](./docs/performance/query-benchmarks/query-benchmarks.mdx).
 
 ## Website traffic, product behavior, and telemetry
 

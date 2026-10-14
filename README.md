@@ -800,9 +800,11 @@ events; a year-long raw fallback remains incomplete if its older raw data has ex
 On first enablement or a dimension configuration change, the engine backfills retained primary
 events before starting ingestion, then compacts and closes the shared index partitions before
 reporting readiness. Logged duration includes this final compaction. Build progress is logged
-every 100,000 records. A durable dirty
-marker is set before writes and cleared only after all stores close successfully. An unclean
-shutdown or an index write failure triggers a rebuild on the next open. Optional index failures
+every 100,000 records and at partition boundaries, after durable destination checkpoints.
+Completed coverage is published immediately, so an abrupt idle shutdown reuses the indexes.
+Durable write intents identify affected days before primary or index changes; interrupted writes
+repair only those days from retained primary data on the next open. Interrupted backfills resume
+after the last durable cursor instead of discarding completed work. Optional index failures
 are logged and counted without discarding successfully written primary events; subsequent
 queries use primary raw scans. In-flight index reads invalidated by erasure or failures are
 rejected for retry, never returned partially. Stores configured without a WAL are rebuilt on
@@ -852,15 +854,20 @@ retained enriched raw events before ingestion starts. Stored visitor hashes, ses
 session starts preserve attribution without re-enriching or re-ingesting events. Only the new
 definitions are rebuilt; existing rollups are not counted again. Buffered rows and inactive
 session eviction bound rebuild memory. Progress is logged every 100,000 events. Historical
-coverage is published after replacements reach disk; interrupted builds are cleared and retried.
+coverage is published after replacements reach disk. Durable checkpoints preserve the source
+cursor and active sessions, together with a journal of absolute replacements. Interrupted builds
+replay unfinished replacements and resume the event stream without adding contributions twice.
 Expired raw history cannot be recreated. Queries outside backfilled coverage retain the existing
 raw fallback and retention warnings. Existing joint rollups can be indexed without raw storage.
 
 Index copies are absolute snapshots written under the primary partition's rollup-writer lock,
 so concurrent flushes and retries do not double-count or overwrite a newer snapshot with an older
 one. Copy failures are logged and counted; queries fall back to authoritative joint rollups.
-Dirty shutdowns, missing index partitions and configuration changes rebuild copies from primary
-rollups. A clean checkpoint requires successfully closed durable primary and index stores.
+Interrupted writes reconcile copies only in the affected days, using seeks to skip other history.
+Missing retained index partitions and configuration changes rebuild copies from primary rollups;
+normal rollover and removal of wholly expired partitions preserve completed coverage.
+Completed backfills publish their durable checkpoint before normal ingestion starts. Write
+intents are cleared after repair or successful closure of durable primary and index stores.
 Configuration changes rebuild the shared copies so removed logical indexes leave no stale
 namespaces. Disabled tiers drop their partitions. Shared stores follow their rollup tier's
 retention and participate once in idle closure, compaction, rollover and partition statistics.

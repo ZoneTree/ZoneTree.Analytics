@@ -7,39 +7,61 @@ import { merge } from '@purestack/ts-util'
 
 type Tone = ThemePalette['semanticTone']['neutral']
 
-// One vivid signal against quiet, warm neutrals. Never blue or navy.
+// Orange accents on neutral paper and charcoal, with quiet graphite supporting tones.
 export const analyticsColors = {
-  signal: '#d2fa56',
-  signalHover: '#e1ff86',
-  signalActive: '#bfe840',
-  onSignal: '#18200e',
   light: {
-    canvas: '#f6f5ee',
-    surface: '#fffef8',
-    surfaceAlt: '#eeeee4',
-    hover: '#e9ecdf',
-    active: '#e0e5d3',
-    ink: '#20251c',
-    muted: '#606957',
-    border: '#d1d7c7',
-    subtle: '#e0e4d8',
-    accentInk: '#44601c',
-    accentSurface: '#f0f6dd',
-    accentBorder: '#c0d497',
+    signal: '#fb7700',
+    signalHover: '#ea6900',
+    signalActive: '#db5c00',
+    onSignal: '#201207',
+    canvas: '#f8f8f8',
+    surface: '#ffffff',
+    surfaceAlt: '#efefef',
+    hover: '#e7e7e7',
+    active: '#dddddd',
+    ink: '#262626',
+    muted: '#666666',
+    border: '#d1d1d1',
+    subtle: '#e2e2e2',
+    accentInk: '#b64a00',
+    accentSurface: '#ffebdd',
+    accentHover: '#ffd8b8',
+    accentActive: '#ffc795',
+    accentBorder: '#dc994f',
+    companionInk: '#545454',
+    companionFill: '#5b5b5b',
+    companionHover: '#4b4b4b',
+    companionActive: '#3d3d3d',
+    companionSurface: '#f0f0f0',
+    companionBorder: '#cfcfcf',
+    onCompanion: '#ffffff',
   },
   dark: {
-    canvas: '#101211',
-    surface: '#1c1f1d',
-    surfaceAlt: '#151816',
-    hover: '#272c28',
-    active: '#30362f',
-    ink: '#f2f3ed',
-    muted: '#aeb3a9',
-    border: '#3c423a',
-    subtle: '#2d322c',
-    accentInk: '#d2fa56',
-    accentSurface: '#242f15',
-    accentBorder: '#465d26',
+    signal: '#fa8b17',
+    signalHover: '#ffa037',
+    signalActive: '#e97908',
+    onSignal: '#241305',
+    canvas: '#151515',
+    surface: '#212121',
+    surfaceAlt: '#1b1b1b',
+    hover: '#2d2d2d',
+    active: '#393939',
+    ink: '#f2f2f2',
+    muted: '#b9b9b9',
+    border: '#505050',
+    subtle: '#353535',
+    accentInk: '#ff941f',
+    accentSurface: '#352415',
+    accentHover: '#493017',
+    accentActive: '#603d1b',
+    accentBorder: '#a86b2b',
+    companionInk: '#dadada',
+    companionFill: '#c7c7c7',
+    companionHover: '#dddddd',
+    companionActive: '#b0b0b0',
+    companionSurface: '#303030',
+    companionBorder: '#666666',
+    onCompanion: '#252525',
   },
 } as const
 
@@ -63,8 +85,8 @@ function createNeutral(dark: boolean): Tone {
     tone: c.ink,
     canvas: c.canvas,
     canvascolor: c.canvas,
-    spotlight: { field: c.canvas, light: `${analyticsColors.signal}12` },
-    overlay: dark ? '#080b06cc' : '#20251c44',
+    spotlight: { field: c.canvas, light: `${c.signal}12` },
+    overlay: dark ? '#0a0a0acc' : '#26262644',
     text,
     border,
     root: { text, border },
@@ -87,16 +109,16 @@ function createAccent(dark: boolean, neutral: Tone): Tone {
   }
   const surface = {
     rest: state(c.accentSurface, c.accentBorder, c.ink),
-    hover: state(dark ? '#303e1c' : '#e6efcc', c.accentInk, c.ink),
-    active: state(dark ? '#394c20' : '#dcebb9', c.accentInk, c.ink),
+    hover: state(c.accentHover, c.accentInk, c.ink),
+    active: state(c.accentActive, c.accentInk, c.ink),
     disabled: neutral.surface.disabled,
     focusRing: c.accentInk,
   }
   return {
-    tone: analyticsColors.signal,
+    tone: c.signal,
     canvas: c.accentSurface,
     canvascolor: c.accentSurface,
-    spotlight: { field: c.accentSurface, light: `${analyticsColors.signal}20` },
+    spotlight: { field: c.accentSurface, light: `${c.signal}20` },
     overlay: neutral.overlay,
     text,
     border,
@@ -104,16 +126,16 @@ function createAccent(dark: boolean, neutral: Tone): Tone {
     surface,
     surfaceAlt: surface,
     button: {
-      rest: state(analyticsColors.signal, analyticsColors.signal, analyticsColors.onSignal),
+      rest: state(c.signal, c.signal, c.onSignal),
       hover: state(
-        analyticsColors.signalHover,
-        analyticsColors.signalHover,
-        analyticsColors.onSignal,
+        c.signalHover,
+        c.signalHover,
+        c.onSignal,
       ),
       active: state(
-        analyticsColors.signalActive,
-        analyticsColors.signalActive,
-        analyticsColors.onSignal,
+        c.signalActive,
+        c.signalActive,
+        c.onSignal,
       ),
       disabled: neutral.button.disabled,
       focusRing: c.accentInk,
@@ -122,10 +144,11 @@ function createAccent(dark: boolean, neutral: Tone): Tone {
 }
 
 function createCompanion(dark: boolean, neutral: Tone): Tone {
-  const ink = dark ? '#efb1df' : '#8c286f'
-  const fill = dark ? '#efb1df' : '#a43483'
-  const field = dark ? '#30212c' : '#f9eef5'
-  const edge = dark ? '#604050' : '#e3c6d9'
+  const c = dark ? analyticsColors.dark : analyticsColors.light
+  const ink = c.companionInk
+  const fill = c.companionFill
+  const field = c.companionSurface
+  const edge = c.companionBorder
   const text = { default: ink, subtle: neutral.text.subtle }
   const border = { default: edge, subtle: edge, focus: ink }
   const surface = {
@@ -147,13 +170,13 @@ function createCompanion(dark: boolean, neutral: Tone): Tone {
     surface,
     surfaceAlt: surface,
     button: {
-      rest: state(fill, fill, dark ? '#281722' : '#ffffff'),
+      rest: state(fill, fill, c.onCompanion),
       hover: state(
-        dark ? '#f7c5e9' : '#8c286f',
-        fill,
-        dark ? '#281722' : '#ffffff',
+        c.companionHover,
+        c.companionHover,
+        c.onCompanion,
       ),
-      active: state(fill, fill, dark ? '#281722' : '#ffffff'),
+      active: state(c.companionActive, c.companionActive, c.onCompanion),
       disabled: neutral.button.disabled,
       focusRing: ink,
     },
@@ -161,6 +184,7 @@ function createCompanion(dark: boolean, neutral: Tone): Tone {
 }
 
 function createPalette(dark: boolean): ThemePalette {
+  const c = dark ? analyticsColors.dark : analyticsColors.light
   const standard = themeSkins.standard.create()
   const neutral = createNeutral(dark)
   const accent = createAccent(dark, neutral)
@@ -174,7 +198,7 @@ function createPalette(dark: boolean): ThemePalette {
     button: { ...neutral.button, rest: invisible },
   }
   return merge(dark ? standard.dark : standard.light, {
-    accent: analyticsColors.signal,
+    accent: c.signal,
     font: {
       family: {
         base: "'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif",
@@ -187,15 +211,17 @@ function createPalette(dark: boolean): ThemePalette {
       ghost,
       secondary: companion,
       feature: companion,
+      info: companion,
+      custom: accent,
     },
     effect: {
       panelShadow: 'none',
-      softShadow: dark ? '0 8px 28px #00000022' : '0 8px 28px #28321b08',
-      floatingShadow: dark ? '0 28px 80px #00000055' : '0 28px 80px #28321b14',
-      glowPrimary: `0 0 48px ${analyticsColors.signal}18`,
+      softShadow: dark ? '0 8px 28px #00000022' : '0 8px 28px #00000008',
+      floatingShadow: dark ? '0 28px 80px #00000055' : '0 28px 80px #00000014',
+      glowPrimary: `0 0 48px ${c.signal}18`,
       glowSecondary: `0 0 32px ${companion.tone}12`,
-      accentShadow: `0 8px 24px ${analyticsColors.signal}18`,
-      focusGlow: `0 0 0 3px ${analyticsColors.signal}44`,
+      accentShadow: `0 8px 24px ${c.signal}18`,
+      focusGlow: `0 0 0 3px ${c.accentInk}44`,
     },
   })
 }

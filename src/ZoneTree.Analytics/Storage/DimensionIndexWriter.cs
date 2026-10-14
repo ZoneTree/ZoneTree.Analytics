@@ -38,6 +38,7 @@ sealed class DimensionIndexWriter(DimensionIndexStore owner) : IDisposable
     if (owner.Indexes.Count == 0) return;
     try
     {
+      owner.BeforeWrite(record.Ticks);
       var tree = Tree(record.Ticks);
       if (tree == null) return;
       for (var i = 0; i < owner.Indexes.Count; ++i)

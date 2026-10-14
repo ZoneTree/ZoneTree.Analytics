@@ -86,7 +86,7 @@ sealed class RollupStore : IDisposable
         continue; // The partition was dropped by retention.
       var granularity = partition.Granularity;
       var writer = writers.GetValue(partition.Lease.Tree, tree => new RollupWriter(tree,
-          (key, value) => Indexes?.Copy(granularity, key, value)));
+          (key, value) => Indexes?.Copy(granularity, key, value), key => Indexes?.BeforeWrite(granularity, key)));
       for (; partition.NextRow < partition.Rows.Count; ++partition.NextRow)
         writer.Write(partition.Rows[partition.NextRow]);
       partition.Lease.Dispose();
@@ -111,6 +111,28 @@ sealed class RollupStore : IDisposable
       writes.Rows.Add(new(storageKey, accumulator.ToValue()));
     }
     return [.. groups.Values];
+  }
+
+  /// <summary>Startup-only absolute replacements for an atomic backfill checkpoint.</summary>
+  public List<JointBackfillReplacement> BackfillReplacements(Dictionary<RollupBufferKey, RollupAccumulator> rows)
+  {
+    var result = new List<JointBackfillReplacement>(rows.Count);
+    var serializer = new RollupValueSerializer();
+    foreach (var partition in PrepareWrites(rows))
+    {
+      using var lease = GetStore(partition.Granularity).Acquire(partition.Name);
+      if (lease == null) continue;
+      foreach (var row in partition.Rows)
+      {
+        lease.Tree.TryGet(row.Key, out var existing);
+        result.Add(new()
+        {
+          Granularity = partition.Granularity, Partition = partition.Name, Key = row.Key.ToArray(),
+          Value = serializer.Serialize(RollupValue.Merge(existing, row.Delta)).ToArray()
+        });
+      }
+    }
+    return result;
   }
 
   /// <summary>

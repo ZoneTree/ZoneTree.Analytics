@@ -44,7 +44,7 @@ export const reportInfo = {
   },
   settings: {
     title: 'Connection',
-    description: 'Connect this dashboard to your embedded analytics engine.',
+    description: 'Connect this dashboard to your analytics engine.',
   },
   'sample-data': {
     title: 'Sample data',

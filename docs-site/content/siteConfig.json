@@ -64,7 +64,7 @@
   },
   "preview": {
     "title": "ZoneTree Analytics",
-    "description": "Embedded analytics for .NET. Collect events, query metrics, and host your own reporting dashboard.",
+    "description": "Analytics Engine for .NET. Collect events, query metrics, and host your own reporting dashboard.",
     "image": "/dashboard-overview.png",
     "imageAlt": "ZoneTree Analytics dashboard with benchmark traffic and visitor comparisons",
     "imageWidth": 1600,

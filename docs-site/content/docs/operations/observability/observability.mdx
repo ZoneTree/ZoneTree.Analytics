@@ -55,7 +55,7 @@ For a standalone engine, set its logger before opening it:
 
 An engine opened outside dependency injection in an ASP.NET Core host can also use the integration's `UseLogger` extension to forward engine and storage messages to a host logger.
 
-Backfill checks report whether stores are disabled, reusable, or require rebuilding. Work logs report progress, counts, completion duration, and throughput. Each identifies the dataset directory.
+Backfill checks report whether stores are disabled, reusable, need repair of affected days, or require rebuilding. Work logs report durable checkpoints, resumed event or row counts, completion duration, and throughput. Each identifies the dataset directory.
 
 These logs distinguish several engines in one host and explain why a restart can take longer after changing index configuration.
 

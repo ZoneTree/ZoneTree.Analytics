@@ -18,6 +18,8 @@ Use secondary indexes when important filtered reports need a more selective orde
 
 Both are optional and disabled in the core defaults. Each adds storage and ingestion work, so choose from actual report patterns.
 
+The [5M-event query benchmark](../query-benchmarks/query-benchmarks.mdx#what-the-plans-show) shows these paths in use: country and device breakdowns for GitHub traffic returned in about **13 ms median** with source-leading covering indexes.
+
 ## Index an event dimension
 
 Configure dimension indexes before opening the engine:
@@ -58,7 +60,11 @@ A new partition does not hide earlier data. Queries read every overlapping parti
 
 Opening the engine checks whether indexes can be reused. Missing or incomplete dimension indexes rebuild from retained raw events. Index-managed joint combinations can rebuild eligible aggregate history, then populate their ordered rollup stores.
 
-Backfills complete before normal ingestion starts. Information logs report the decision, progress, duration, counts, and throughput. Clean subsequent opens reuse existing coverage when the checks allow it.
+Backfills complete before normal ingestion starts. Completed coverage is persisted immediately, so killing an idle process does not invalidate its indexes. After interrupted writes, startup repairs the affected days from authoritative data, including missing copies and orphaned copies from interrupted deletions.
+
+Interrupted backfills resume from durable checkpoints. Copy backfills checkpoint every 100,000 input records and at partition boundaries. Historical joint-rollup reconstruction also preserves active sessions and replays absolute replacements, so resuming does not count events twice.
+
+Information logs report reuse, repair, or rebuild decisions, checkpoint progress, resumed counts, duration, and throughput. Configuration changes, missing retained partitions, and stores configured without a write-ahead log can still require a full rebuild.
 
 Expired event history cannot be recovered by an index. Check report warnings after adding combinations to an older dataset.
 

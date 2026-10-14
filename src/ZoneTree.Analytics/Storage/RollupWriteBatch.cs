@@ -57,7 +57,8 @@ sealed class RollupWrite(Memory<byte> key, RollupValue delta)
 /// tree's in-memory value: retry its absolute replacement before applying any further delta.
 /// This also lets another worker finish the pending write without applying it twice.
 /// </summary>
-sealed class RollupWriter(IZoneTree<Memory<byte>, RollupValue> tree, Action<Memory<byte>, RollupValue> copy = null)
+sealed class RollupWriter(IZoneTree<Memory<byte>, RollupValue> tree, Action<Memory<byte>, RollupValue> copy = null,
+    Action<Memory<byte>> beforeWrite = null)
 {
   readonly object sync = new();
 
@@ -83,6 +84,7 @@ sealed class RollupWriter(IZoneTree<Memory<byte>, RollupValue> tree, Action<Memo
       return;
     // Every rollup writer for this tree uses the same lock. An upsert retry cannot overwrite
     // another worker's contribution, and repeating it cannot add the delta a second time.
+    beforeWrite?.Invoke(pending.Key);
     tree.Upsert(pending.Key, pending.Replacement);
     copy?.Invoke(pending.Key, pending.Replacement);
     pending.Completed = true;

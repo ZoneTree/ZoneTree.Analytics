@@ -25,6 +25,7 @@ sealed class RollupIndexStore : IDisposable
   readonly Dictionary<Granularity, PartitionedStore<Memory<byte>, RollupValue>> stores = [];
   Dictionary<(Granularity Granularity, string DefinitionId), RollupIndex[]> copies = [];
   readonly Dictionary<Granularity, long> removed = [];
+  readonly Dictionary<Granularity, IndexRecovery> recovery = [];
   int invalid;
   long revision;
   string manifest;
@@ -61,29 +62,29 @@ sealed class RollupIndexStore : IDisposable
     if (meta.Get(CleanKey) != "true") reasons.Add("missing or unclean checkpoint");
     if (meta.Get("rollup-index.config") != manifest) reasons.Add("configuration changed");
     if (meta.Get("rollup-index.format") != Format) reasons.Add("format changed");
-    meta.Update(entries =>
-    {
-      entries[CleanKey] = "false";
-      entries["rollup-index.format"] = Format;
-    });
+    if (!factory.RollupsDurable || !factory.RollupIndexesDurable) reasons.Add("write-ahead logging disabled");
     var partitions = 0;
     foreach (var granularity in RollupStore.Granularities.Where(granularity =>
         rollups.IsEnabled(granularity) && options.Storage.RollupIndexes.Definitions.Count > 0))
     {
       var store = Open(granularity);
       stores.Add(granularity, store);
+      recovery.Add(granularity, new(meta, "rollup-index.dirty." + granularity + "."));
       foreach (var definition in options.Storage.RollupIndexes.Definitions)
         indexes.Add(new(definition.Dimension, definition.Definition.Id, granularity, store));
       var names = store.ListPartitions();
       partitions += names.Count;
-      if (meta.Get(PartitionsKey(granularity)) != string.Join(',', names))
+      var expected = (meta.Get(PartitionsKey(granularity)) ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries);
+      if (IndexRecoveryScan.MissingRetainedPartitions(expected, names, factory.RollupRetentionCutoff(granularity)))
         reasons.Add($"partition manifest changed: {granularity}");
     }
     copies = indexes.GroupBy(index => (index.Granularity, index.DefinitionId)).ToDictionary(group => group.Key, group => group.ToArray());
     var rebuild = reasons.Count > 0;
-    var decision = indexes.Count == 0 ? "disabled" : rebuild ? "rebuild required" : "reuse existing indexes unless historical rollups change";
-    var reason = indexes.Count == 0 ? "no configured combinations or enabled tiers" : rebuild ? string.Join(", ", reasons) : "clean checkpoint and matching manifests";
-    check.Complete($"decision={decision}; indexes={indexes.Count}; physical stores={stores.Count}; partitions={partitions}; reasons={reason}");
+    var dirtyDays = recovery.ToDictionary(pair => pair.Key, pair => pair.Value.Days);
+    var dirtyCount = dirtyDays.Values.Sum(days => days.Length);
+    var decision = indexes.Count == 0 ? "disabled" : rebuild ? "rebuild required" : dirtyCount > 0 ? "repair affected days" : "reuse existing indexes unless historical rollups change";
+    var reason = indexes.Count == 0 ? "no configured combinations or enabled tiers" : rebuild ? string.Join(", ", reasons) : dirtyCount > 0 ? "durable write intents require reconciliation" : "clean checkpoint and matching manifests";
+    check.Complete($"decision={decision}; indexes={indexes.Count}; physical stores={stores.Count}; partitions={partitions}; dirty days={dirtyCount}; reasons={reason}");
     // Disabled tiers must not retain copies. Only the three known tier directories are owned here.
     foreach (var granularity in RollupStore.Granularities.Where(granularity => !stores.ContainsKey(granularity)))
     {
@@ -91,36 +92,76 @@ sealed class RollupIndexStore : IDisposable
       var obsolete = Open(granularity);
       foreach (var partition in obsolete.ListPartitions()) obsolete.Drop(partition);
     }
-    // A pending historical rebuild is repeated from scratch, never merged twice.
+    // Historical reconstruction publishes coverage only after its durable checkpoint.
     var historicalBackfill = RollupIndexBackfill.Build(options, rollups, rawEvents, activations, calendar, schema, meta, logger);
     rebuild |= historicalBackfill;
-    if (!rebuild || indexes.Count == 0)
+    if ((!rebuild && dirtyCount == 0) || indexes.Count == 0)
     {
+      MarkClean();
       startup.Complete($"decision={(indexes.Count == 0 ? "disabled" : "reuse existing indexes")}; indexes={indexes.Count}; physical stores={stores.Count}");
       return;
     }
+    Backfill(rebuild ? null : dirtyDays, historicalBackfill);
+    MarkClean();
+    startup.Complete($"decision={(rebuild ? "rebuild completed" : "repair completed")}; indexes={indexes.Count}; physical stores={stores.Count}");
+  }
+
+  void Backfill(Dictionary<Granularity, long[]> dirtyDays, bool historicalBackfill)
+  {
     using var build = new StartupLog(logger, "Rollup index backfill", root);
-    foreach (var store in AllStores)
-      foreach (var partition in store.ListPartitions()) store.Drop(partition);
-    long count = 0;
+    var sources = RollupStore.Granularities.Where(rollups.IsEnabled).SelectMany(granularity =>
+        rollups.GetStore(granularity).ListPartitions().Select(partition => (Granularity: granularity, Partition: partition,
+            Id: ((int)granularity).ToString("D2", System.Globalization.CultureInfo.InvariantCulture) + ":" + partition))).OrderBy(source => source.Id, StringComparer.Ordinal).ToArray();
+    var signature = manifest + "\n" + string.Join(',', sources.Select(source => source.Id)) + "\n" +
+        (dirtyDays == null ? "all" : string.Join(';', dirtyDays.OrderBy(pair => pair.Key).Select(pair => pair.Key + ":" + string.Join(',', pair.Value))));
+    var checkpoint = new IndexBackfillCheckpoint(meta, "rollup-index.backfill", signature);
+    if (dirtyDays == null) meta.Set(CleanKey, "false");
+    if (!checkpoint.Resuming) checkpoint.Begin();
+    if (!checkpoint.Copying)
+    {
+      foreach (var (granularity, store) in stores)
+        foreach (var partition in store.ListPartitions())
+        {
+          if (dirtyDays == null) { store.Drop(partition); continue; }
+          using var lease = store.Acquire(partition);
+          if (lease == null) continue;
+          IndexRecoveryScan.Visit(lease.Tree, dirtyDays[granularity], RollupIndexKeyCodec.HeadLength,
+              (key, _) => lease.Tree.ForceDelete(key));
+        }
+      IndexRecoveryScan.Persist(AllStores);
+      checkpoint.Cleared();
+    }
+    long count = checkpoint.Count;
+    var resumed = count;
     long rows = 0;
     long matched = 0;
     var sourcePartitions = 0;
-    foreach (var granularity in RollupStore.Granularities.Where(rollups.IsEnabled))
-      foreach (var partition in rollups.GetStore(granularity).ListPartitions())
+    var resumePartition = checkpoint.Partition;
+    var resumeKey = checkpoint.Key;
+    foreach (var source in sources)
       {
-        using var lease = rollups.GetStore(granularity).Acquire(partition);
+        if (string.CompareOrdinal(source.Id, resumePartition) < 0) continue;
+        if (dirtyDays != null && (!dirtyDays.TryGetValue(source.Granularity, out var selectedDays) || selectedDays.Length == 0)) continue;
+        using var lease = rollups.GetStore(source.Granularity).Acquire(source.Partition);
         if (lease == null) continue;
         sourcePartitions++;
-        using var iterator = lease.Tree.CreateIterator(new IteratorOptions { DiskSegmentPrefetchSize = 32, ContributeToTheBlockCache = true });
-        iterator.SeekFirst();
-        while (iterator.Next())
+        Memory<byte> lastKey = default;
+        IndexRecoveryScan.Visit(lease.Tree, dirtyDays?.GetValueOrDefault(source.Granularity), key => KeyCodec.HeadLength(key, 3), (key, value) =>
         {
-          var written = CopyCore(granularity, iterator.CurrentKey, iterator.CurrentValue);
+          lastKey = key;
+          var written = CopyCore(source.Granularity, key, value);
           rows += written;
           if (written > 0) matched++;
-          if (++count % 100_000 == 0) build.Progress($"rollup rows scanned={count}; indexed source rows={matched}; index rows written={rows}", count, "rows");
-        }
+          if (++count % IndexBackfillCheckpoint.Interval == 0)
+          {
+            IndexRecoveryScan.Persist(AllStores);
+            checkpoint.Save(source.Id, lastKey, count);
+            build.Progress($"checkpoint saved; rollup rows scanned={count}; resumed rows={resumed}; indexed source rows={matched}; index rows written={rows}", count - resumed, "rows");
+          }
+        }, source.Id == resumePartition ? resumeKey : default);
+        IndexRecoveryScan.Persist(AllStores);
+        checkpoint.Save(source.Id, lastKey.IsEmpty && source.Id == resumePartition ? resumeKey : lastKey, count);
+        build.Progress($"checkpoint saved; partition={source.Id}; rollup rows scanned={count}; resumed rows={resumed}", count - resumed, "rows");
       }
     // Release replayed snapshots and drain index WALs before reporting the build as ready.
     foreach (var store in AllStores)
@@ -128,8 +169,7 @@ sealed class RollupIndexStore : IDisposable
       store.Compact();
       store.CloseIdle(TimeSpan.Zero, keepLatestOpen: false);
     }
-    build.Complete($"indexes={indexes.Count}; physical stores={stores.Count}; source partitions={sourcePartitions}; rollup rows scanned={count}; indexed source rows={matched}; index rows written={rows}; historical backfill={historicalBackfill}", count, "rows");
-    startup.Complete($"decision=rebuild completed; indexes={indexes.Count}; physical stores={stores.Count}");
+    build.Complete($"indexes={indexes.Count}; physical stores={stores.Count}; source partitions={sourcePartitions}; rollup rows scanned={count}; resumed rows={resumed}; indexed source rows={matched}; index rows written={rows}; historical backfill={historicalBackfill}", count - resumed, "rows");
   }
 
   static string PartitionsKey(Granularity granularity) => "rollup-index.partitions." + granularity;
@@ -155,6 +195,13 @@ sealed class RollupIndexStore : IDisposable
       // Primary rollups remain authoritative and must keep accepting deltas.
       try { logger.LogError(exception); } catch { }
     }
+  }
+
+  public void BeforeWrite(Granularity granularity, Memory<byte> key)
+  {
+    if (!recovery.TryGetValue(granularity, out var journal)) return;
+    var definition = KeyCodec.ReadSegment(key.Span, KeyCodec.HeadLength(key.Span, 2), out _);
+    if (copies.ContainsKey((granularity, definition))) journal.Track(KeyCodec.ReadRollupBucket(key.Span));
   }
 
   int CopyCore(Granularity granularity, Memory<byte> originalKey, RollupValue value)
@@ -246,13 +293,15 @@ sealed class RollupIndexStore : IDisposable
 
   public void MarkClean()
   {
-    if (!IsHealthy || !factory.RollupsDurable || !factory.RollupIndexesDurable) return;
+    if (!IsHealthy) return;
     meta.Update(entries =>
     {
-      entries[CleanKey] = "true";
+      entries[CleanKey] = factory.RollupsDurable && factory.RollupIndexesDurable ? "true" : "false";
       entries["rollup-index.format"] = Format;
       entries["rollup-index.config"] = manifest;
       foreach (var (granularity, store) in stores) entries[PartitionsKey(granularity)] = string.Join(',', store.ListPartitions());
+      foreach (var journal in recovery.Values) journal.Clear(entries);
+      new IndexBackfillCheckpoint(meta, "rollup-index.backfill", manifest).Clear(entries);
     });
   }
 

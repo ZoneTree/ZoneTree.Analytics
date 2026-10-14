@@ -38,6 +38,11 @@ sealed class StoreFactory
 
   public bool RollupsDurable { get; private set; } = true;
 
+  public long RawRetentionCutoff => retention.Current.RawEvents;
+
+  public long RollupRetentionCutoff(Granularity granularity) => granularity == Granularity.Day
+      ? retention.Current.DayRollupsLocalDay : retention.Current.Of(granularity);
+
   public StoreFactory(StorageOptions storage, string dataRoot, ILogger logger, RetentionClock retention)
   {
     this.storage = storage;

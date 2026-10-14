@@ -32,9 +32,29 @@ static class RollupIndexBackfill
     check.Complete($"decision={decision}; configured joint definitions={configured.Count}; definitions to rebuild={definitions.Length}; pending definitions={pendingCount}; raw partitions={partitions.Length}; coverage starts={new DateTime(coverage, DateTimeKind.Utc):O}; reason={reason}");
     if (definitions.Length == 0) return false;
     using var build = new StartupLog(logger, "Joint rollup backfill", options.DataDirectory);
+    // Invalidate copies before changing their authoritative rows, including the window
+    // between finishing reconstruction and starting the ordered-copy backfill.
+    meta.Set("rollup-index.clean", "false");
     var selected = definitions.Select(definition => definition.Id).ToHashSet(StringComparer.Ordinal);
     meta.Set(PendingKey, string.Join('\n', selected));
-    DeleteDefinitions(rollups, selected);
+    var signature = "joint-backfill-v1\n" + string.Join('\n', definitions.OrderBy(definition => definition.Id, StringComparer.Ordinal)
+        .Select(definition => definition.Id + ":" + (definition.Events == null ? "*" : string.Join(',', definition.Events.Order(StringComparer.Ordinal))))) + "\n" +
+        string.Join(',', partitions.Select(partition => partition.Name)) + "\n" + options.Rollups.Granularities + "\n" +
+        string.Join(',', options.Rollups.ValueAggregates.OrderBy(pair => pair.Key, StringComparer.Ordinal).Select(pair => pair.Key + ":" + pair.Value)) + "\n" +
+        string.Join(',', options.Rollups.DistinctDimensions.Order(StringComparer.Ordinal)) + "\n" +
+        string.Join(',', schema.Names) + "\n" +
+        FormattableString.Invariant($"{options.Rollups.HyperLogLogPrecision};{options.Sessions.Enabled};{options.Sessions.Timeout.Ticks};{options.Retention.RawEvents};{options.Retention.MinuteRollups};{options.Retention.HourRollups};{options.Retention.DayRollups}");
+    var checkpoint = new JointBackfillCheckpoint(options.DataDirectory, signature, coverage);
+    var state = checkpoint.State;
+    coverage = state.Coverage;
+    if (!state.Copying)
+    {
+      DeleteDefinitions(rollups, selected);
+      IndexRecoveryScan.Persist(rollups.PrimaryStores);
+      state.Copying = true;
+      checkpoint.Save();
+    }
+    checkpoint.Replay(rollups);
     var buffer = new RollupBuffer(options.Rollups.Definitions.ToArray(), options.Rollups.Granularities, calendar,
         options.Rollups.HyperLogLogPrecision, schema, options.Rollups.ValueAggregates, options.Rollups.DistinctDimensions, selected)
         { Cutoffs = cutoffs };
@@ -44,23 +64,29 @@ static class RollupIndexBackfill
     var pageDimensions = new PageDimensions();
     var collector = new RawSessionReader(rawEvents, schema, options);
     var timeout = options.Sessions.Timeout.Ticks;
-    long count = 0;
-    long updates = 0;
-    long flushes = 0;
-    long sessions = 0;
-    var sites = 0;
-    void Flush()
+    var resumed = state.Events;
+    var resumeSite = state.Site;
+    var resumeSiteCompleted = state.SiteCompleted;
+    var resumePartition = state.Partition;
+    var resumeKey = state.Key;
+    void Flush(bool report = false)
     {
-      if (buffer.Count == 0) return;
-      using var batch = new RollupWriteBatch(buffer.Swap());
-      var rows = batch.Rows.Count;
-      rollups.Write(batch);
-      updates += rows;
-      flushes++;
+      if (buffer.Count > 0)
+      {
+        state.Redo = rollups.BackfillReplacements(buffer.Swap());
+        state.Updates += state.Redo.Count;
+        state.Flushes++;
+      }
+      // Cursor/session state and replacements become durable before any additive change.
+      checkpoint.Save();
+      if (report && state.Redo.Count > 0)
+        build.Progress($"checkpoint prepared; events={state.Events}; resumed events={resumed}; replacement rows={state.Redo.Count}", state.Events - resumed, "events");
+      checkpoint.Replay(rollups);
+      if (report) build.Progress($"checkpoint saved; events={state.Events}; resumed events={resumed}; rollup row updates={state.Updates}; flushes={state.Flushes}; sessions={state.Sessions}", state.Events - resumed, "events");
     }
     void Finish(string site, RawSession session)
     {
-      sessions++;
+      state.Sessions++;
       if (session.Start >= coverage)
       {
         changes.Clear();
@@ -81,26 +107,35 @@ static class RollupIndexBackfill
         buffer.Contribute(site, StandardEvents.PageView, session.LastPageTicks,
             pageDimensions.Of(session.Dimensions, session.LastPage, session.LastHostname), 0, 0, changes, DimensionScope.PageView);
       }
-      if (buffer.Count >= 4096) Flush();
     }
     // One chronological stream per site keeps only sessions within an inactivity window.
     // Original session IDs/starts preserve attribution; events are never re-ingested or re-enriched.
     foreach (var site in Sites(rawEvents))
     {
-      sites++;
-      var active = new Dictionary<ulong, RawSession>();
+      var comparison = string.CompareOrdinal(site, resumeSite);
+      if (comparison < 0 || (comparison == 0 && resumeSiteCompleted)) continue;
+      var continuing = comparison == 0;
+      var active = continuing ? state.Active : new Dictionary<ulong, RawSession>();
+      if (!continuing) state.Sites++;
+      state.Site = site;
+      state.SiteCompleted = false;
+      state.Active = active;
       var queue = new PriorityQueue<(ulong Id, long Last), long>();
+      foreach (var (id, session) in active) queue.Enqueue((id, session.Last), session.Last);
       var prefix = KeyCodec.SitePrefix(site);
       foreach (var partition in partitions)
       {
+        if (continuing && string.CompareOrdinal(partition.Name, resumePartition) < 0) continue;
         using var lease = rawEvents.Store.Acquire(partition.Name);
         if (lease == null) continue;
         using var iterator = lease.Tree.CreateIterator(new IteratorOptions { DiskSegmentPrefetchSize = 64, ContributeToTheBlockCache = true });
-        iterator.Seek(KeyCodec.SeekKey(prefix, Math.Max(coverage, partition.From)));
+        var after = continuing && partition.Name == resumePartition ? resumeKey : null;
+        iterator.Seek(after is { Length: > 0 } ? after : KeyCodec.SeekKey(prefix, Math.Max(coverage, partition.From)));
         while (iterator.Next())
         {
           var key = iterator.CurrentKey.Span;
           if (!key.StartsWith(prefix)) break;
+          if (after is { Length: > 0 } && key.SequenceCompareTo(after) <= 0) continue;
           var ticks = KeyCodec.ReadRawTicks(key);
           if (!RawEventCodec.TryDecode(iterator.CurrentValue.Span, ticks, null, default, record)) continue;
           while (queue.TryPeek(out var old, out var last) && last < ticks - Math.Min(ticks, timeout))
@@ -108,6 +143,9 @@ static class RollupIndexBackfill
             queue.Dequeue();
             if (!active.TryGetValue(old.Id, out var session) || session.Last != old.Last) continue;
             Finish(site, session); active.Remove(old.Id);
+            // The source cursor still points to the preceding event. Save finished
+            // sessions before processing this event, preserving the remaining active set.
+            if (buffer.Count >= 4096) Flush(true);
           }
           dimensions.Clear();
           foreach (var pair in record.Dimensions) dimensions[pair.Key] = pair.Value;
@@ -121,24 +159,30 @@ static class RollupIndexBackfill
             var session = active[record.SessionId];
             queue.Enqueue((record.SessionId, session.Last), session.Last);
           }
-          if (buffer.Count >= 4096) Flush();
-          if (++count % 100_000 == 0) build.Progress($"events={count}; rollup row updates={updates}; flushes={flushes}; sessions={sessions}", count, "events");
+          state.Partition = partition.Name;
+          state.Key = iterator.CurrentKey.ToArray();
+          ++state.Events;
+          if (buffer.Count >= 4096 || state.Events % IndexBackfillCheckpoint.Interval == 0) Flush(true);
         }
+        Flush(true);
       }
-      foreach (var session in active.Values) Finish(site, session);
-      Flush();
+      foreach (var id in active.Keys.ToArray())
+      {
+        Finish(site, active[id]);
+        active.Remove(id);
+        if (buffer.Count >= 4096) Flush(true);
+      }
+      state.SiteCompleted = true;
+      state.Partition = null;
+      state.Key = null;
+      Flush(true);
     }
     Flush();
-    // Persist replacements and drain WALs before publishing historical coverage. A crash before
-    // this checkpoint leaves the pending marker, so startup clears and repeats the partial build.
-    foreach (var store in rollups.PrimaryStores)
-    {
-      store.Compact();
-      store.CloseIdle(TimeSpan.Zero, keepLatestOpen: false);
-    }
+    IndexRecoveryScan.Persist(rollups.PrimaryStores);
     activations.Backfilled(meta, definitions, coverage);
     meta.Set(PendingKey, "");
-    build.Complete($"definitions={definitions.Length}; raw partitions={partitions.Length}; sites={sites}; events={count}; sessions={sessions}; rollup row updates={updates}; flushes={flushes}", count, "events");
+    checkpoint.Complete();
+    build.Complete($"definitions={definitions.Length}; raw partitions={partitions.Length}; sites={state.Sites}; events={state.Events}; resumed events={resumed}; sessions={state.Sessions}; rollup row updates={state.Updates}; flushes={state.Flushes}", state.Events - resumed, "events");
     return true;
   }
 

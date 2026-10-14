@@ -1,0 +1,188 @@
+---
+title: "5M-event query benchmark"
+description: "Measured annual overview and filtered-query performance on a retained five-million-event dataset."
+order: 5
+template: doc
+---
+
+# 5M-event query benchmark
+
+**Six annual overview reports completed in 84 ms median, with a 5-million-event dataset and previous-period comparisons enabled.** Filtered country and device breakdowns for GitHub traffic returned in about 13 ms median through covering rollup indexes.
+
+These results were collected from the running dashboard on **14 October 2026**. They measure browser/API response time, including response transfer and JSON parsing, in a .NET host.
+
+<Grid columns="1" columnsSm="3" class="docs-map">
+  <DocCard
+    number="DATASET"
+    title="5 million events"
+    summary="A retained, generated traffic dataset spanning 365 days."
+    href="#workload-and-environment"
+    icon="tabler:database"/>
+  <DocCard
+    number="OVERVIEW"
+    title="84 ms median"
+    summary="All six reports completed; 87 ms at the 95th percentile."
+    href="#complete-overview"
+    icon="tabler:bolt"/>
+  <DocCard
+    number="FILTERED"
+    title="13.5 ms median"
+    summary="Country breakdown for GitHub traffic; 14.0 ms at p95."
+    href="#github-traffic"
+    icon="tabler:filter"/>
+</Grid>
+
+## Complete overview
+
+Each overview load requests traffic totals, a daily time series, top pages, sources, countries, and devices. Requests run with up to three in flight, matching the dashboard's API client.
+
+| Report scope | All six reports: median | All six reports: p95 |
+| --- | ---: | ---: |
+| No filter | **84.0 ms** | 87.0 ms |
+| source = GitHub | **60.0 ms** | 62.3 ms |
+| country = US | **68.5 ms** | 69.7 ms |
+| page = /blog | **62.2 ms** | 63.8 ms |
+
+The selected range was **1 January–31 December 2026**, compared with the previous period. Every daily time series returned **365 buckets**. The unfiltered current-period report contained **4,248,150 page views**; the retained dataset also includes earlier traffic and custom events.
+
+Batch time ends when all six JSON responses have been parsed. It includes waiting for a request slot and is measured separately from each request; adding individual medians does not reconstruct the batch time. Chart rendering and initial page assets are outside this measurement.
+
+## Individual report timings
+
+Each cell below comes from **30 measured requests** for that report and scope. Times are rounded to one decimal place. P95 uses the nearest-rank definition.
+
+### Unfiltered annual reports
+
+| Report | Median | p95 |
+| --- | ---: | ---: |
+| Traffic summary | 25.9 ms | 27.8 ms |
+| Daily time series | 30.1 ms | 33.1 ms |
+| Top pages | 63.6 ms | 65.7 ms |
+| Sources | 32.4 ms | 34.4 ms |
+| Countries | 27.2 ms | 28.0 ms |
+| Devices | 26.8 ms | 27.8 ms |
+
+### GitHub traffic
+
+Filter: `source==GitHub`. The selected period contained **1,805,990 page views** from this source.
+
+| Report | Median | p95 |
+| --- | ---: | ---: |
+| Traffic summary | 43.8 ms | 46.4 ms |
+| Daily time series | 46.4 ms | 48.5 ms |
+| Top pages | 29.3 ms | 30.0 ms |
+| Sources | 24.3 ms | 26.0 ms |
+| Countries | **13.5 ms** | **14.0 ms** |
+| Devices | **13.3 ms** | **13.8 ms** |
+
+### US traffic
+
+Filter: `country==US`. The selected period contained **2,533,854 page views** from the US.
+
+| Report | Median | p95 |
+| --- | ---: | ---: |
+| Traffic summary | 39.4 ms | 41.0 ms |
+| Daily time series | 42.3 ms | 43.8 ms |
+| Top pages | 46.3 ms | 47.7 ms |
+| Sources | 24.0 ms | 25.1 ms |
+| Countries | 22.7 ms | 23.4 ms |
+| Devices | 21.9 ms | 22.8 ms |
+
+### Blog traffic
+
+Filter: `page==/blog`. The selected period contained **1,077,885 page views** for this page.
+
+| Report | Median | p95 |
+| --- | ---: | ---: |
+| Traffic summary | 44.9 ms | 46.7 ms |
+| Daily time series | 47.6 ms | 49.7 ms |
+| Top pages | 45.0 ms | 47.0 ms |
+| Sources | 17.2 ms | 18.3 ms |
+| Countries | **13.4 ms** | **14.3 ms** |
+| Devices | **13.4 ms** | **14.3 ms** |
+
+## What the plans show
+
+The captured plans used **DayRollups** throughout. Filtered multi-dimension reports additionally identified their covering index:
+
+| Filter | Reports using a covering rollup index | IndexDimension |
+| --- | --- | --- |
+| source = GitHub | Top pages, countries, devices | source |
+| country = US | Top pages, sources, devices | country |
+| page = /blog | Sources, countries, devices | page |
+
+All 24 report cases returned complete plans with no warnings. All **720 measured requests** succeeded.
+
+These reports answer recurring questions from aggregate state. They do not replay five million individual events on every request. Covering indexes further narrow reads to the matching aggregate keys. This is the mechanism that keeps filtered reports interactive as event history grows.
+
+The settings used by the dashboard include four raw dimension indexes and twelve directed rollup-index combinations:
+
+<import-codeblock src="./index-configuration.cs"/>
+
+See [rollup planning](../rollups/rollups.mdx) and [secondary indexes](../secondary-indexes/secondary-indexes.mdx) for matching rules, storage costs, and backfilling. Segments, funnels, and unsupported aggregate combinations can require event-level reads and have a different cost.
+
+## Workload and environment
+
+| Setting | Recorded value |
+| --- | --- |
+| Retained input events | **5,000,000**, all successfully ingested |
+| Generated history | 365 days; 14 October 2025–14 October 2026 |
+| Fixture | Generated website traffic with visits, sources, geography, devices, custom actions, and load-time values |
+| Unfiltered group counts | 6 page paths, 6 sources, 2 countries, 2 device groups |
+| Query site / calendar | benchmark-results / UTC |
+| Requested range | 2026-01-01 inclusive through 2027-01-01 exclusive |
+| Comparison | Previous period: the 2025 calendar year |
+| Host | Windows x64, **.NET 10.0.6**, **Debug** build |
+| CPU | Intel Core Ultra 7 265KF; 20 logical processors |
+| Installed memory | 64 GiB |
+| Browser | Chrome 155.0.8059.41, headless |
+| Transport | HTTP over loopback |
+| Numeric load-time percentile aggregation | Off |
+
+The fixture spans parts of two calendar years, rather than a fully populated two-year history. Returned-row limits and the recorded group counts are part of this workload; a report over substantially more groups can require more work.
+
+The host was already running. Storage and operating-system caches were warm; the run did not restart the engine or clear caches. Disk characteristics were not recorded. These are measured results for this workload and environment.
+
+## Measurement procedure
+
+1. Open the dashboard's latest benchmark with `range=this-year`, `tz=UTC`, and `compare=previous-period`.
+2. Capture its six reporting URLs and confirm that they address the retained 5M dataset.
+3. Run each scope three times to warm it; exclude those loads and the initial navigation.
+4. Measure 30 further overview loads per scope, with at most three requests in flight.
+5. Time each request from `fetch` through JSON parsing, after it receives a request slot. Use `cache: no-store`.
+6. Record batch completion separately, calculate medians and p95, and inspect response plans.
+7. Verify that the retained benchmark and sample-operation state did not change during collection.
+
+The result contains **120 measured overview loads** and **720 measured requests**. P95 describes request latency in this measurement; it is independent of the disabled load-time percentile aggregate.
+
+These are representative requests with fixed dates for reproducing the recorded scope:
+
+<import-codeblock src="./requests.http"/>
+
+The summary and time series retain their default session-metric requests. Top pages use `limit=5` and `includePageFlowMetrics=false`. Source and country breakdowns use `limit=5`; devices use `limit=10`. All three breakdowns set `includeSessionMetrics=false`, matching the overview UI.
+
+Use the [raw results](./results.json) to inspect every request URL, timing sample, plan, and the original benchmark metadata. Use the [benchmarking guide](../benchmarking/benchmarking.mdx) to collect another dataset under comparable conditions.
+
+## Recorded ingestion run
+
+The retained dataset also carries the original ingestion measurement. It was not regenerated for these query measurements.
+
+| Measurement | Recorded value |
+| --- | ---: |
+| Input / successfully ingested events | 5,000,000 / 5,000,000 |
+| Ingestion workers | 20 |
+| Ingestion throughput | **38,542 events/s** |
+| Ingestion plus final flush | 129.727 s |
+| Submission | 95.334 s |
+| Preparation | 2.315 s |
+| Errors / dropped / rejected | **0 / 0 / 0** |
+| Build / GC / tiered compilation | Debug / Server / Default |
+
+Throughput includes submission, processing, and the final flush. Preparation and the final compaction used to publish the report dataset are excluded. Submission overlaps processing and is already included in the ingestion interval.
+
+## Related pages
+
+- [Benchmarking](../benchmarking/benchmarking.mdx)
+- [Rollups and query planning](../rollups/rollups.mdx)
+- [Secondary indexes and backfilling](../secondary-indexes/secondary-indexes.mdx)
+- [Dashboard application](../../getting-started/dashboard/dashboard.mdx)

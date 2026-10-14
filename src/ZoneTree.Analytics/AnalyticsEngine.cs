@@ -11,7 +11,7 @@ using ZoneTree.Logger;
 namespace ZoneTree.Analytics;
 
 /// <summary>
-/// An embedded analytics engine backed by ZoneTree.
+/// An analytics engine backed by ZoneTree.
 /// </summary>
 /// <remarks>
 /// <para>

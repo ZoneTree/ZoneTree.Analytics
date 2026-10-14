@@ -538,6 +538,7 @@ sealed class IngestionWorker : IAsyncDisposable
         ev.Values);
     try
     {
+      services.DimensionIndexes?.BeforeWrite(ev.Ticks);
       rawLease.Tree.Upsert(key, value);
     }
     catch { services.DimensionIndexes?.Invalidate(); throw; }
