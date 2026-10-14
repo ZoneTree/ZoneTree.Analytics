@@ -5,3 +5,12 @@ obj
 *.user
 TestResults
 src/ZoneTree.Analytics.Playground/data
+dashboard/node_modules/
+dashboard/dist/
+dashboard/test-results/
+dashboard/.yarn/
+dashboard/.pnp.*
+dashboard/*.log
+dashboard/.qa-content/
+dashboard/.qa-subpath-*/
+examples/DashboardHost/data/

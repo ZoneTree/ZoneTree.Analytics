@@ -34,4 +34,12 @@
     <Using Include="ZoneTree.Analytics.UnitTests.TestTime" Static="true" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Compile Include="../../examples/DashboardHost/SampleTraffic.cs" Link="Samples/SampleTraffic.cs" />
+    <Compile Include="../../examples/DashboardHost/SampleTrafficProfile.cs" Link="Samples/SampleTrafficProfile.cs" />
+    <Compile Include="../../examples/DashboardHost/SampleBenchmark.cs" Link="Samples/SampleBenchmark.cs" />
+    <Compile Include="../../examples/DashboardHost/BenchmarkReportStore.cs" Link="Samples/BenchmarkReportStore.cs" />
+    <Compile Include="../../examples/DashboardHost/SampleEngineLease.cs" Link="Samples/SampleEngineLease.cs" />
+  </ItemGroup>
+
 </Project>

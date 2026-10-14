@@ -6,6 +6,7 @@
   var endpoint = attr('data-endpoint') ||
     (script && script.src ? script.src.replace(/\/script\.js(\?.*)?$/, '/event') : '/_analytics/event');
   var hashRouting = attr('data-hash-routing') === 'true';
+  var trackNavigation = attr('data-track-navigation') !== 'false';
   var allowLocalhost = attr('data-allow-localhost') === 'true';
   var lastUrl = null;
 
@@ -36,7 +37,7 @@
     send('pageview');
   }
 
-  if (window.history) {
+  if (trackNavigation && window.history) {
     ['pushState', 'replaceState'].forEach(function (method) {
       var original = history[method];
       if (!original) return;
@@ -48,7 +49,7 @@
     });
     window.addEventListener('popstate', pageview);
   }
-  if (hashRouting) window.addEventListener('hashchange', pageview);
+  if (trackNavigation && hashRouting) window.addEventListener('hashchange', pageview);
 
   // window.zta('signup', { plan: 'pro' }, { value: 49 }) records a custom event.
   var queued = (window.zta && window.zta.q) || [];

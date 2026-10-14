@@ -51,6 +51,25 @@ Targets .NET 8, 9 and 10.
 
 ---
 
+## Dashboard
+
+A ready-to-use [PureStack and Regor dashboard](dashboard/README.md) is included in
+`dashboard/`. It has separate pages for web reports, audience and acquisition,
+events, bot traffic, funnels, custom queries, and connection settings.
+
+```sh
+cd dashboard
+yarn install
+yarn dev
+```
+
+Open `http://127.0.0.1:4500/` for demo data. Configure your reporting API on the
+Connection page, or use the included [ASP.NET Core host](examples/DashboardHost/Program.cs)
+to serve the dashboard and API together. See the dashboard README for building
+the static release and running the host.
+
+---
+
 ## Quick start
 
 ### Create one engine for the application lifetime

@@ -1,0 +1,98 @@
+<aside class="sidebar" aria-label="Main navigation" :context="pageContext">
+  <label
+    for="nav-toggle"
+    class="icon-button drawer-close mobile-only"
+    aria-label="Close navigation"
+    title="Close navigation"
+  >
+    <Icon name="tabler:x"/>
+  </label>
+  <div class="brand">
+    <DashboardLogo :href="resolvePublicHref('/')" :icon="site.logo.icon"/>
+  </div>
+  <div class="workspace">
+    <span class="workspace-mark">W</span>
+    <div>
+      <strong>Analytics workspace</strong><small>Website analytics</small>
+    </div>
+    <span class="workspace-dot"></span>
+  </div>
+  <span class="nav-label">WORKSPACE</span>
+  <nav class="nav-list" :context="pageInfo.frontmatter">
+    <a
+      class="nav-overview"
+      href="/"
+      :aria-current="section === 'overview' ? 'page' : undefined"
+      ><Icon name="tabler:layout-dashboard"/>Overview</a
+    >
+    <a
+      class="nav-pages"
+      href="/pages/"
+      :aria-current="section === 'pages' ? 'page' : undefined"
+      ><Icon name="tabler:files"/>Pages</a
+    >
+    <a
+      class="nav-sources"
+      href="/acquisition/"
+      :aria-current="section === 'sources' ? 'page' : undefined"
+      ><Icon name="tabler:arrow-fork"/>Acquisition</a
+    >
+    <a
+      class="nav-audience"
+      href="/audience/"
+      :aria-current="section === 'audience' ? 'page' : undefined"
+      ><Icon name="tabler:users"/>Audience</a
+    >
+    <a
+      class="nav-goals"
+      href="/events/"
+      :aria-current="section === 'goals' ? 'page' : undefined"
+      ><Icon name="tabler:flag"/>Events &amp; goals</a
+    >
+    <a
+      class="nav-funnels"
+      href="/funnels/"
+      :aria-current="section === 'funnels' ? 'page' : undefined"
+      ><Icon name="tabler:filter"/>Funnels</a
+    >
+    <a
+      class="nav-bots"
+      href="/bots/"
+      :aria-current="section === 'bots' ? 'page' : undefined"
+      ><Icon name="tabler:robot"/>Bot traffic</a
+    >
+  </nav>
+  <span class="nav-label">TOOLS</span>
+  <nav class="nav-list">
+    <a
+      class="nav-explorer"
+      href="/explorer/"
+      :aria-current="section === 'explorer' ? 'page' : undefined"
+      ><Icon name="tabler:terminal-2"/>Query explorer</a
+    >
+    <a
+      class="nav-sample-data"
+      href="/sample-data/"
+      :aria-current="section === 'sample-data' ? 'page' : undefined"
+      ><Icon name="tabler:database"/>Sample data</a
+    >
+    <a
+      class="nav-settings"
+      href="/connection/"
+      :aria-current="section === 'settings' ? 'page' : undefined"
+      ><Icon name="tabler:settings"/>Connection</a
+    >
+  </nav>
+  <div class="sidebar-bottom">
+    <div class="privacy-mark">
+      <Icon name="tabler:shield-check"/><span
+        >Your data. Your infrastructure.<small>Powered by ZoneTree</small></span
+      >
+    </div>
+    <a
+      href="https://github.com/ZoneTree/ZoneTree.Analytics"
+      target="_blank"
+      rel="noopener"
+      >Documentation<Icon name="tabler:arrow-up-right"/></a>
+  </div>
+</aside>

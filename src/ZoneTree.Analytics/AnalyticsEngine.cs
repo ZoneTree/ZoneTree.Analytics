@@ -810,10 +810,16 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
   /// <summary>
   /// Returns a snapshot of the engine counters.
   /// </summary>
-  public AnalyticsStatistics GetStatistics()
+  public AnalyticsStatistics GetStatistics() => GetStatistics(includePartitions: true);
+
+  /// <summary>
+  /// Returns engine counters, optionally including storage partition details.
+  /// Pass false for lightweight progress polling without inspecting partitions.
+  /// </summary>
+  public AnalyticsStatistics GetStatistics(bool includePartitions)
   {
-    var openPartitions = rollups.AllStores.Sum(x => x.OpenPartitionCount) +
-        (rawEvents?.Store.OpenPartitionCount ?? 0);
+    var openPartitions = includePartitions ? rollups.AllStores.Sum(x => x.OpenPartitionCount) +
+        (rawEvents?.Store.OpenPartitionCount ?? 0) : 0;
     return new AnalyticsStatistics
     {
       EventsAccepted = Interlocked.Read(ref counters.EventsAccepted),
@@ -829,7 +835,7 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
       PartitionsDropped = Interlocked.Read(ref counters.PartitionsDropped),
       QueueLength = workers.Sum(x => (long)x.QueueLength),
       OpenPartitions = openPartitions,
-      Partitions = DescribePartitions()
+      Partitions = includePartitions ? DescribePartitions() : []
     };
   }
 

@@ -1,0 +1,28 @@
+{
+  "siteTitle": "ZoneTree Analytics",
+  "favicon": "tabler:binary-tree",
+  "logo": {
+    "brand": "ZoneTree",
+    "icon": "tabler:binary-tree",
+    "href": "/",
+    "markStyle": "solid",
+    "size": "md",
+    "brandColor": "#F8F8FA",
+    "markBackground": "#DD9CF0",
+    "markColor": "#2D1237"
+  },
+  "outDir": "../dist/site",
+  "publishDir": "../dist/publish",
+  "pageToc": { "enabled": false },
+  "pagefind": { "enabled": false },
+  "sitemap": { "enabled": false, "robots": { "enabled": false } },
+  "auth": { "enabled": false },
+  "consent": { "enabled": false },
+  "style": {
+    "themes": ["light", "dark"],
+    "theme": { "skin": "zonetree" },
+    "href": "/assets/site.css"
+  },
+  "html": { "minify": true },
+  "scripts": { "cacheBusting": true }
+}

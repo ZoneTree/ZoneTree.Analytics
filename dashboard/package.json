@@ -1,0 +1,39 @@
+{
+  "name": "zonetree-analytics-dashboard",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "yarn@4.18.1",
+  "scripts": {
+    "dev": "purestack serve --content ./content --port 4500",
+    "check": "tsc --noEmit",
+    "build": "purestack build --content ./content --clean",
+    "publish": "purestack publish --content ./content",
+    "test": "node --import tsx --test tests/*.test.ts",
+    "test:browser": "node --import tsx tests/browser.ts",
+    "test:subpath": "node --import tsx tests/subpath.ts",
+    "test:tracker": "node --import tsx tests/tracker.ts",
+    "format": "biome format --write",
+    "lint": "biome check ./ --formatter-enabled=false --write"
+  },
+  "dependencies": {
+    "@purestack/ts-components": "^1.1.10",
+    "@purestack/ts-css": "^1.1.10",
+    "@purestack/ts-html": "^1.1.10",
+    "@purestack/ts-style": "^1.1.10",
+    "@purestack/ts-svg-icons": "^1.1.10",
+    "@purestack/ts-util": "^1.1.10",
+    "purestack": "^1.1.10",
+    "regor": "^1.7.4"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.15",
+    "@types/node": "^22.0.0",
+    "playwright": "^1.56.1",
+    "tsx": "^4.20.6",
+    "typescript": "^7.0.2"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
