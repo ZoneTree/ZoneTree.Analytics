@@ -9,7 +9,7 @@ Understand the path from an accepted event to a queryable analytics result.
 
 ## From events to reports
 
-```mermaid
+```
 flowchart LR
     Events["Application events"] --> Ingestion["Background ingestion"]
     Ingestion --> History["Event history and sessions"]

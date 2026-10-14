@@ -73,17 +73,6 @@
   },
   "logo": {
     "brand": "ZoneTree Analytics",
-    "subtitle": "Fastest Ordered KV",
-    "letterColors": "111122",
-    "subtitleLetterColors": "0",
-    "colors": [
-      "var(--ps-current-text-subtle)",
-      "var(--ps-current-text-default)",
-      "var(--ps-semantic-tone-accent-button-rest-background)",
-      "#fdfdfd"
-    ],
-    "logoBackground": 2,
-    "logoForeground": 3,
     "icon": "iconoir:cube"
   },
   "mdx": {
