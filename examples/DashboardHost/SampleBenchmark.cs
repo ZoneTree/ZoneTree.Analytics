@@ -66,6 +66,7 @@ sealed class SampleBenchmark(string contentRoot, TimeZoneInfo timeZone, ILogger?
     var stopwatch = Stopwatch.StartNew();
     using var monitoring = new CancellationTokenSource();
     var monitor = MonitorAsync(engine, events.Length, stopwatch, progress, cancellationToken, monitoring.Token);
+    var compacting = false;
     try
     {
       var submitted = 0;
@@ -82,6 +83,16 @@ sealed class SampleBenchmark(string contentRoot, TimeZoneInfo timeZone, ILogger?
       var statistics = engine.GetStatistics(includePartitions: false);
       if (statistics.EventsProcessed != request.Events || statistics.Errors > 0)
         throw new InvalidOperationException("The benchmark did not ingest every event successfully.");
+      // Finalize disk storage outside the measured ingestion interval before publishing reports.
+      monitoring.Cancel();
+      await monitor;
+      PublishProgress(engine, events.Length, stopwatch, progress, cancellationToken.IsCancellationRequested);
+      compacting = true;
+      progress(new("compacting", events.Length, events.Length, statistics.EventsProcessed,
+          stopwatch.Elapsed.TotalMilliseconds, statistics.EventsProcessed / Math.Max(0.000001, stopwatch.Elapsed.TotalSeconds)));
+      await engine.CompactAsync(applicationStopping);
+      if (engine.GetStatistics(includePartitions: false).Errors > 0)
+        throw new InvalidOperationException("The benchmark dataset could not be finalized successfully.");
 #if DEBUG
       const string build = "Debug";
 #else
@@ -108,7 +119,7 @@ sealed class SampleBenchmark(string contentRoot, TimeZoneInfo timeZone, ILogger?
       monitoring.Cancel();
       await monitor;
       stopwatch.Stop();
-      PublishProgress(engine, events.Length, stopwatch, progress, cancellationToken.IsCancellationRequested);
+      if (!compacting) PublishProgress(engine, events.Length, stopwatch, progress, cancellationToken.IsCancellationRequested);
     }
   }
 

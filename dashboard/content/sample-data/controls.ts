@@ -130,6 +130,10 @@ const template = html`<Panel class="form-panel sample-data-panel">
         </dl>
       </div>
       <p r-if="status.state === 'deleting'">Deleting sample data…</p>
+      <p r-if="status.state === 'compacting'">
+        <progress class="sample-progress" aria-label="Preparing sample reports"></progress>
+        Preparing sample reports…
+      </p>
     </div>
     <FormStatus tone="danger" r-if="status && status.error">
       {{ status.error }}

@@ -64,7 +64,11 @@ public sealed class AnalyticsStorage
     return index == null ? null : new(index.Store, ensureOpen);
   }
 
-  /// <summary>Access to a configured covering rollup index, or null when it is disabled.</summary>
+  /// <summary>
+  /// Access to the shared tier store containing a configured covering rollup index, or null
+  /// when it is disabled. Use the returned <see cref="AnalyticsPartitionedStorage{TKey, TValue}.KeyPrefix"/>
+  /// to restrict an iterator to that logical index. All indexes of the tier share its partitions.
+  /// </summary>
   public AnalyticsPartitionedStorage<Memory<byte>, RollupValue> GetRollupIndex(
       Granularity granularity, string dimension, params string[] groupDimensions)
   {
@@ -73,7 +77,7 @@ public sealed class AnalyticsStorage
     var definition = new RollupDefinition([dimension, .. groupDimensions]);
     var index = rollupIndexes?.Indexes.FirstOrDefault(index => index.Dimension == dimension &&
         index.DefinitionId == definition.Id && index.Granularity == granularity);
-    return index == null ? null : new(index.Store, ensureOpen);
+    return index == null ? null : new(index.Store, ensureOpen, index.KeyPrefix.ToArray());
   }
 
   /// <summary>The active session ZoneTree, or null when sessions are disabled.</summary>
@@ -124,11 +128,18 @@ public sealed class AnalyticsPartitionedStorage<TKey, TValue>
 
   readonly Action ensureOpen;
 
-  internal AnalyticsPartitionedStorage(PartitionedStore<TKey, TValue> store, Action ensureOpen)
+  internal AnalyticsPartitionedStorage(PartitionedStore<TKey, TValue> store, Action ensureOpen, ReadOnlyMemory<byte> keyPrefix = default)
   {
     this.store = store;
     this.ensureOpen = ensureOpen;
+    KeyPrefix = keyPrefix;
   }
+
+  /// <summary>
+  /// The prefix of a logical index in a shared tree. Empty for access to an entire store.
+  /// Seek to this prefix and stop when keys no longer start with it.
+  /// </summary>
+  public ReadOnlyMemory<byte> KeyPrefix { get; }
 
   /// <summary>The absolute directory of this data tier.</summary>
   public string Directory => store.RootDirectory;

@@ -35,6 +35,7 @@ export interface SampleBenchmarkStatus {
     | 'running'
     | 'ingesting'
     | 'flushing'
+    | 'compacting'
     | 'publishing'
     | 'cancelling'
     | 'completed'
@@ -57,6 +58,7 @@ export interface SampleDataStatus {
   state:
     | 'idle'
     | 'generating'
+    | 'compacting'
     | 'deleting'
     | 'completed'
     | 'cancelled'

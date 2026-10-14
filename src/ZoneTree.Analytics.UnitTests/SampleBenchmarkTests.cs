@@ -51,12 +51,20 @@ public sealed class SampleBenchmarkTests : DirectoryTest
     Assert.That(result.Dropped, Is.Zero);
     Assert.That(result.Rejected, Is.Zero);
     Assert.That(result.IngestionMs, Is.GreaterThanOrEqualTo(result.SubmissionMs));
-    Assert.That(phases, Does.Contain("preparing").And.Contain("running").And.Contain("flushing"));
+    Assert.That(phases, Does.Contain("preparing").And.Contain("running").And.Contain("flushing").And.Contain("compacting"));
     Assert.That(Directory.GetDirectories(Path.Combine(directory, "data/ingestion-benchmarks")), Has.Length.EqualTo(1));
     using (var lease = benchmark.Reports.Acquire())
     {
       var report = lease.Engine.Web.GetSummary(new() { Site = BenchmarkReportStore.Site, Range = DateRange.LastDays(8) });
       Assert.That(report.Summary.PageViews, Is.GreaterThan(0));
+      Assert.That(lease.Engine.RollupIndexes.AllStores.Count(), Is.EqualTo(2));
+      foreach (var index in lease.Engine.RollupIndexes.AllStores)
+        foreach (var partition in index.ListPartitions())
+        {
+          using var indexLease = index.Acquire(partition);
+          Assert.That(indexLease.Tree.Maintenance.MutableSegmentRecordCount, Is.Zero);
+          Assert.That(indexLease.Tree.Maintenance.ReadOnlySegmentsRecordCount, Is.Zero);
+        }
     }
     await benchmark.Reports.ClearAsync(CancellationToken.None);
     Assert.That(benchmark.Reports.Result, Is.Null);

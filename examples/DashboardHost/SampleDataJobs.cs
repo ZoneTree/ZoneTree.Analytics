@@ -159,6 +159,11 @@ sealed class SampleDataJobs(SampleDataStore store, SampleBenchmark benchmark, IH
       }
       if (Status.Ingested != processed)
         throw new InvalidOperationException("Some generated events could not be ingested.");
+      if (!token.IsCancellationRequested)
+      {
+        lock (sync) status = status with { State = "compacting" };
+        await lease.Engine.CompactAsync(lifetime.ApplicationStopping);
+      }
       await store.WriteCountAsync(total + processed);
       lock (sync) status = status with { State = token.IsCancellationRequested ? "cancelled" : "completed", TotalGenerated = total + processed };
     }

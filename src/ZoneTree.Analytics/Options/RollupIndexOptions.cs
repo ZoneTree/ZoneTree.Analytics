@@ -33,10 +33,10 @@ public sealed class RollupIndexOptions
   /// </summary>
   public List<RollupIndexDefinition> Definitions { get; private set; } = [];
 
-  /// <summary>Rows per index partition. Default is ten million.</summary>
+  /// <summary>Combined rows per shared index tier partition. Default is ten million.</summary>
   public long RecordsPerPartition { get; set; } = PartitioningOptions.DefaultRecordsPerPartition;
 
-  /// <summary>ZoneTree settings of the copied rollups.</summary>
+  /// <summary>ZoneTree settings shared by all logical indexes in each rollup tier.</summary>
   public StoreOptions Store { get; private set; } = new() { MutableSegmentMaxItemCount = 100_000 };
 
   internal RollupIndexOptions Clone()

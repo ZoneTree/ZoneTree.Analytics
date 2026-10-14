@@ -59,6 +59,11 @@ Select **View sample reports**, or choose **Performance samples** in a report's 
 
 **Benchmark ingestion** prepares the same realistic traffic in memory before timing, then feeds it to a fresh engine with the default per-worker limits. **Include load-time percentile aggregation** controls only percentile rollups; event values and traffic shape are retained. Progress polls lightweight engine counters every 250 ms and shows ingested events, queued events, elapsed time and average throughput so far. The progress bar follows processed events, then shows a separate saving-aggregates stage while the final flush finishes. The result separates preparation, submission, and ingestion-through-flush time. Throughput uses successfully processed events divided by the submission-through-flush interval, with preparation, store creation, dataset publication, disposal and cleanup excluded.
 
+Completed sample generations and benchmarks compact their stores before reporting completion,
+moving remaining in-memory records into disk segments and draining their WALs. The dashboard
+shows **Preparing reports** during this step. Generation and ingestion throughput exclude this
+final compaction step. Cancelled generations retain accepted events without forcing compaction.
+
 Each benchmark uses a fresh GUID directory under `data/ingestion-benchmarks`. The latest successful dataset and its result are retained across restarts; a successful new run replaces the previous one after its report queries finish. Cancelled and failed runs remove their own incomplete dataset and preserve the previous successful run. Select **View benchmark reports** to browse the **Latest benchmark** site over the full generated date range, or select that site in any report. **Delete benchmark data** removes the retained dataset and result. Benchmark reports use `/_analytics/sample-data/benchmark-api`. Primary traffic and generated report samples are preserved. Generation, deletion and benchmarking share a single-operation guard and cancellation. The previous completed benchmark stays visible and browsable during a new run.
 
 Benchmark defaults are **5,000,000 events**, **90 days**, and **20 workers** in both the dashboard and API. For performance measurements, use the same Release build and tiered-compilation setting as the playground. Both projects request server GC; results show the actual build and GC mode. From the repository root in PowerShell, after publishing the dashboard:
@@ -74,7 +79,12 @@ The example exposes `GET /_analytics/sample-data/status` and JSON `POST` request
 
 The example host, performance sample store and ingestion benchmark also enable covering rollup
 indexes in both filtering directions for all six pairs among `source`, `country`, `device` and
-`page` (12 ordered indexes per enabled rollup tier). Overview cards filtered by any one of these
+`page` (12 logical ordered indexes per enabled rollup tier). All logical indexes share one
+partitioned ZoneTree store per tier under `rollup-indexes/hour` and `rollup-indexes/day`, giving
+two physical stores. The ten-million-row partition target counts combined index copies; the
+mutable-segment limit controls when data moves toward disk. Each logical index has its own key
+prefix, and values remain full copied rollups. This layout uses a fresh analytics data directory.
+Overview cards filtered by any one of these
 dimensions read joint aggregates instead of replaying every matching event. The shared explicit
 configuration is in `examples/DashboardHost/DashboardAnalyticsOptions.cs`. On first open after
 enabling the combinations, retained raw events backfill the joint rollups; progress is logged.

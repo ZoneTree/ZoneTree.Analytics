@@ -817,8 +817,13 @@ options.Storage.RollupIndexes.Store.MutableSegmentMaxItemCount = 100_000;
 
 The engine adds missing joint definitions to its private rollup configuration, preserving the
 caller's options. Existing matching definitions, including their event restrictions, are reused.
-Each enabled granularity has a separate index under `rollup-indexes/<configuration-hash>/`.
-Keys are `site -> event -> equality value -> bucket -> complete original rollup key`; values are
+All configured logical indexes of a granularity share one partitioned store under
+`rollup-indexes/minute/`, `rollup-indexes/hour/` or `rollup-indexes/day/`. Twelve configured
+directions with hourly and daily rollups use two physical stores, with their own time partitions.
+`RecordsPerPartition` applies to the combined copied rows in each tier (ten million by default).
+The tier shares its mutable segments, WAL, caches and maintenance across logical indexes.
+Mutable-segment limits separately control how much recent data stays in memory.
+Keys are `index dimension -> joint definition -> site -> event -> equality value -> bucket -> complete original rollup key`; values are
 complete copies of the authoritative `RollupValue`, including visitor sketches, value statistics
 and configured opt-in aggregates. Reads never fetch a primary row by pointer.
 
@@ -843,13 +848,20 @@ so concurrent flushes and retries do not double-count or overwrite a newer snaps
 one. Copy failures are logged and counted; queries fall back to authoritative joint rollups.
 Dirty shutdowns, missing index partitions and configuration changes rebuild copies from primary
 rollups. A clean checkpoint requires successfully closed durable primary and index stores.
-Removed indexes drop their copies. Each index follows its rollup tier's retention and participates
-in idle closure, compaction, rollover and partition statistics.
+Configuration changes rebuild the shared copies so removed logical indexes leave no stale
+namespaces. Disabled tiers drop their partitions. Shared stores follow their rollup tier's
+retention and participate once in idle closure, compaction, rollover and partition statistics.
+Index backfills compact and close their partitions before startup completes, including that
+work in the logged backfill duration. This shared index format requires a fresh data directory
+when upgrading from the earlier per-index-tree layout.
 
 Plans retain `DayRollups`, `HourRollups` or `MinuteRollups` as their source and include
 `IndexDimension` (`indexDimension` in JSON) when a covering rollup index is used.
 `QueryPlan.UsedRollupIndexes` distinguishes those reads. Inspect the existing trees through
-`analytics.Storage.GetRollupIndex(Granularity.Day, "source", "country")`.
+`analytics.Storage.GetRollupIndex(Granularity.Day, "source", "country")`. Its partition accessor
+references the shared tier, and its `KeyPrefix` identifies the selected logical namespace:
+seek to that prefix and stop when iterator keys no longer start with it. Other indexes of the
+same tier expose the same directories and partitions with different prefixes.
 
 Both dimension and rollup index initialization log their backfill necessity checks at
 Information level, including elapsed milliseconds, configured index and partition counts,

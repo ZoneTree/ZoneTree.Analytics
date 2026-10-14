@@ -125,6 +125,10 @@ const template = html`<Panel class="form-panel sample-benchmark-panel">
       <p r-if="benchmark.state === 'publishing'">
         Making benchmark reports available…
       </p>
+      <p r-if="benchmark.state === 'compacting'">
+        <progress class="sample-progress" aria-label="Preparing benchmark reports"></progress>
+        Preparing benchmark reports…
+      </p>
       <p r-if="benchmark.state === 'completed'">Benchmark completed</p>
       <p r-if="benchmark.state === 'cancelled'">Benchmark cancelled</p>
     </div>
