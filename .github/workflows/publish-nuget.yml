@@ -9,6 +9,9 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # Trusted publishing: lets NuGet/login request a GitHub OIDC token.
     steps:
       - uses: actions/checkout@v7
       - name: Setup .NET
@@ -39,8 +42,17 @@ jobs:
         with:
           name: nuget-packages
           path: artifacts/packages/
+      # Exchanges the OIDC token for a temporary API key, valid for one hour, so it runs just
+      # before the push. Needs a trusted publishing policy on nuget.org for this workflow file.
+      # The user is the nuget.org organization that owns the policy and the packages. If the
+      # login does not match the policy, use the account that created it instead (koculu).
+      - name: NuGet login
+        id: login
+        uses: NuGet/login@v1
+        with:
+          user: ZoneTree
       - name: Publish the packages to nuget.org
         # Pushing a .nupkg also pushes the .snupkg symbol package next to it.
-        run: dotnet nuget push "artifacts/packages/*.nupkg" --api-key "$NUGET_AUTH_TOKEN" --source https://api.nuget.org/v3/index.json --skip-duplicate
+        run: dotnet nuget push "artifacts/packages/*.nupkg" --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
         env:
-          NUGET_AUTH_TOKEN: ${{ secrets.NUGET_TOKEN }}
+          NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
