@@ -18,36 +18,60 @@ export interface DashboardFilters {
   closeFilter: () => void
 }
 
-export function createDashboardFilters(scope: DashboardScope, status: DashboardStatus): DashboardFilters {
+export function createDashboardFilters(
+  scope: DashboardScope,
+  status: DashboardStatus,
+): DashboardFilters {
   const filterOpen = sref(false)
   const filterDimension = sref('source')
   const filterOperator = sref('==')
   const filterValue = sref('')
   const filterError = sref('')
-  const filterDialog = () => document.getElementById('report-filter-dialog') as HTMLDialogElement | null
+  const filterDialog = () =>
+    document.getElementById('report-filter-dialog') as HTMLDialogElement | null
   const insertFilter = (expression: string) => {
-    if (!scope.filters().includes(expression)) scope.filters([...scope.filters(), expression])
+    if (!scope.filters().includes(expression))
+      scope.filters([...scope.filters(), expression])
   }
   return {
-    filterOpen, filterDimension, filterOperator, filterValue, filterError,
+    filterOpen,
+    filterDimension,
+    filterOperator,
+    filterValue,
+    filterError,
     addFilter: (dimension, value) => {
       if (value == null) return
-      try { insertFilter(filterExpression(dimension, '==', value)) }
-      catch (failure) { status.error((failure as Error).message) }
+      try {
+        insertFilter(filterExpression(dimension, '==', value))
+      } catch (failure) {
+        status.error((failure as Error).message)
+      }
     },
-    removeFilter: (index) => scope.filters(scope.filters().filter((_, current) => current !== index)),
+    removeFilter: (index) =>
+      scope.filters(scope.filters().filter((_, current) => current !== index)),
     applyFilter: (event) => {
       event.preventDefault()
       try {
-        insertFilter(filterExpression(filterDimension(), filterOperator(), filterValue()))
+        insertFilter(
+          filterExpression(filterDimension(), filterOperator(), filterValue()),
+        )
         filterOpen(false)
         filterDialog()?.close()
         filterValue('')
         filterError('')
-      } catch (failure) { filterError((failure as Error).message) }
+      } catch (failure) {
+        filterError((failure as Error).message)
+      }
     },
-    openFilter: () => { filterError(''); filterOpen(true); filterDialog()?.showModal() },
-    closeFilter: () => { filterOpen(false); filterDialog()?.close() },
+    openFilter: () => {
+      filterError('')
+      filterOpen(true)
+      filterDialog()?.showModal()
+    },
+    closeFilter: () => {
+      filterOpen(false)
+      filterDialog()?.close()
+    },
   }
 }
 const reportControls = html`<div>

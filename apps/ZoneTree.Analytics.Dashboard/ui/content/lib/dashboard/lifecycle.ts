@@ -5,10 +5,7 @@ import type { DashboardModel, Loader } from '../dashboard-model'
 import type { DashboardExport } from './exports'
 import type { DashboardRequests } from './requests'
 import { type DashboardScope, persistDashboardScope } from './scope'
-import type {
-  DashboardReports,
-  DashboardStatus,
-} from './state'
+import type { DashboardReports, DashboardStatus } from './state'
 
 export interface DashboardLifecycle {
   load: () => Promise<void>

@@ -21,9 +21,7 @@ sealed class DashboardDevelopmentServer(
   {
     var source = Path.GetFullPath(configuration["Dashboard:SourcePath"]
         ?? Path.Combine(environment.ContentRootPath, "../ui"));
-    var cli = Path.Combine(source, "node_modules/purestack/dist/cli.mjs");
-    if (!File.Exists(cli))
-      throw new InvalidOperationException($"Install dashboard dependencies first: cd \"{source}\"; yarn install.");
+    var cli = ResolvePureStackCli(source);
     using var listener = new TcpListener(IPAddress.Loopback, 0);
     listener.Start();
     var port = ((IPEndPoint)listener.LocalEndpoint).Port;
@@ -77,6 +75,17 @@ sealed class DashboardDevelopmentServer(
       StopProcess();
       throw;
     }
+  }
+
+  static string ResolvePureStackCli(string source)
+  {
+    // Follow Node's ancestor lookup so hoisted workspace dependencies are found.
+    for (var directory = new DirectoryInfo(source); directory != null; directory = directory.Parent)
+    {
+      var cli = Path.Combine(directory.FullName, "node_modules/purestack/dist/cli.mjs");
+      if (File.Exists(cli)) return cli;
+    }
+    throw new InvalidOperationException("Install dashboard dependencies first: run yarn install from the repository root.");
   }
 
   public async Task ForwardAsync(HttpContext context)

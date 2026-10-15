@@ -4,12 +4,13 @@ bin
 obj
 *.user
 TestResults
+node_modules/
+.yarn/
+.vitest/
+/.pnp.*
 src/ZoneTree.Analytics.Playground/data
-apps/ZoneTree.Analytics.Dashboard/ui/node_modules/
 apps/ZoneTree.Analytics.Dashboard/ui/dist/
 apps/ZoneTree.Analytics.Dashboard/ui/test-results/
-apps/ZoneTree.Analytics.Dashboard/ui/.yarn/
-apps/ZoneTree.Analytics.Dashboard/ui/.pnp.*
 apps/ZoneTree.Analytics.Dashboard/ui/*.log
 apps/ZoneTree.Analytics.Dashboard/ui/.qa-content/
 apps/ZoneTree.Analytics.Dashboard/ui/.qa-subpath-*/

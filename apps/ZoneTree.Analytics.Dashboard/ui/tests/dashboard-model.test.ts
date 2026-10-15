@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict'
-import { type TestContext, test } from 'node:test'
 import { setImmediate as nextTurn } from 'node:timers/promises'
+import { afterEach, test, vi } from 'vitest'
 import { loadConfig } from '../content/lib/config'
 import { defaultConfig } from '../content/lib/contracts'
 import { createDashboardModel } from '../content/lib/dashboard-model'
+
+afterEach(() => vi.useRealTimers())
 
 function memoryStorage(): Storage {
   const items = new Map<string, string>()
@@ -25,7 +27,7 @@ function memoryStorage(): Storage {
   }
 }
 
-function browserEnvironment(context: TestContext, url = 'http://localhost/') {
+function browserEnvironment(url = 'http://localhost/') {
   const location = new URL(url)
   const localStorage = memoryStorage()
   const sessionStorage = memoryStorage()
@@ -44,22 +46,13 @@ function browserEnvironment(context: TestContext, url = 'http://localhost/') {
     },
   }
   const globals = { location, localStorage, sessionStorage, document, history }
-  const originals = new Map<string, PropertyDescriptor | undefined>()
-  for (const [name, value] of Object.entries(globals)) {
-    originals.set(name, Object.getOwnPropertyDescriptor(globalThis, name))
-    Object.defineProperty(globalThis, name, { configurable: true, value })
-  }
-  context.after(() => {
-    for (const [name, descriptor] of originals) {
-      if (descriptor) Object.defineProperty(globalThis, name, descriptor)
-      else Reflect.deleteProperty(globalThis, name)
-    }
-  })
+  for (const [name, value] of Object.entries(globals))
+    vi.stubGlobal(name, value)
   return globals
 }
 
-test('sample controls are advertised by the host rather than restored from browser settings', async (context) => {
-  const browser = browserEnvironment(context)
+test('sample controls are advertised by the host rather than restored from browser settings', async () => {
+  const browser = browserEnvironment()
   browser.localStorage.setItem(
     'zt-dashboard-connection-v1',
     JSON.stringify({
@@ -72,18 +65,14 @@ test('sample controls are advertised by the host rather than restored from brows
       },
     }),
   )
-  context.mock.method(
-    globalThis,
-    'fetch',
+  vi.spyOn(globalThis, 'fetch').mockImplementation(
     async () =>
       new Response(JSON.stringify({ ...defaultConfig, mode: 'live' }), {
         headers: { 'Content-Type': 'application/json' },
       }),
   )
   assert.equal((await loadConfig()).sampleData, undefined)
-  context.mock.method(
-    globalThis,
-    'fetch',
+  vi.spyOn(globalThis, 'fetch').mockImplementation(
     async () =>
       new Response(
         JSON.stringify({
@@ -93,7 +82,10 @@ test('sample controls are advertised by the host rather than restored from brows
             siteId: 'performance-samples',
             apiBaseUrl: '/_analytics/sample-data/api',
             managementUrl: '/_analytics/sample-data',
-            benchmark: { siteId: 'benchmark-results', apiBaseUrl: '/_analytics/sample-data/benchmark-api' },
+            benchmark: {
+              siteId: 'benchmark-results',
+              apiBaseUrl: '/_analytics/sample-data/benchmark-api',
+            },
           },
         }),
         { headers: { 'Content-Type': 'application/json' } },
@@ -105,9 +97,8 @@ test('sample controls are advertised by the host rather than restored from brows
   assert.ok(config.sites.some((site) => site.id === 'benchmark-results'))
 })
 
-test('URL scope overrides session settings and persists custom dates, repeated filters, and no comparison', async (context) => {
+test('URL scope overrides session settings and persists custom dates, repeated filters, and no comparison', async () => {
   const browser = browserEnvironment(
-    context,
     'http://localhost/?site=url-site&range=custom&from=2026-10-01&to=2026-10-12&compare=none&filter=country==DE&filter=device==Mobile',
   )
   browser.sessionStorage.setItem(
@@ -152,8 +143,8 @@ test('URL scope overrides session settings and persists custom dates, repeated f
 
 test('changing scope aborts the previous load and disposal removes scope observers', {
   timeout: 2000,
-}, async (context) => {
-  browserEnvironment(context)
+}, async () => {
+  browserEnvironment()
   const model = createDashboardModel('overview', {
     ...defaultConfig,
     refreshSeconds: 0,
@@ -190,11 +181,11 @@ test('changing scope aborts the previous load and disposal removes scope observe
   }
 })
 
-test('query failures clear exports, recover with plan warnings, and reject invalid dates before requesting', async (context) => {
-  browserEnvironment(context)
+test('query failures clear exports, recover with plan warnings, and reject invalid dates before requesting', async () => {
+  browserEnvironment()
   let unavailable = true
   let calls = 0
-  context.mock.method(globalThis, 'fetch', async () => {
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
     calls++
     return new Response(
       JSON.stringify(
@@ -247,9 +238,9 @@ test('query failures clear exports, recover with plan warnings, and reject inval
   }
 })
 
-test('refresh skips hidden documents, follows updated configuration, and stops on disposal', async (context) => {
-  const browser = browserEnvironment(context)
-  context.mock.timers.enable({ apis: ['setInterval'] })
+test('refresh skips hidden documents, follows updated configuration, and stops on disposal', async () => {
+  const browser = browserEnvironment()
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
   const model = createDashboardModel('overview', {
     ...defaultConfig,
     refreshSeconds: 30,
@@ -261,20 +252,20 @@ test('refresh skips hidden documents, follows updated configuration, and stops o
     })
     await nextTurn()
     browser.document.hidden = true
-    context.mock.timers.tick(30_000)
+    vi.advanceTimersByTime(30_000)
     assert.equal(loads, 1)
     browser.document.hidden = false
-    context.mock.timers.tick(30_000)
+    vi.advanceTimersByTime(30_000)
     await nextTurn()
     assert.equal(loads, 2)
     model.updateConfig({ ...model.config(), refreshSeconds: 60 })
-    context.mock.timers.tick(30_000)
+    vi.advanceTimersByTime(30_000)
     assert.equal(loads, 2)
-    context.mock.timers.tick(30_000)
+    vi.advanceTimersByTime(30_000)
     await nextTurn()
     assert.equal(loads, 3)
     model.dispose()
-    context.mock.timers.tick(60_000)
+    vi.advanceTimersByTime(60_000)
     assert.equal(loads, 3)
   } finally {
     model.dispose()

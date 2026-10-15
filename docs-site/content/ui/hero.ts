@@ -82,68 +82,274 @@ export function defineAnalyticsHero() {
   )
 }
 
-export function registerHeroStyles(root: Style, palette: ThemePalette, theme: ThemeMode) {
+export function registerHeroStyles(
+  root: Style,
+  palette: ThemePalette,
+  theme: ThemeMode,
+) {
   const neutral = palette.semanticTone.neutral
   const c = theme === 'dark' ? analyticsColors.dark : analyticsColors.light
-  root.select('.docs-hero').css({ paddingBlock: '0 48px', borderBottom: `1px solid ${neutral.border.subtle}` })
-  root.select('.doc-main:has(.docs-hero)').css({ width: 'min(1160px, calc(100% - 80px))', marginInline: 'auto' })
-  root.select('.docs-hero-layout').css({ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '38px', alignItems: 'center' })
+  root.select('.docs-hero').css({
+    paddingBlock: '0 48px',
+    borderBottom: `1px solid ${neutral.border.subtle}`,
+  })
+  root
+    .select('.doc-main:has(.docs-hero)')
+    .css({ width: 'min(1160px, calc(100% - 80px))', marginInline: 'auto' })
+  root.select('.docs-hero-layout').css({
+    display: 'grid',
+    gridTemplateColumns: '1fr 1fr',
+    gap: '38px',
+    alignItems: 'center',
+  })
   root.select('.docs-hero-layout > div').css({ minWidth: '0' })
-  root.select('.docs-hero h1').css({ fontSize: 'clamp(42px, 4.45vw, 64px)', lineHeight: '1.08', letterSpacing: '-2.8px', marginBlock: '26px', fontWeight: '700', textWrap: 'balance' })
+  root.select('.docs-hero h1').css({
+    fontSize: 'clamp(42px, 4.45vw, 64px)',
+    lineHeight: '1.08',
+    letterSpacing: '-2.8px',
+    marginBlock: '26px',
+    fontWeight: '700',
+    textWrap: 'balance',
+  })
   root.select('.docs-hero h1 span').css({ color: c.accentInk })
-  root.select('.docs-hero-copy').css({ maxWidth: '46ch', color: neutral.text.subtle, fontSize: '19px', lineHeight: '1.7' })
-  root.select('.docs-hero-actions').css({ gap: '12px', flexWrap: 'wrap', marginTop: '28px' })
-  root.select('.docs-facts').css({ display: 'flex', flexWrap: 'wrap', gap: '18px', marginTop: '30px', color: neutral.text.subtle, fontSize: '12px' })
-  root.select('.hero-observatory').css({ position: 'relative', padding: '20px 0 0' })
-  root.select('.hero-visual-heading').css({ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', paddingInline: '24px', fontSize: '12px', fontWeight: '600', letterSpacing: '.025em' })
-  root.select('.hero-visual-index').css({ fontSize: '10px', color: neutral.text.subtle, letterSpacing: '.1em' })
-  root.select('.hero-signal-field').css({ position: 'relative', aspectRatio: '640 / 420', marginBlock: '4px 16px' })
-  root.select('.hero-signal-art').css({ display: 'block', width: '100%', height: '100%', overflow: 'visible', color: c.signal })
+  root.select('.docs-hero-copy').css({
+    maxWidth: '46ch',
+    color: neutral.text.subtle,
+    fontSize: '19px',
+    lineHeight: '1.7',
+  })
+  root
+    .select('.docs-hero-actions')
+    .css({ gap: '12px', flexWrap: 'wrap', marginTop: '28px' })
+  root.select('.docs-facts').css({
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: '18px',
+    marginTop: '30px',
+    color: neutral.text.subtle,
+    fontSize: '12px',
+  })
+  root
+    .select('.hero-observatory')
+    .css({ position: 'relative', padding: '20px 0 0' })
+  root.select('.hero-visual-heading').css({
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: '12px',
+    paddingInline: '24px',
+    fontSize: '12px',
+    fontWeight: '600',
+    letterSpacing: '.025em',
+  })
+  root.select('.hero-visual-index').css({
+    fontSize: '10px',
+    color: neutral.text.subtle,
+    letterSpacing: '.1em',
+  })
+  root.select('.hero-signal-field').css({
+    position: 'relative',
+    aspectRatio: '640 / 420',
+    marginBlock: '4px 16px',
+  })
+  root.select('.hero-signal-art').css({
+    display: 'block',
+    width: '100%',
+    height: '100%',
+    overflow: 'visible',
+    color: c.signal,
+  })
   root.select('.hero-grid').css({ color: neutral.text.subtle, opacity: '.15' })
-  root.select('.hero-orbits').css({ color: neutral.border.default, opacity: '.5' })
+  root
+    .select('.hero-orbits')
+    .css({ color: neutral.border.default, opacity: '.5' })
   root.select('.hero-streams').css({ opacity: '.55' })
   root.select('.hero-event-points').css({ opacity: '.6' })
-  root.select('.hero-core').css({ filter: `drop-shadow(0 12px 22px ${c.signal}24)`, transition: 'transform 250ms ease', transformOrigin: 'center', transformBox: 'fill-box' })
+  root.select('.hero-core').css({
+    filter: `drop-shadow(0 12px 22px ${c.signal}24)`,
+    transition: 'transform 250ms ease',
+    transformOrigin: 'center',
+    transformBox: 'fill-box',
+  })
   root.select('.hero-core-base').css({ fill: c.accentSurface })
-  root.select('.hero-core-middle').css({ fill: `color-mix(in srgb, ${c.signal} 13%, ${neutral.canvas})` })
+  root
+    .select('.hero-core-middle')
+    .css({ fill: `color-mix(in srgb, ${c.signal} 13%, ${neutral.canvas})` })
   root.select('.hero-core-top').css({ strokeWidth: '2' })
-  root.select('.hero-observatory:hover .hero-core').css({ transform: 'translateY(-4px)' })
-  root.select('.hero-source').css({ position: 'absolute', left: '3%', display: 'flex', alignItems: 'center', gap: '9px', padding: '8px 12px', fontSize: '12px', lineHeight: '1.4', border: `1px solid ${neutral.border.subtle}`, borderRadius: '100px', background: `color-mix(in srgb, ${neutral.surface.rest.bgcolor} 92%, transparent)`, boxShadow: `0 4px 16px ${theme === 'dark' ? '#00000018' : '#00000004'}`, whiteSpace: 'nowrap', transform: 'translateY(-50%)' })
-  root.select('.hero-source .icon').css({ color: c.accentInk, width: '15px', height: '15px' })
+  root
+    .select('.hero-observatory:hover .hero-core')
+    .css({ transform: 'translateY(-4px)' })
+  root.select('.hero-source').css({
+    position: 'absolute',
+    left: '3%',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '9px',
+    padding: '8px 12px',
+    fontSize: '12px',
+    lineHeight: '1.4',
+    border: `1px solid ${neutral.border.subtle}`,
+    borderRadius: '100px',
+    background: `color-mix(in srgb, ${neutral.surface.rest.bgcolor} 92%, transparent)`,
+    boxShadow: `0 4px 16px ${theme === 'dark' ? '#00000018' : '#00000004'}`,
+    whiteSpace: 'nowrap',
+    transform: 'translateY(-50%)',
+  })
+  root
+    .select('.hero-source .icon')
+    .css({ color: c.accentInk, width: '15px', height: '15px' })
   root.select('.hero-source-web').css({ top: '28.57%' })
   root.select('.hero-source-product').css({ top: '47.62%' })
   root.select('.hero-source-service').css({ top: '66.67%' })
-  root.select('.hero-engine-label, .hero-answer-label').css({ position: 'absolute', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', fontSize: '12px', lineHeight: '1.6', textAlign: 'center' })
-  root.select('.hero-engine-label').css({ top: '82%', left: '48.75%', transform: 'translateX(-50%)' })
-  root.select('.hero-engine-label strong').css({ letterSpacing: '-.2px', fontSize: '15px', fontWeight: '650' })
-  root.select('.hero-engine-label span, .hero-answer-label span').css({ color: neutral.text.subtle, fontSize: '10px' })
-  root.select('.hero-answer-label').css({ top: '70%', left: '70%', width: '29%' })
-  root.select('.hero-proof').css({ display: 'grid', gridTemplateColumns: '1fr 1fr', borderTop: `1px solid ${neutral.border.subtle}`, paddingBlock: '22px 10px', marginInline: '24px', gap: '24px' })
-  root.select('.hero-proof a').css({ display: 'flex', flexDirection: 'column', gap: '7px', color: neutral.text.default, textDecoration: 'none' })
-  root.select('.hero-proof a + a').css({ paddingLeft: '24px', borderLeft: `1px solid ${neutral.border.subtle}` })
-  root.select('.hero-proof strong').css({ fontSize: '36px', fontWeight: '600', letterSpacing: '-1.5px', lineHeight: '1.1', fontVariantNumeric: 'tabular-nums' })
-  root.select('.hero-proof strong span').css({ color: neutral.text.subtle, fontSize: '18px', fontWeight: '400', letterSpacing: '-.3px' })
-  root.select('.hero-proof small').css({ color: neutral.text.subtle, fontSize: '11px', lineHeight: '1.5' })
-  root.select('.hero-benchmark-link').css({ display: 'inline-flex', alignItems: 'center', gap: '5px', margin: '12px 24px 0', fontSize: '11px', fontWeight: '600', color: c.accentInk, textDecoration: 'none' })
-  root.select('.hero-proof a:hover strong, .hero-benchmark-link:hover').css({ color: c.accentInk })
-  root.select('.hero-observatory a:focus-visible').css({ outline: `2px solid ${c.accentInk}`, outlineOffset: '5px', borderRadius: '2px' })
-  root.media('max-width: 1050px').select('.docs-hero-layout').css({ gridTemplateColumns: '1fr', gap: '32px' })
-  root.media('max-width: 1050px').select('.hero-introduction').css({ maxWidth: '740px' })
-  root.media('max-width: 1050px').select('.hero-observatory').css({ width: 'min(100%, 640px)', justifySelf: 'center' })
-  root.media('max-width: 760px').select('.docs-hero').css({ paddingBottom: '32px' })
-  root.media('max-width: 760px').select('.doc-main:has(.docs-hero)').css({ width: 'calc(100% - 32px)' })
-  root.media('max-width: 760px').select('.docs-hero h1').css({ fontSize: 'clamp(38px, 7.5vw, 56px)', letterSpacing: '-1.8px' })
-  root.media('max-width: 760px').select('.docs-hero-copy').css({ fontSize: '17px' })
-  root.media('max-width: 460px').select('.hero-visual-heading').css({ paddingInline: '4px' })
-  root.media('max-width: 460px').select('.hero-source').css({ padding: '6px 8px', gap: '5px', fontSize: '10px', left: '0' })
-  root.media('max-width: 460px').select('.hero-source .icon').css({ width: '12px', height: '12px' })
-  root.media('max-width: 460px').select('.hero-engine-label strong').css({ fontSize: '12px' })
-  root.media('max-width: 460px').select('.hero-answer-label').css({ fontSize: '10px' })
-  root.media('max-width: 460px').select('.hero-engine-label span, .hero-answer-label span').css({ fontSize: '9px' })
-  root.media('max-width: 460px').select('.hero-proof').css({ marginInline: '4px', gap: '16px' })
-  root.media('max-width: 460px').select('.hero-proof a + a').css({ paddingLeft: '16px' })
-  root.media('max-width: 460px').select('.hero-proof strong').css({ fontSize: '31px' })
-  root.media('max-width: 460px').select('.hero-benchmark-link').css({ marginLeft: '4px' })
-  root.media('prefers-reduced-motion: reduce').select('.hero-particles').css({ display: 'none' })
-  root.media('prefers-reduced-motion: reduce').select('.hero-core').css({ transition: 'none', transform: 'none !important' })
+  root.select('.hero-engine-label, .hero-answer-label').css({
+    position: 'absolute',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: '2px',
+    fontSize: '12px',
+    lineHeight: '1.6',
+    textAlign: 'center',
+  })
+  root
+    .select('.hero-engine-label')
+    .css({ top: '82%', left: '48.75%', transform: 'translateX(-50%)' })
+  root
+    .select('.hero-engine-label strong')
+    .css({ letterSpacing: '-.2px', fontSize: '15px', fontWeight: '650' })
+  root
+    .select('.hero-engine-label span, .hero-answer-label span')
+    .css({ color: neutral.text.subtle, fontSize: '10px' })
+  root
+    .select('.hero-answer-label')
+    .css({ top: '70%', left: '70%', width: '29%' })
+  root.select('.hero-proof').css({
+    display: 'grid',
+    gridTemplateColumns: '1fr 1fr',
+    borderTop: `1px solid ${neutral.border.subtle}`,
+    paddingBlock: '22px 10px',
+    marginInline: '24px',
+    gap: '24px',
+  })
+  root.select('.hero-proof a').css({
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '7px',
+    color: neutral.text.default,
+    textDecoration: 'none',
+  })
+  root.select('.hero-proof a + a').css({
+    paddingLeft: '24px',
+    borderLeft: `1px solid ${neutral.border.subtle}`,
+  })
+  root.select('.hero-proof strong').css({
+    fontSize: '36px',
+    fontWeight: '600',
+    letterSpacing: '-1.5px',
+    lineHeight: '1.1',
+    fontVariantNumeric: 'tabular-nums',
+  })
+  root.select('.hero-proof strong span').css({
+    color: neutral.text.subtle,
+    fontSize: '18px',
+    fontWeight: '400',
+    letterSpacing: '-.3px',
+  })
+  root
+    .select('.hero-proof small')
+    .css({ color: neutral.text.subtle, fontSize: '11px', lineHeight: '1.5' })
+  root.select('.hero-benchmark-link').css({
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '5px',
+    margin: '12px 24px 0',
+    fontSize: '11px',
+    fontWeight: '600',
+    color: c.accentInk,
+    textDecoration: 'none',
+  })
+  root
+    .select('.hero-proof a:hover strong, .hero-benchmark-link:hover')
+    .css({ color: c.accentInk })
+  root.select('.hero-observatory a:focus-visible').css({
+    outline: `2px solid ${c.accentInk}`,
+    outlineOffset: '5px',
+    borderRadius: '2px',
+  })
+  root
+    .media('max-width: 1050px')
+    .select('.docs-hero-layout')
+    .css({ gridTemplateColumns: '1fr', gap: '32px' })
+  root
+    .media('max-width: 1050px')
+    .select('.hero-introduction')
+    .css({ maxWidth: '740px' })
+  root
+    .media('max-width: 1050px')
+    .select('.hero-observatory')
+    .css({ width: 'min(100%, 640px)', justifySelf: 'center' })
+  root
+    .media('max-width: 760px')
+    .select('.docs-hero')
+    .css({ paddingBottom: '32px' })
+  root
+    .media('max-width: 760px')
+    .select('.doc-main:has(.docs-hero)')
+    .css({ width: 'calc(100% - 32px)' })
+  root
+    .media('max-width: 760px')
+    .select('.docs-hero h1')
+    .css({ fontSize: 'clamp(38px, 7.5vw, 56px)', letterSpacing: '-1.8px' })
+  root
+    .media('max-width: 760px')
+    .select('.docs-hero-copy')
+    .css({ fontSize: '17px' })
+  root
+    .media('max-width: 460px')
+    .select('.hero-visual-heading')
+    .css({ paddingInline: '4px' })
+  root
+    .media('max-width: 460px')
+    .select('.hero-source')
+    .css({ padding: '6px 8px', gap: '5px', fontSize: '10px', left: '0' })
+  root
+    .media('max-width: 460px')
+    .select('.hero-source .icon')
+    .css({ width: '12px', height: '12px' })
+  root
+    .media('max-width: 460px')
+    .select('.hero-engine-label strong')
+    .css({ fontSize: '12px' })
+  root
+    .media('max-width: 460px')
+    .select('.hero-answer-label')
+    .css({ fontSize: '10px' })
+  root
+    .media('max-width: 460px')
+    .select('.hero-engine-label span, .hero-answer-label span')
+    .css({ fontSize: '9px' })
+  root
+    .media('max-width: 460px')
+    .select('.hero-proof')
+    .css({ marginInline: '4px', gap: '16px' })
+  root
+    .media('max-width: 460px')
+    .select('.hero-proof a + a')
+    .css({ paddingLeft: '16px' })
+  root
+    .media('max-width: 460px')
+    .select('.hero-proof strong')
+    .css({ fontSize: '31px' })
+  root
+    .media('max-width: 460px')
+    .select('.hero-benchmark-link')
+    .css({ marginLeft: '4px' })
+  root
+    .media('prefers-reduced-motion: reduce')
+    .select('.hero-particles')
+    .css({ display: 'none' })
+  root
+    .media('prefers-reduced-motion: reduce')
+    .select('.hero-core')
+    .css({ transition: 'none', transform: 'none !important' })
 }

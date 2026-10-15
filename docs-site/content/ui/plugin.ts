@@ -9,4 +9,3 @@ export const analyticsDocsPlugin = definePlugin({
   components: () => defineDocsComponents(),
   hooks: { onConfigResolved: () => registerDocsStyles() },
 })
-

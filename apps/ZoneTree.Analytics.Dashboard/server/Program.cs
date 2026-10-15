@@ -143,6 +143,17 @@ if (sampleDataEnabled)
   if (benchmark.Reports.Result != null)
     using (benchmark.Reports.Acquire()) { }
 }
+app.Lifetime.ApplicationStarted.Register(() =>
+{
+  foreach (var address in app.Urls)
+  {
+    var displayAddress = address;
+    if (Uri.TryCreate(address, UriKind.Absolute, out var uri)
+        && uri.Host is "0.0.0.0" or "[::]")
+      displayAddress = new UriBuilder(uri) { Host = "localhost" }.Uri.AbsoluteUri;
+    app.Logger.LogInformation("Open dashboard: {Url}", displayAddress);
+  }
+});
 await app.RunAsync();
 
 sealed record DashboardSite(string Id, string Name);

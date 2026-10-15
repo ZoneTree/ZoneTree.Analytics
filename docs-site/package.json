@@ -2,11 +2,9 @@
   "private": true,
   "type": "module",
   "name": "analytics.zonetree.dev",
-  "packageManager": "yarn@4.18.1",
   "scripts": {
     "check": "tsc --noEmit",
     "build": "purestack build --content ./content --clean",
-    "lint": "biome check ./ --formatter-enabled=false --write",
     "serve": "purestack serve --content ./content --port 4900 --clean",
     "publish": "purestack publish --content ./content",
     "deploy": "pgdeploy deploy --host https://analytics.zonetree.dev --package ./dist/web --allow-path 'pagefind/*,.ts-ssg/manifest.json' --skip-path 'docs/*.json,*.cs,*.http,*.ps1,*.sh'"
@@ -18,7 +16,6 @@
     "regor": "^1.7.5"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.5.15",
     "typescript": "^7.0.2"
   }
 }

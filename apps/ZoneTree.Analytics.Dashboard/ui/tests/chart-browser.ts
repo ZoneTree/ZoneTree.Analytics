@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { fileURLToPath } from 'node:url'
 import type { Page, Route } from 'playwright'
 import type { Point, Report, Summary } from '../content/lib/contracts'
 import { chartPointBudget } from '../content/overview/chart-sampling'
@@ -76,22 +77,38 @@ export async function checkLargeSvgChart(
   await values.locator('tbody tr').first().waitFor()
   assert.equal(await values.locator('tbody tr').count(), 100)
   let releaseRefresh: (() => void) | undefined
-  const refreshGate = new Promise<void>((resolve) => { releaseRefresh = resolve })
+  const refreshGate = new Promise<void>((resolve) => {
+    releaseRefresh = resolve
+  })
   const holdRefresh = async (route: Route) => {
     await refreshGate
     await route.fallback()
   }
   await page.route('**/mock-analytics/**', holdRefresh)
   try {
-    await page.getByRole('button', { name: 'Refresh reports', exact: true }).click()
+    await page
+      .getByRole('button', { name: 'Refresh reports', exact: true })
+      .click()
     await page.locator('.page-heading .report-loading').waitFor()
-    assert.equal(await page.locator('.metric-card').count(), 5, 'Metrics stay visible during refresh')
+    assert.equal(
+      await page.locator('.metric-card').count(),
+      5,
+      'Metrics stay visible during refresh',
+    )
     assert.deepEqual(
-      await page.locator('.line-chart__line').evaluateAll((lines) => lines.map((line) => line.getAttribute('d') ?? '')),
+      await page
+        .locator('.line-chart__line')
+        .evaluateAll((lines) =>
+          lines.map((line) => line.getAttribute('d') ?? ''),
+        ),
       paths,
       'Previous chart stays visible during refresh',
     )
-    assert.equal(await values.locator('tbody tr').count(), 100, 'Expanded chart values stay visible during refresh')
+    assert.equal(
+      await values.locator('tbody tr').count(),
+      100,
+      'Expanded chart values stay visible during refresh',
+    )
   } finally {
     releaseRefresh?.()
     await page.waitForFunction(() => !document.querySelector('.report-loading'))
@@ -118,12 +135,16 @@ export async function checkLargeSvgChart(
     (paths[0].match(/[ML]/g) ?? []).length,
   )
   await page.screenshot({
-    path: 'test-results/large-chart-mobile.png',
+    path: fileURLToPath(
+      new URL('../test-results/large-chart-mobile.png', import.meta.url),
+    ),
     fullPage: true,
   })
   await page.setViewportSize({ width: 1440, height: 1100 })
   await page.screenshot({
-    path: 'test-results/large-chart-desktop.png',
+    path: fileURLToPath(
+      new URL('../test-results/large-chart-desktop.png', import.meta.url),
+    ),
     fullPage: true,
   })
   console.log(

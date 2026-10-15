@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { fileURLToPath } from 'node:url'
 import type { Page } from 'playwright'
 import { dashboardConfigPath } from '../content/lib/contracts'
 import type {
@@ -241,12 +242,16 @@ export async function checkSampleDataTools(page: Page, base: string) {
     'Sample tools fit mobile viewport',
   )
   await page.screenshot({
-    path: 'test-results/sample-tools-mobile.png',
+    path: fileURLToPath(
+      new URL('../test-results/sample-tools-mobile.png', import.meta.url),
+    ),
     fullPage: true,
   })
   await page.setViewportSize({ width: 1440, height: 1100 })
   await page.screenshot({
-    path: 'test-results/sample-tools-desktop.png',
+    path: fileURLToPath(
+      new URL('../test-results/sample-tools-desktop.png', import.meta.url),
+    ),
     fullPage: true,
   })
   console.log(

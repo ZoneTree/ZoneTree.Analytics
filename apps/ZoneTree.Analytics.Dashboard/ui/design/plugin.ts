@@ -3,7 +3,12 @@ import path from 'node:path'
 import { h } from '@purestack/ts-html'
 import { withBasePath } from '@purestack/ts-util'
 import { definePlugin } from 'purestack'
-import { dashboardConfigPath, dashboardEventPath, dashboardTrackerPath, defaultConfig } from '../content/lib/contracts'
+import {
+  dashboardConfigPath,
+  dashboardEventPath,
+  dashboardTrackerPath,
+  defaultConfig,
+} from '../content/lib/contracts'
 import { defineDashboardComponents } from './components'
 import { dashboardSkin } from './skin'
 import { registerDashboardStyles } from './styles'
@@ -19,10 +24,13 @@ export const dashboardPlugin = definePlugin({
   devMiddleware: async (request, response) => {
     const pathname = new URL(request.url ?? '/', 'http://localhost').pathname
     if (pathname === dashboardTrackerPath && request.method === 'GET') {
-      response.writeHead(200, {
-        'Content-Type': 'application/javascript',
-        'Cache-Control': 'no-store',
-      }).end(await readFile(trackerSourcePath))
+      const tracker = await readFile(trackerSourcePath)
+      response
+        .writeHead(200, {
+          'Content-Type': 'application/javascript',
+          'Cache-Control': 'no-store',
+        })
+        .end(tracker)
       return
     }
     if (pathname === dashboardEventPath && request.method === 'POST') {
@@ -45,11 +53,17 @@ export const dashboardPlugin = definePlugin({
   hooks: {
     onConfigResolved: (context) => {
       registerDashboardStyles()
-      trackerSourcePath = path.resolve(context.config.contentDir, '../../src/ZoneTree.Analytics.AspNetCore/tracker.js')
+      trackerSourcePath = path.resolve(
+        context.config.contentDir,
+        '../../../../src/ZoneTree.Analytics.AspNetCore/tracker.js',
+      )
     },
     onPageRendered: (context, page) => {
       // The tracker endpoint stays at the host root when static pages use a base path.
-      const resolvedPath = withBasePath(context.config.basePath, dashboardTrackerPath)
+      const resolvedPath = withBasePath(
+        context.config.basePath,
+        dashboardTrackerPath,
+      )
       if (resolvedPath !== dashboardTrackerPath) {
         page.html = page.html
           .replace(`src="${resolvedPath}`, `src="${dashboardTrackerPath}`)
@@ -59,13 +73,15 @@ export const dashboardPlugin = definePlugin({
   },
   templates: {
     dashboard: ({ head, bodyHtml, headerHtml, site, pageInfo }) => {
-      head.push(h('script').attr({
-        id: 'zonetree-tracker',
-        defer: '',
-        src: `${dashboardTrackerPath}?v=2`,
-        'data-allow-localhost': 'true',
-        'data-track-navigation': 'false',
-      }))
+      head.push(
+        h('script').attr({
+          id: 'zonetree-tracker',
+          defer: '',
+          src: `${dashboardTrackerPath}?v=2`,
+          'data-allow-localhost': 'true',
+          'data-track-navigation': 'false',
+        }),
+      )
       head.push(
         h('meta').attr({ name: 'robots', content: 'noindex, nofollow' }),
       )

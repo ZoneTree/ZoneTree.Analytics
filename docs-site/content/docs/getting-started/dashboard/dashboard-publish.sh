@@ -1,3 +1,2 @@
-cd apps/ZoneTree.Analytics.Dashboard/ui
-yarn publish
+yarn workspace zonetree-analytics-dashboard publish
 

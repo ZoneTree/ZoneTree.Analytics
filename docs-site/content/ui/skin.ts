@@ -127,16 +127,8 @@ function createAccent(dark: boolean, neutral: Tone): Tone {
     surfaceAlt: surface,
     button: {
       rest: state(c.signal, c.signal, c.onSignal),
-      hover: state(
-        c.signalHover,
-        c.signalHover,
-        c.onSignal,
-      ),
-      active: state(
-        c.signalActive,
-        c.signalActive,
-        c.onSignal,
-      ),
+      hover: state(c.signalHover, c.signalHover, c.onSignal),
+      active: state(c.signalActive, c.signalActive, c.onSignal),
       disabled: neutral.button.disabled,
       focusRing: c.accentInk,
     },
@@ -171,11 +163,7 @@ function createCompanion(dark: boolean, neutral: Tone): Tone {
     surfaceAlt: surface,
     button: {
       rest: state(fill, fill, c.onCompanion),
-      hover: state(
-        c.companionHover,
-        c.companionHover,
-        c.onCompanion,
-      ),
+      hover: state(c.companionHover, c.companionHover, c.onCompanion),
       active: state(c.companionActive, c.companionActive, c.onCompanion),
       disabled: neutral.button.disabled,
       focusRing: ink,
@@ -229,4 +217,3 @@ function createPalette(dark: boolean): ThemePalette {
 export const analyticsSkin: ThemeSkin = {
   create: () => ({ light: createPalette(false), dark: createPalette(true) }),
 }
-

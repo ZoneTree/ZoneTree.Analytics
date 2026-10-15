@@ -1,0 +1,81 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.5.15/schema.json",
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
+  "files": {
+    "ignoreUnknown": true,
+    "includes": [
+      "**",
+      "!!**/node_modules",
+      "!!**/dist",
+      "!!**/bin",
+      "!!**/obj",
+      "!!**/test-results",
+      "!!**/TestResults",
+      "!!**/.yarn",
+      "!!**/.tmp"
+    ]
+  },
+  "formatter": {
+    "enabled": true,
+    "useEditorconfig": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineEnding": "lf"
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "preset": "recommended",
+      "correctness": {
+        "noUnusedImports": "error",
+        "noUnusedVariables": "error"
+      },
+      "suspicious": {
+        "noEmptyInterface": "off"
+      },
+      "complexity": {
+        "noUselessSwitchCase": "off"
+      }
+    }
+  },
+  "overrides": [
+    {
+      "includes": [
+        "src/ZoneTree.Analytics.AspNetCore/tracker.js",
+        "docs-site/content/docs/guides/tracking/browser-tracker.html"
+      ],
+      "linter": {
+        "rules": {
+          "complexity": {
+            "useArrowFunction": "off",
+            "useOptionalChain": "off",
+            "noArguments": "off"
+          },
+          "correctness": {
+            "noInnerDeclarations": "off"
+          },
+          "suspicious": {
+            "noRedundantUseStrict": "off"
+          }
+        }
+      }
+    }
+  ],
+  "assist": {
+    "actions": {
+      "source": {
+        "organizeImports": "on"
+      }
+    }
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "single",
+      "semicolons": "asNeeded"
+    }
+  }
+}

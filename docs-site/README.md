@@ -13,9 +13,11 @@ The public page wrappers contain no operator details.
 
 ## Develop
 
+Requires Node.js 22.17 or newer and Corepack-enabled Yarn. The root package manages this site and the dashboard as workspaces with one lockfile. From the repository root:
+
 ```sh
 yarn install
-yarn serve
+yarn docs:dev
 ```
 
 The watcher serves the site on port 4900. Yarn uses `node_modules` with lifecycle
@@ -23,14 +25,19 @@ scripts disabled. TypeScript checks use major version 7.
 
 ## Validate and publish static files
 
+From the repository root:
+
 ```sh
-yarn lint
 yarn check
-yarn publish
+yarn workspace analytics.zonetree.dev publish
 ```
 
-Publishing generates local files in `dist/web`, including Pagefind search,
+Publishing generates local files in `docs-site/dist/web`, including Pagefind search,
 sitemap, robots, and PureStack's generated favicon. Deployment is a separate action.
+
+Biome configuration, linting, and formatting are shared at the repository root. Run
+`yarn lint` or `yarn format:check` to check files, and `yarn lint:fix` or `yarn format`
+to apply fixes. `yarn check` includes both checks.
 
 ## Content conventions
 

@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="520" viewBox="0 0 1280 520" fill="none" role="img" aria-labelledby="title description">
+  <title id="title">ZoneTree.Analytics — Millions of events. One clear picture.</title>
+  <desc id="description">Embedded analytics for .NET. Website, product, and service events flow into an engine inside your application and emerge as reports. Orange and warm white lettering on charcoal.</desc>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1280" y2="520" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#242424"/>
+      <stop offset="1" stop-color="#111111"/>
+    </linearGradient>
+    <linearGradient id="area" x1="1090" y1="166" x2="1090" y2="306" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FA8B17" stop-opacity=".24"/>
+      <stop offset="1" stop-color="#FA8B17" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="engine" x1="864" y1="207" x2="982" y2="307" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FA8B17" stop-opacity=".22"/>
+      <stop offset="1" stop-color="#FA8B17" stop-opacity=".04"/>
+    </linearGradient>
+    <pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse">
+      <circle cx="1" cy="1" r="1" fill="#FFFFFF" fill-opacity=".1"/>
+    </pattern>
+  </defs>
+  <rect width="1280" height="520" rx="20" fill="url(#background)"/>
+  <rect x=".5" y=".5" width="1279" height="519" rx="19.5" stroke="#FFFFFF" stroke-opacity=".1"/>
+  <rect x="704" y="95" width="528" height="320" fill="url(#grid)"/>
+  <path d="M64 110H1216" stroke="#FFFFFF" stroke-opacity=".1"/>
+  <g font-family="Segoe UI, Helvetica, Arial, sans-serif">
+    <g transform="translate(64 42)">
+      <rect width="44" height="44" rx="12" fill="#FA8B17" fill-opacity=".12"/>
+      <path d="M11 30L22 12L33 30M16 23H28M22 12V34" stroke="#FA8B17" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      <g fill="#FA8B17"><circle cx="11" cy="30" r="3"/><circle cx="22" cy="12" r="3"/><circle cx="33" cy="30" r="3"/></g>
+    </g>
+    <text x="124" y="72" fill="#F5F5F3" font-size="26" font-weight="650" letter-spacing="-.6">ZoneTree.Analytics</text>
+    <text x="1216" y="69" text-anchor="end" fill="#B8B8B8" font-size="13" letter-spacing="1.5">EMBEDDED ANALYTICS FOR .NET</text>
+    <text x="64" y="186" fill="#FA8B17" font-size="13" font-weight="600" letter-spacing="2">YOUR DATA. YOUR INFRASTRUCTURE.</text>
+    <text x="60" y="265" fill="#F5F5F3" font-size="64" font-weight="700" letter-spacing="-2.8">Millions of events.</text>
+    <text x="60" y="339" fill="#FA8B17" font-size="64" font-weight="700" letter-spacing="-2.8">One clear picture.</text>
+    <text x="64" y="386" fill="#B8B8B8" font-size="19">Web traffic, product insights, and telemetry.</text>
+    <text x="64" y="415" fill="#B8B8B8" font-size="19">Right inside your .NET application.</text>
+    <g font-size="12" font-weight="600" letter-spacing="1.2">
+      <text x="64" y="477" fill="#E1E1E1">.NET 8 / 9 / 10</text>
+      <circle cx="206" cy="473" r="2" fill="#FA8B17"/>
+      <text x="226" y="477" fill="#E1E1E1">OPEN SOURCE / MIT</text>
+      <circle cx="403" cy="473" r="2" fill="#FA8B17"/>
+      <text x="423" y="477" fill="#E1E1E1">POWERED BY ZONETREE</text>
+    </g>
+    <rect x="708" y="143" width="508" height="254" rx="16" fill="#191919" fill-opacity=".8" stroke="#494039"/>
+    <text x="732" y="172" fill="#B8B8B8" font-size="11" letter-spacing="1.8">INSIDE YOUR APPLICATION</text>
+    <path d="M732 187H1192" stroke="#FFFFFF" stroke-opacity=".08"/>
+    <g stroke="#FA8B17" stroke-opacity=".55" stroke-width="1.5">
+      <path d="M802 228C836 228 832 250 864 260"/>
+      <path d="M802 270H864"/>
+      <path d="M802 312C836 312 832 290 864 280"/>
+    </g>
+    <g fill="#242424" stroke="#5E4A34">
+      <rect x="728" y="212" width="74" height="32" rx="8"/>
+      <rect x="728" y="254" width="74" height="32" rx="8"/>
+      <rect x="728" y="296" width="74" height="32" rx="8"/>
+    </g>
+    <g fill="#DEDEDE" font-size="12" text-anchor="middle">
+      <text x="765" y="233">Website</text>
+      <text x="765" y="275">Product</text>
+      <text x="765" y="317">Service</text>
+    </g>
+    <g stroke="#FA8B17" stroke-width="1.5" stroke-linejoin="round">
+      <path d="M923 251L982 284L923 318L864 284Z" fill="#201A14"/>
+      <path d="M923 229L982 262L923 296L864 262Z" fill="#2C2117"/>
+      <path d="M923 207L982 240L923 274L864 240Z" fill="url(#engine)"/>
+      <path d="M864 240V284M982 240V284M923 274V318" stroke-opacity=".5"/>
+      <path d="M923 226L949 240L923 255L897 240Z" stroke-opacity=".6"/>
+    </g>
+    <circle cx="923" cy="240" r="4" fill="#FA8B17"/>
+    <path d="M982 262H1010L1030 250L1049 257L1069 229L1088 237L1110 207L1132 214L1158 192L1188 198V306H1010Z" fill="url(#area)"/>
+    <path d="M1010 306H1188M1010 277H1188M1010 248H1188M1010 219H1188" stroke="#FFFFFF" stroke-opacity=".06"/>
+    <path d="M982 262H1010L1030 250L1049 257L1069 229L1088 237L1110 207L1132 214L1158 192L1188 198" stroke="#FA8B17" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="1188" cy="198" r="4" fill="#FA8B17"/>
+    <g text-anchor="middle">
+      <text x="923" y="350" fill="#F5F5F3" font-size="13" font-weight="600">One engine</text>
+      <text x="1100" y="350" fill="#F5F5F3" font-size="13" font-weight="600">Clearer answers</text>
+      <text x="923" y="370" fill="#A0A0A0" font-size="11">Collect · Store · Aggregate</text>
+      <text x="1100" y="370" fill="#A0A0A0" font-size="11">Query · Compare · Explore</text>
+    </g>
+    <text x="1216" y="477" text-anchor="end" fill="#8D8D8D" font-size="12" letter-spacing="1">COLLECT → UNDERSTAND</text>
+  </g>
+</svg>

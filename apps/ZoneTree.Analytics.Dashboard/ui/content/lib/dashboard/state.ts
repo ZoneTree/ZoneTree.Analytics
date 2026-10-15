@@ -55,4 +55,3 @@ export function createDashboardStatus(): DashboardStatus {
     apiResponseMs: sref<number | null>(null),
   }
 }
-

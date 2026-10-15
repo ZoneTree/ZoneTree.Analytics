@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { test } from 'node:test'
+import { test, vi } from 'vitest'
 import {
   ApiClient,
   normalizeApiUrl,
@@ -270,15 +270,15 @@ test('API errors remain explicit and HTML sign-in responses are rejected', async
   }
 })
 
-test('API timing includes response decoding and ignores failed or cancelled responses', async (context) => {
+test('API timing includes response decoding and ignores failed or cancelled responses', async () => {
   let clock = 100
   const timings: [string, number][] = []
-  context.mock.method(performance, 'now', () => clock)
+  vi.spyOn(performance, 'now').mockImplementation(() => clock)
   const client = new ApiClient(defaultConfig, (endpoint, milliseconds) =>
     timings.push([endpoint, milliseconds]),
   )
   const controller = new AbortController()
-  context.mock.method(globalThis, 'fetch', async () => {
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
     clock += 12
     const response = new Response('{"ok":true}', {
       headers: { 'Content-Type': 'application/json' },
@@ -293,9 +293,7 @@ test('API timing includes response decoding and ignores failed or cancelled resp
     ok: true,
   })
   assert.deepEqual(timings, [['summary', 17]])
-  context.mock.method(
-    globalThis,
-    'fetch',
+  vi.spyOn(globalThis, 'fetch').mockImplementation(
     async () =>
       new Response('{"error":"Failed"}', {
         status: 503,
@@ -306,7 +304,7 @@ test('API timing includes response decoding and ignores failed or cancelled resp
     client.request('summary', scope, controller.signal),
     /Failed/,
   )
-  context.mock.method(globalThis, 'fetch', async () => {
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
     const response = new Response('{"ok":true}', {
       headers: { 'Content-Type': 'application/json' },
     })
@@ -322,10 +320,10 @@ test('API timing includes response decoding and ignores failed or cancelled resp
   assert.deepEqual(timings, [['summary', 17]])
 })
 
-test('performance sample reports use the isolated endpoint while other sites use the primary API', async (context) => {
+test('performance sample reports use the isolated endpoint while other sites use the primary API', async () => {
   const urls: string[] = []
-  context.mock.method(globalThis, 'fetch', async (url: string) => {
-    urls.push(url)
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+    urls.push(String(url))
     return new Response('{}', {
       headers: { 'Content-Type': 'application/json' },
     })
@@ -337,7 +335,10 @@ test('performance sample reports use the isolated endpoint while other sites use
       siteId: 'performance-samples',
       apiBaseUrl: '/_analytics/sample-data/api',
       managementUrl: '/_analytics/sample-data',
-      benchmark: { siteId: 'benchmark-results', apiBaseUrl: '/_analytics/sample-data/benchmark-api' },
+      benchmark: {
+        siteId: 'benchmark-results',
+        apiBaseUrl: '/_analytics/sample-data/benchmark-api',
+      },
     },
   })
   await client.request(
@@ -346,8 +347,14 @@ test('performance sample reports use the isolated endpoint while other sites use
     new AbortController().signal,
   )
   await client.request('summary', scope, new AbortController().signal)
-  await client.request('summary', { ...scope, site: 'benchmark-results' }, new AbortController().signal)
+  await client.request(
+    'summary',
+    { ...scope, site: 'benchmark-results' },
+    new AbortController().signal,
+  )
   assert.ok(urls[0].startsWith('/_analytics/sample-data/api/summary?'))
   assert.ok(urls[1].startsWith('/_analytics/api/summary?'))
-  assert.ok(urls[2].startsWith('/_analytics/sample-data/benchmark-api/summary?'))
+  assert.ok(
+    urls[2].startsWith('/_analytics/sample-data/benchmark-api/summary?'),
+  )
 })
