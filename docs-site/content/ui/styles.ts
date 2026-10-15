@@ -1,15 +1,24 @@
-import { styleBuilder, themes } from '@purestack/ts-style'
+import { docLayoutVars, styleBuilder, themes } from '@purestack/ts-style'
+import { registerHeroStyles } from './hero'
 
 export function registerDocsStyles() {
   themes.forEach((theme, palette) => {
     const root = styleBuilder.get(theme)
+    registerHeroStyles(root, palette, theme)
     const neutral = palette.semanticTone.neutral
     const accent = palette.semanticTone.accent.text.default
     const edge = neutral.border.subtle
+    const pageSpacing = '24px'
+    root.select('.template-doc')
+      .set(docLayoutVars.defaultShellPaddingBlock, pageSpacing)
+      .set(docLayoutVars.compactShellPaddingBlock, pageSpacing)
+      .set(docLayoutVars.fullShellPaddingBlock, pageSpacing)
     root.select(':scope').css({ scrollPaddingTop: '100px', colorScheme: theme === 'dark' ? 'dark' : 'light' })
     root.select('body').css({ background: neutral.canvas, webkitFontSmoothing: 'antialiased' })
     root.select('.doc-content').css({ fontSize: '16px', lineHeight: '1.85' })
-    root.select('.doc-main').css({ paddingTop: '40px', paddingBottom: '64px' })
+    root.select('.doc-main').css({ paddingBlock: '0' })
+    root.select('.doc-main > .doc-content > :first-child').css({ marginTop: '0' })
+    root.select('.doc-main > .doc-content > :last-child').css({ marginBottom: '0' })
     root.select('.doc-content > h1').css({ fontSize: 'clamp(32px, 4vw, 46px)', fontWeight: '700', letterSpacing: '-1.5px', lineHeight: '1.15', paddingBottom: '24px', marginBottom: '28px', borderBottom: `1px solid ${edge}` })
     root.select('.doc-content > :is(h2,h3)').css({ letterSpacing: '-0.5px', marginTop: '40px', lineHeight: '1.3' })
     root.select('.doc-content > h2').css({ fontSize: '26px' })
@@ -39,24 +48,12 @@ export function registerDocsStyles() {
     root.select('.docs-project-actions a').css({ display: 'inline-flex', alignItems: 'center', gap: '6px', color: accent, fontSize: '13px', fontWeight: '600', textDecoration: 'none' })
     root.select('.docs-project a:hover').css({ textDecoration: 'underline', textUnderlineOffset: '4px' })
     root.select('.docs-project a:focus-visible').css({ outline: `2px solid ${accent}`, outlineOffset: '4px' })
-    root.select('.docs-hero').css({ paddingBlock: '56px 48px' })
-    root.select('.doc-main:has(.docs-hero)').css({ width: 'min(1160px, calc(100% - 80px))', marginInline: 'auto' })
-    root.select('.docs-hero-layout').css({ display: 'grid', gridTemplateColumns: '0.9fr 1.1fr', gap: '44px', alignItems: 'center' })
-    root.select('.docs-hero-layout > div').css({ minWidth: '0' })
-    root.select('.docs-dashboard-preview').css({ minWidth: '0' })
-    root.select('.docs-hero h1').css({ fontSize: 'clamp(42px, 4.6vw, 64px)', lineHeight: '1.05', letterSpacing: '-2.5px', marginBlock: '26px', fontWeight: '700' })
-    root.select('.docs-hero h1 span').css({ color: accent })
-    root.select('.docs-hero-copy').css({ maxWidth: '720px', color: neutral.text.subtle, fontSize: '20px', lineHeight: '1.7' })
-    root.select('.docs-hero-actions').css({ gap: '12px', flexWrap: 'wrap', marginTop: '28px' })
-    root.select('.docs-facts').css({ display: 'flex', flexWrap: 'wrap', gap: '22px', marginTop: '28px', color: neutral.text.subtle, fontSize: '13px' })
     root.select('.topbar').css({ background: `color-mix(in srgb, ${neutral.canvas} 94%, transparent)`, backdropFilter: 'blur(16px)', borderBottom: `1px solid ${edge}` })
-    root.select('.docs-header-link').css({ color: neutral.text.subtle, textDecoration: 'none', fontWeight: '600', fontSize: '13px' })
+    root.select('.docs-header-link').css({ color: neutral.text.subtle, textDecoration: 'none', fontWeight: '600', fontSize: '13px', paddingInline: '4px' })
     root.select('.docs-header-link:hover').css({ color: accent })
-    root.select('.topbar__actions').css({ gap: '14px', alignItems: 'center' })
+    root.select('.topbar__actions').css({ gap: '4px', alignItems: 'center' })
+    root.select('.topbar__actions > .docs-header-link').css({ order: '-1' })
     root.select('.alert-box').css({ marginBlock: '24px' })
-    root.media('max-width: 760px').select('.docs-hero').css({ paddingBlock: '28px' })
-    root.media('max-width: 1000px').select('.docs-hero-layout').css({ gridTemplateColumns: '1fr', gap: '16px' })
-    root.media('max-width: 760px').select('.doc-main:has(.docs-hero)').css({ width: 'calc(100% - 32px)' })
     root.media('max-width: 760px').select('.docs-card').css({ padding: '22px' })
     root.media('max-width: 760px').select('.docs-project').css({ padding: '22px' })
     root.media('max-width: 600px').select('.docs-header-link').css({ display: 'none' })

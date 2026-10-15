@@ -14,7 +14,7 @@ The public page wrappers contain no operator details.
 ## Develop
 
 ```sh
-yarn install --immutable
+yarn install
 yarn serve
 ```
 

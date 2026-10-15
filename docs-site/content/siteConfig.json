@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/PureStackStudio/PureStack/refs/heads/main/packages/ts-ssg/schema/siteConfig.schema.json",
   "siteTitle": "ZoneTree Analytics",
-  "favicon": "iconoir:cube",
+  "favicon": "iconoir:cube-hole",
   "style": {
     "fileName": "site.css",
     "href": "/assets/site.css",
@@ -60,21 +60,21 @@
   },
   "pagefind": {
     "enabled": true,
-    "excludePaths": ["/docs/guides/tracking/browser-tracker.html"]
+    "excludePaths": []
   },
   "preview": {
     "title": "ZoneTree Analytics",
     "description": "Analytics Engine for .NET. Collect events, query metrics, and host your own reporting dashboard.",
-    "image": "/dashboard-overview.png",
-    "imageAlt": "ZoneTree Analytics dashboard with benchmark traffic and visitor comparisons",
-    "imageWidth": 1600,
-    "imageHeight": 1100,
+    "image": "/assets/landing-social-preview.png",
+    "imageAlt": "ZoneTree Analytics landing page with the orange analytics engine illustration and 5M-event benchmark highlights",
+    "imageWidth": 1200,
+    "imageHeight": 630,
     "siteName": "ZoneTree Analytics",
     "twitterCard": "summary_large_image"
   },
   "logo": {
     "brand": "ZoneTree Analytics",
-    "icon": "iconoir:cube"
+    "icon": "iconoir:cube-hole"
   },
   "mdx": {
     "highlighter": "shiki"

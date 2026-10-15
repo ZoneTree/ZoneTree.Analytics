@@ -1,4 +1,5 @@
 import { defineComponent, html } from 'regor'
+import { defineAnalyticsHero } from './hero'
 
 export interface DocCard {
   number: string
@@ -19,6 +20,7 @@ export interface StackTechnology {
 
 export function defineDocsComponents() {
   return {
+    AnalyticsHero: defineAnalyticsHero(),
     StackTechnology: defineComponent<StackTechnology>(
       html`<article class="docs-project">
         <div class="docs-project-heading"><Icon :name="icon"/><span>{{ role }}</span></div>
