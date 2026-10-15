@@ -273,7 +273,10 @@ public sealed class StorageFormatRegressionTests : DirectoryTest
     checkpoint.Save();
     checkpoint.State.Events = 2;
     checkpoint.Save();
-    var newest = Directory.GetFiles(Path.Combine(directory, "backfill", "joint-rollups")).OrderByDescending(File.GetLastWriteTimeUtc).First();
+    // The newest file has the highest generation, stored after the 8-byte magic. Write times
+    // cannot tell the files apart: on Linux both saves can share a timestamp.
+    var newest = Directory.GetFiles(Path.Combine(directory, "backfill", "joint-rollups"))
+        .OrderByDescending(path => BitConverter.ToInt64(File.ReadAllBytes(path), 8)).First();
     var bytes = File.ReadAllBytes(newest);
     File.WriteAllBytes(newest, bytes[..(bytes.Length - 1)]);
     Assert.That(new JointBackfillCheckpoint(directory, "configuration", 0).State.Events, Is.EqualTo(1));
