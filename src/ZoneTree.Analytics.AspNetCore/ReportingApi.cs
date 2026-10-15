@@ -22,11 +22,13 @@ public static class AnalyticsReportingApiExtensions
   /// <c>GET pages</c>, <c>GET exit-pages</c>, <c>GET goals</c>, <c>GET bots</c>, <c>GET realtime</c></item>
   /// <item><c>POST query</c> with a JSON query, <c>POST funnel</c> with a JSON funnel</item>
   /// </list>
-  /// Common parameters: <c>site</c>, <c>range</c> (today, yesterday, 7d, 30d, month, last-month,
-  /// year, or a rolling duration such as 30m or 12h), or <c>from</c> and <c>to</c> (dates are
-  /// inclusive days, date-times are an exact range), <c>tz</c>, <c>filter</c> (repeatable filter
-  /// expressions, see <see cref="Filter.Parse"/>), <c>compare</c> (previous or year),
-  /// <c>limit</c> and <c>offset</c>.
+  /// Common parameters: <c>site</c>, <c>range</c> (default 30d; see <see cref="DateRange.Parse"/>,
+  /// for example today, yesterday, 7d, this-month, last-month, this-year or a rolling 30m or 12h),
+  /// or <c>from</c> and <c>to</c> (dates are inclusive days, date-times are an exact range),
+  /// <c>tz</c>, <c>filter</c> (repeatable, see <see cref="Filter.Parse"/>), <c>segment</c>
+  /// (repeatable, see <see cref="Segment.Parse"/>), <c>compare</c> (previous-period,
+  /// previous-year or a range, see <see cref="ComparisonPeriod.Parse"/>), <c>limit</c> and
+  /// <c>offset</c>.
   /// </summary>
   /// <remarks>
   /// The API exposes analytics data: protect it, for example with

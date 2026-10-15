@@ -7,7 +7,8 @@ namespace ZoneTree.Analytics.Internal;
 /// <summary>Time dimensions are computed at the event or storage bucket, before output bucketing.</summary>
 static class TimeDimension
 {
-  static readonly string[] Hours = Enumerable.Range(0, 24).Select(x => x.ToString(CultureInfo.InvariantCulture)).ToArray();
+  // Two digits, so hours sort in time order like every other dimension value: ordinally.
+  static readonly string[] Hours = Enumerable.Range(0, 24).Select(x => x.ToString("00", CultureInfo.InvariantCulture)).ToArray();
   static readonly string[] Days = Enumerable.Range(1, 7).Select(x => x.ToString(CultureInfo.InvariantCulture)).ToArray();
 
   public static bool IsDerived(string name) => name is StandardDimensions.HourOfDay or StandardDimensions.DayOfWeek;

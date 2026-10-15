@@ -38,7 +38,7 @@ public sealed class ImplementationReviewTests : DirectoryTest
     };
     var raw = engine.Query(query);
     Assert.That(raw.Rows.ToDictionary(x => x[StandardDimensions.HourOfDay], x => x[Metric.Events]),
-        Is.EquivalentTo(new Dictionary<string, double> { ["0"] = 1, ["1"] = 1 }));
+        Is.EquivalentTo(new Dictionary<string, double> { ["00"] = 1, ["01"] = 1 }));
     query.Source = QuerySource.Auto;
     var automatic = engine.Query(query);
     Assert.That(automatic.Rows.ToDictionary(x => x[StandardDimensions.HourOfDay], x => x[Metric.Events]),

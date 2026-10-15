@@ -10,7 +10,9 @@ dotnet run --project examples/MinimalHost
 ```
 
 Open **http://127.0.0.1:5090/**. Each HTML visit is tracked; use the link on the page to read
-the last hour's summary. Buffered rollups become visible after the engine's flush interval.
+the last hour's summary. The reporting API answers local requests only; protect it with your
+own authorization in a real application, for example `.RequireAuthorization()` on the group
+that `MapZoneTreeAnalyticsApi()` returns. Buffered rollups become visible after the engine's flush interval.
 Data is stored in `examples/MinimalHost/data/analytics`; override it with
 `--Analytics:DataDirectory=<path>`. No Node.js or frontend build is needed.
 

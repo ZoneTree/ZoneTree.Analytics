@@ -31,7 +31,7 @@ public static class StandardEvents
 /// </summary>
 public static class StandardDimensions
 {
-  /// <summary>Query-time local hour, "0" through "23", in the query's reporting time zone.</summary>
+  /// <summary>Query-time local hour, "00" through "23", in the query's time zone.</summary>
   public const string HourOfDay = "$hour_of_day";
 
   /// <summary>Query-time local weekday, "1" (Monday) through "7" (Sunday), in the query's time zone.</summary>

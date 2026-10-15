@@ -152,7 +152,7 @@ Queries and funnels that run longer than `Queries.Timeout` (30 seconds by defaul
 
 ### Derived time dimensions
 
-`StandardDimensions.HourOfDay` (`$hour_of_day`) and `DayOfWeek` (`$day_of_week`) are computed in the query's time zone. Hours are 0–23; weekdays are Monday=1 through Sunday=7.
+`StandardDimensions.HourOfDay` (`$hour_of_day`) and `DayOfWeek` (`$day_of_week`) are computed in the query's time zone. Hours are two digits, `00`–`23`, so they sort in time order; weekdays are Monday=1 through Sunday=7.
 
 <import-codeblock src="./guides-querying-7.cs"/>
 

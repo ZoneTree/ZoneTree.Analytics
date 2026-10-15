@@ -116,7 +116,7 @@ public sealed class QueryFeatureTests : DirectoryTest
     Track(engine, Day0.AddDays(1).AddHours(9), "d", "/");
     engine.Flush();
     var distinctHours = Metric.Distinct(StandardDimensions.HourOfDay);
-    var conditional = Metric.Events.Where(Filter.Equal(StandardDimensions.HourOfDay, "9"));
+    var conditional = Metric.Events.Where(Filter.Equal(StandardDimensions.HourOfDay, "09"));
     var query = new AnalyticsQuery
     {
       Range = Range(Day0, Day0.AddDays(2)), Source = source,
@@ -130,13 +130,13 @@ public sealed class QueryFeatureTests : DirectoryTest
     Assert.That(result.Totals[conditional], Is.EqualTo(3));
     if (source == QuerySource.Rollups)
       Assert.That(result.Plan.Steps.All(x => x.Source == PlanSource.HourRollups), Is.True);
-    query.Filters.Add(Filter.Equal(StandardDimensions.HourOfDay, "9"));
+    query.Filters.Add(Filter.Equal(StandardDimensions.HourOfDay, "09"));
     Assert.That(engine.Query(query).Totals[Metric.Events], Is.EqualTo(3));
     query.Interval = TimeInterval.Day;
     query.Fill = FillMode.None;
     var series = engine.Query(query);
     Assert.That(series.Rows, Has.Count.EqualTo(2));
-    Assert.That(series.Rows.All(x => x[StandardDimensions.HourOfDay] == "9"), Is.True);
+    Assert.That(series.Rows.All(x => x[StandardDimensions.HourOfDay] == "09"), Is.True);
     Assert.Throws<ArgumentException>(() => new RollupDefinition(StandardDimensions.HourOfDay));
   }
 
@@ -218,6 +218,22 @@ public sealed class QueryFeatureTests : DirectoryTest
     Assert.That(rollup.Plan.Steps.All(x => x.Source == PlanSource.MinuteRollups), Is.True);
   }
 
+  [TestCase(QuerySource.RawEvents)]
+  [TestCase(QuerySource.Rollups)]
+  public void HoursOfDayAreTwoDigitsAndSortInTimeOrder(QuerySource source)
+  {
+    using var engine = Create();
+    foreach (var hour in new[] { 23, 2, 10 })
+      Track(engine, Day0.AddHours(hour), "a" + hour, "/");
+    engine.Flush();
+    var result = engine.Query(new AnalyticsQuery
+    {
+      Range = Day(Day0), Source = source, GroupBy = { StandardDimensions.HourOfDay },
+      OrderBy = { Order.ByDimension(StandardDimensions.HourOfDay) }, Metrics = { Metric.Events }
+    });
+    Assert.That(result.Rows.Select(x => x[StandardDimensions.HourOfDay]), Is.EqualTo(new[] { "02", "10", "23" }));
+  }
+
   [Test]
   public void IncompatibleRollupsFallBackToRawAndForcedRollupsFailClearly()
   {
@@ -245,14 +261,14 @@ public sealed class QueryFeatureTests : DirectoryTest
       Metrics = { Metric.Sessions, Metric.Entrances, Metric.Exits, Metric.PageViews }
     };
     var result = engine.Query(query);
-    var nine = result.Rows.Single(x => x[StandardDimensions.HourOfDay] == "9");
+    var nine = result.Rows.Single(x => x[StandardDimensions.HourOfDay] == "09");
     var ten = result.Rows.Single(x => x[StandardDimensions.HourOfDay] == "10");
     Assert.That(nine[Metric.Sessions], Is.EqualTo(1));
     Assert.That(nine[Metric.Entrances], Is.EqualTo(1));
     Assert.That(nine[Metric.Exits], Is.Zero);
     Assert.That(ten[Metric.Exits], Is.EqualTo(1));
     var web = engine.Web.GetBreakdown(new WebReportRequest { Range = Day(Day0), Filters = { query.Filters[0] } }, StandardDimensions.HourOfDay);
-    Assert.That(web.Rows.Single(x => x.Value == "9").Sessions, Is.EqualTo(1));
+    Assert.That(web.Rows.Single(x => x.Value == "09").Sessions, Is.EqualTo(1));
 
     engine.Track(new AnalyticsEvent("pageview")
     {
@@ -270,7 +286,7 @@ public sealed class QueryFeatureTests : DirectoryTest
     Assert.That(bots.Totals[Metric.BotHits], Is.EqualTo(1));
     var summary = engine.Web.GetSummary(new WebReportRequest
     {
-      Range = Day(Day0), Filters = { Filter.AnyOf(Filter.Equal(StandardDimensions.HourOfDay, "9"), Filter.Equal(StandardDimensions.HourOfDay, "10")) }
+      Range = Day(Day0), Filters = { Filter.AnyOf(Filter.Equal(StandardDimensions.HourOfDay, "09"), Filter.Equal(StandardDimensions.HourOfDay, "10")) }
     });
     Assert.That(summary.Summary.BotHits, Is.EqualTo(1));
   }
@@ -368,7 +384,7 @@ public sealed class QueryFeatureTests : DirectoryTest
     using var engine = Create();
     Track(engine, Day0.AddHours(9), "a", "/", "DE");
     engine.Flush();
-    var selected = Metric.Events.Where(Filter.Equal(StandardDimensions.HourOfDay, "9"));
+    var selected = Metric.Events.Where(Filter.Equal(StandardDimensions.HourOfDay, "09"));
     var query = new AnalyticsQuery
     {
       Range = Day(Day0), GroupBy = { "page", "hostname", StandardDimensions.HourOfDay },
