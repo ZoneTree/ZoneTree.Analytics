@@ -19,6 +19,7 @@
     "format": "biome format . --write",
     "format:check": "biome format .",
     "check": "yarn check-dependencies && yarn lint && yarn format:check && yarn check:scripts && yarn check:workspaces",
+    "pack:dotnet": "dotnet pack src/ZoneTree.Analytics/ZoneTree.Analytics.csproj --configuration Release --output artifacts/packages && dotnet pack src/ZoneTree.Analytics.AspNetCore/ZoneTree.Analytics.AspNetCore.csproj --configuration Release --output artifacts/packages",
     "build:web": "yarn workspaces foreach --all --exclude zonetree-analytics-repo run build",
     "build": "dotnet build src/ZoneTree.Analytics.sln --configuration Release && yarn build:web",
     "test:web": "vitest run",

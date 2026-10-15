@@ -57,6 +57,17 @@ jobs:
       - name: Test
         run: dotnet test --no-build --configuration Release --verbosity normal
         working-directory: ./src
+      - name: Pack
+        run: |
+          dotnet pack ZoneTree.Analytics/ZoneTree.Analytics.csproj --configuration Release --no-build --output ../artifacts/packages
+          dotnet pack ZoneTree.Analytics.AspNetCore/ZoneTree.Analytics.AspNetCore.csproj --configuration Release --no-build --output ../artifacts/packages
+        working-directory: ./src
+      - name: Upload packages
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: nuget-packages
+          path: artifacts/packages/
       - name: Test reporting without reflection serialization
         run: >-
           dotnet test ZoneTree.Analytics.UnitTests/ZoneTree.Analytics.UnitTests.csproj

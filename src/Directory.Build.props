@@ -6,4 +6,33 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
 
+  <!--
+    NuGet packaging. Projects are not packable unless they opt in with <IsPackable>true</IsPackable>.
+    Every package shares one version, so ZoneTree.Analytics.AspNetCore always depends on the
+    matching ZoneTree.Analytics. Pass VersionSuffix (for example preview.1) to pack a pre-release.
+  -->
+  <PropertyGroup>
+    <VersionPrefix>1.0.0</VersionPrefix>
+    <IsPackable>false</IsPackable>
+    <Authors>Ahmed Yasin Koculu</Authors>
+    <Company>ZoneTree</Company>
+    <Product>ZoneTree.Analytics</Product>
+    <Copyright>Ahmed Yasin Koculu</Copyright>
+    <NeutralLanguage>en-US</NeutralLanguage>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://analytics.zonetree.dev</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/ZoneTree/ZoneTree.Analytics</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+
+  <!-- Normalize source paths in CI builds only, so local debugging keeps real file paths. -->
+  <PropertyGroup Condition="'$(GITHUB_ACTIONS)' == 'true' Or '$(CI)' == 'true'">
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+  </PropertyGroup>
+
 </Project>

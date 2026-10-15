@@ -17,7 +17,7 @@
 
 <p align="center">
   <a href="#quick-start">Quick start</a> ·
-  <a href="https://github.com/ZoneTree/ZoneTree.Analytics/blob/main/docs-site/content/docs/index.mdx">Documentation</a> ·
+  <a href="https://analytics.zonetree.dev/docs/">Documentation</a> ·
   <a href="#a-dashboard-you-can-host">Dashboard</a> ·
   <a href="#measured-performance">Benchmarks</a> ·
   <a href="https://github.com/ZoneTree/ZoneTree.Analytics/tree/main/examples/MinimalHost">Example app</a>
@@ -276,26 +276,26 @@ Bug reports and focused pull requests are welcome. For a reproducible report, in
 
 Released under the [MIT license](https://github.com/ZoneTree/ZoneTree.Analytics/blob/main/LICENSE). Built on [ZoneTree](https://github.com/ZoneTree/ZoneTree).
 
-[getting-started]: https://github.com/ZoneTree/ZoneTree.Analytics/blob/main/docs-site/content/docs/getting-started/index.mdx
-[aspnet]: https://github.com/ZoneTree/ZoneTree.Analytics/blob/main/docs-site/content/docs/getting-started/aspnet-core/aspnet-core.mdx
+[getting-started]: https://analytics.zonetree.dev/docs/getting-started/
+[aspnet]: https://analytics.zonetree.dev/docs/getting-started/aspnet-core/
 [minimal-host]: https://github.com/ZoneTree/ZoneTree.Analytics/blob/main/examples/MinimalHost/README.md
 [dashboard]: https://github.com/ZoneTree/ZoneTree.Analytics/blob/main/apps/ZoneTree.Analytics.Dashboard/README.md
-[querying]: https://github.com/ZoneTree/ZoneTree.Analytics/blob/main/docs-site/content/docs/guides/querying/querying.mdx
-[funnels]: https://github.com/ZoneTree/ZoneTree.Analytics/blob/main/docs-site/content/docs/guides/segments-and-funnels/segments-and-funnels.mdx
-[query-reference]: https://github.com/ZoneTree/ZoneTree.Analytics/blob/main/docs-site/content/docs/reference/query-model/query-model.mdx
-[benchmarks]: https://github.com/ZoneTree/ZoneTree.Analytics/blob/main/docs-site/content/docs/performance/query-benchmarks/query-benchmarks.mdx
-[benchmarking]: https://github.com/ZoneTree/ZoneTree.Analytics/blob/main/docs-site/content/docs/performance/benchmarking/benchmarking.mdx
-[privacy]: https://github.com/ZoneTree/ZoneTree.Analytics/blob/main/docs-site/content/docs/concepts/privacy/privacy.mdx
-[retention]: https://github.com/ZoneTree/ZoneTree.Analytics/blob/main/docs-site/content/docs/operations/retention-and-erasure/retention-and-erasure.mdx
-[deployment]: https://github.com/ZoneTree/ZoneTree.Analytics/blob/main/docs-site/content/docs/operations/deployment/deployment.mdx
-[accuracy]: https://github.com/ZoneTree/ZoneTree.Analytics/blob/main/docs-site/content/docs/concepts/time-and-accuracy/time-and-accuracy.mdx
-[architecture]: https://github.com/ZoneTree/ZoneTree.Analytics/blob/main/docs-site/content/docs/concepts/architecture/architecture.mdx
-[configuration]: https://github.com/ZoneTree/ZoneTree.Analytics/blob/main/docs-site/content/docs/reference/configuration/configuration.mdx
-[web-reports]: https://github.com/ZoneTree/ZoneTree.Analytics/blob/main/docs-site/content/docs/guides/web-reports/web-reports.mdx
-[rollups]: https://github.com/ZoneTree/ZoneTree.Analytics/blob/main/docs-site/content/docs/performance/rollups/rollups.mdx
-[product]: https://github.com/ZoneTree/ZoneTree.Analytics/blob/main/docs-site/content/docs/guides/product-analytics/product-analytics.mdx
-[indexes]: https://github.com/ZoneTree/ZoneTree.Analytics/blob/main/docs-site/content/docs/performance/secondary-indexes/secondary-indexes.mdx
-[telemetry]: https://github.com/ZoneTree/ZoneTree.Analytics/blob/main/docs-site/content/docs/guides/telemetry/telemetry.mdx
-[http-api]: https://github.com/ZoneTree/ZoneTree.Analytics/blob/main/docs-site/content/docs/reference/http-api/http-api.mdx
-[tenants]: https://github.com/ZoneTree/ZoneTree.Analytics/blob/main/docs-site/content/docs/guides/sites-and-tenants/sites-and-tenants.mdx
-[extensibility]: https://github.com/ZoneTree/ZoneTree.Analytics/blob/main/docs-site/content/docs/guides/extensibility/extensibility.mdx
+[querying]: https://analytics.zonetree.dev/docs/guides/querying/
+[funnels]: https://analytics.zonetree.dev/docs/guides/segments-and-funnels/
+[query-reference]: https://analytics.zonetree.dev/docs/reference/query-model/
+[benchmarks]: https://analytics.zonetree.dev/docs/performance/query-benchmarks/
+[benchmarking]: https://analytics.zonetree.dev/docs/performance/benchmarking/
+[privacy]: https://analytics.zonetree.dev/docs/concepts/privacy/
+[retention]: https://analytics.zonetree.dev/docs/operations/retention-and-erasure/
+[deployment]: https://analytics.zonetree.dev/docs/operations/deployment/
+[accuracy]: https://analytics.zonetree.dev/docs/concepts/time-and-accuracy/
+[architecture]: https://analytics.zonetree.dev/docs/concepts/architecture/
+[configuration]: https://analytics.zonetree.dev/docs/reference/configuration/
+[web-reports]: https://analytics.zonetree.dev/docs/guides/web-reports/
+[rollups]: https://analytics.zonetree.dev/docs/performance/rollups/
+[product]: https://analytics.zonetree.dev/docs/guides/product-analytics/
+[indexes]: https://analytics.zonetree.dev/docs/performance/secondary-indexes/
+[telemetry]: https://analytics.zonetree.dev/docs/guides/telemetry/
+[http-api]: https://analytics.zonetree.dev/docs/reference/http-api/
+[tenants]: https://analytics.zonetree.dev/docs/guides/sites-and-tenants/
+[extensibility]: https://analytics.zonetree.dev/docs/guides/extensibility/
