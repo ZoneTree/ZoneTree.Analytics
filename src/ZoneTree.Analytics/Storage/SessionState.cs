@@ -175,9 +175,10 @@ sealed class SessionStateSerializer : ISerializer<SessionState>
     writer.WriteString(entry.LastPage);
     writer.WriteString(entry.LastHostname);
     writer.WriteVarInt64(entry.LastPageTicks - entry.StartTicks);
-    var dimensions = entry.Dimensions;
+    // Positions missing from a shorter array, such as the default one, were not collected.
+    var dimensions = entry.Dimensions ?? [];
     for (var i = 0; i < SessionSchema.StandardCount; ++i)
-      writer.WriteString(dimensions[i]);
+      writer.WriteString(i < dimensions.Length ? dimensions[i] : null);
     var customCount = 0;
     for (var i = SessionSchema.StandardCount; i < dimensions.Length; ++i)
     {

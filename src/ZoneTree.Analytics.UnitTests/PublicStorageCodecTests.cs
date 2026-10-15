@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.RegularExpressions;
 using ZoneTree.Analytics.Storage;
 
 namespace ZoneTree.Analytics.UnitTests;
@@ -189,25 +190,27 @@ public sealed class PublicStorageCodecTests : DirectoryTest
   public void RollupKeyDecoderRejectsTruncatedHeaders(string header) =>
       Assert.Throws<FormatException>(() => StorageKeyCodec.DecodeRollup(Encoding.UTF8.GetBytes(header)));
 
-  [TestCase("page", "a\u001Fb")]
+  // Control characters are escaped in the attributes: the test adapter does not run cases whose
+  // arguments contain them.
+  [TestCase("page", @"a\u001Fb")]
   [TestCase("", "unexpected")]
   [TestCase("a,b", "one")]
-  [TestCase("b,a", "one\u001Ftwo")]
-  [TestCase("a,a", "one\u001Ftwo")]
-  [TestCase("a,", "one\u001Ftwo")]
+  [TestCase("b,a", @"one\u001Ftwo")]
+  [TestCase("a,a", @"one\u001Ftwo")]
+  [TestCase("a,", @"one\u001Ftwo")]
   public void RollupKeyDecoderRejectsAmbiguousDimensionLayouts(string names, string values)
   {
-    var bytes = KeyCodec.RollupKey("s", "e", names, 100, values);
+    var bytes = KeyCodec.RollupKey("s", "e", names, 100, Regex.Unescape(values));
     Assert.Throws<FormatException>(() => StorageKeyCodec.DecodeRollup(bytes.Span));
   }
 
   [TestCase("a\0b", "value")]
   [TestCase("a,b", "value")]
-  [TestCase("page", "a\u001Fb")]
-  [TestCase("page", "\u0001")]
+  [TestCase("page", @"a\u001Fb")]
+  [TestCase("page", @"\u0001")]
   public void KeyEncoderRejectsReservedCharacters(string dimension, string value)
   {
-    var key = new RollupKey { Site = "s", Event = "e", BucketTicks = 100, Dimensions = { [dimension] = value } };
+    var key = new RollupKey { Site = "s", Event = "e", BucketTicks = 100, Dimensions = { [dimension] = Regex.Unescape(value) } };
     Assert.Throws<ArgumentException>(() => StorageKeyCodec.EncodeRollup(key));
     Assert.Throws<ArgumentException>(() => StorageKeyCodec.EncodeRawEvent(new RawEventKey("s\0e", 100, 1)));
   }

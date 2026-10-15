@@ -659,8 +659,8 @@ public sealed class EngineTests : DirectoryTest
       Assert.That(totals[Metric.Sessions], Is.EqualTo(5));
     });
 
-    // Alice continues the same session after the restart. Anonymous visitors of past days
-    // cannot continue: their daily salt is destroyed by design.
+    // Alice continues the same session after the restart. Anonymous visitors continue only
+    // while the salt of their day is kept: it is destroyed by design.
     engine.Track(new AnalyticsEvent(StandardEvents.PageView) { Url = "/b", VisitorId = "alice", Timestamp = Utc(T0.AddMinutes(5)) });
     engine.Flush();
     var alice = Query(q =>

@@ -51,7 +51,7 @@ sealed class DimensionIndexWriter(DimensionIndexStore owner) : IDisposable
   IZoneTree<Memory<byte>, Memory<byte>> Tree(long ticks)
   {
     var store = owner.Store;
-    var name = store.Route(ticks);
+    var name = store.RouteWrite(ticks);
     if (lease?.Name != name)
     {
       lease?.Dispose();
