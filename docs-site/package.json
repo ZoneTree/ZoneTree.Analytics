@@ -12,8 +12,8 @@
     "deploy": "pgdeploy deploy --host https://analytics.zonetree.dev --package ./dist/web --allow-path 'pagefind/*,.ts-ssg/manifest.json' --skip-path 'docs/*.json,*.cs,*.http,*.ps1,*.sh'"
   },
   "dependencies": {
-    "@purestack/ts-style": "^1.1.11",
-    "@purestack/ts-util": "^1.1.11",
+    "@purestack/ts-style": "^1.1.12",
+    "@purestack/ts-util": "^1.1.12",
     "purestack": "^1.1.11",
     "regor": "^1.7.5"
   },

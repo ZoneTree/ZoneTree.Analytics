@@ -432,6 +432,16 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@purestack/ts-css@npm:^1.1.12":
+  version: 1.1.12
+  resolution: "@purestack/ts-css@npm:1.1.12"
+  dependencies:
+    "@purestack/ts-util": "npm:^1.1.12"
+    prettier: "npm:^3.8.1"
+  checksum: 10c0/40f1712837e11b0e7a3f087f061f259548c98bd425206ae2d92fcacf727c0c355bbce3f00a9c4f24cb2b0cc9e0776fa4a1f1e140abf2e21385b8b86f946c2160
+  languageName: node
+  linkType: hard
+
 "@purestack/ts-html@npm:^1.1.11":
   version: 1.1.11
   resolution: "@purestack/ts-html@npm:1.1.11"
@@ -518,6 +528,16 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@purestack/ts-style@npm:^1.1.12":
+  version: 1.1.12
+  resolution: "@purestack/ts-style@npm:1.1.12"
+  dependencies:
+    "@purestack/ts-css": "npm:^1.1.12"
+    "@purestack/ts-util": "npm:^1.1.12"
+  checksum: 10c0/c04cae88441239f721a5961a8c2ca81c5a18892f6011aa2ceefbe60f5474c7e2968914dea9622d05a451ce9d5da68cfad42f94a82b33827f43e8c9ba831dc0a5
+  languageName: node
+  linkType: hard
+
 "@purestack/ts-svg-icons@npm:^1.1.11":
   version: 1.1.11
   resolution: "@purestack/ts-svg-icons@npm:1.1.11"
@@ -536,6 +556,13 @@ __metadata:
   version: 1.1.11
   resolution: "@purestack/ts-util@npm:1.1.11"
   checksum: 10c0/2331f14b28a51e3aeea5e462725f76d192de8fc35154208d772664674293013e44d8379cb867492973ddabdf6aa63e25ef0e823c36971ade2cacdc13aaae1fbf
+  languageName: node
+  linkType: hard
+
+"@purestack/ts-util@npm:^1.1.12":
+  version: 1.1.12
+  resolution: "@purestack/ts-util@npm:1.1.12"
+  checksum: 10c0/2dc09f68747acb9c285433d952ef52b677fa928dac3c2ec0f922f73da68e427da2c378f5c5fc86fc3d0916c11bbeedddba3168aa1177bbdd9d97b260b2132e84
   languageName: node
   linkType: hard
 
@@ -816,8 +843,8 @@ __metadata:
   resolution: "analytics.zonetree.dev@workspace:."
   dependencies:
     "@biomejs/biome": "npm:^2.5.15"
-    "@purestack/ts-style": "npm:^1.1.11"
-    "@purestack/ts-util": "npm:^1.1.11"
+    "@purestack/ts-style": "npm:^1.1.12"
+    "@purestack/ts-util": "npm:^1.1.12"
     purestack: "npm:^1.1.11"
     regor: "npm:^1.7.5"
     typescript: "npm:^7.0.2"

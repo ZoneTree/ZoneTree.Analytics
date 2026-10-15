@@ -28,9 +28,12 @@ const server = createServer(async (request, response) => {
       new URL(request.url ?? '/', 'http://localhost').pathname,
     )
     if (path === dashboardTrackerPath) {
+      const tracker = await readFile(
+        new URL('../../../../src/ZoneTree.Analytics.AspNetCore/tracker.js', import.meta.url),
+      )
       response
         .writeHead(200, { 'Content-Type': 'application/javascript' })
-        .end(await readFile('../src/ZoneTree.Analytics.AspNetCore/tracker.js'))
+        .end(tracker)
       return
     }
     if (path === dashboardConfigPath) {

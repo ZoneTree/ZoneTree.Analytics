@@ -1,9 +1,9 @@
 {
   "siteTitle": "ZoneTree Analytics",
-  "favicon": "tabler:binary-tree",
+  "favicon": "iconoir:cube-hole",
   "logo": {
-    "brand": "ZoneTree",
-    "icon": "tabler:binary-tree",
+    "brand": "ZoneTree Analytics",
+    "icon": "iconoir:cube-hole",
     "href": "/",
     "markStyle": "solid",
     "size": "md",

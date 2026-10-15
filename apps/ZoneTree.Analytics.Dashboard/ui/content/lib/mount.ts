@@ -8,9 +8,18 @@ import {
   defineIconComponents,
   definePanelComponents,
 } from '@purestack/ts-components'
+import {
+  lucide_chevron_down,
+  tabler_adjustments_horizontal,
+  tabler_calendar,
+  tabler_download,
+  tabler_refresh,
+  tabler_world,
+  tabler_x,
+} from '@purestack/ts-svg-icons'
 import { type Component, createApp, html } from 'regor'
 import { defineSharedReportComponents } from '../components/report-components'
-import { assetUrl, loadConfig } from './config'
+import { loadConfig } from './config'
 import { defaultConfig } from './contracts'
 import {
   createDashboardModel,
@@ -18,6 +27,16 @@ import {
   type Loader,
 } from './dashboard-model'
 import type { ReportKind } from './reports'
+
+const icons: Readonly<Record<string, string>> = {
+  'lucide:chevron-down': lucide_chevron_down,
+  'tabler:adjustments-horizontal': tabler_adjustments_horizontal,
+  'tabler:calendar': tabler_calendar,
+  'tabler:download': tabler_download,
+  'tabler:refresh': tabler_refresh,
+  'tabler:world': tabler_world,
+  'tabler:x': tabler_x,
+}
 
 // Every page owns its mount and lifecycle. No client router or shared app instance.
 export interface PageMountOptions<TContext extends object> {
@@ -32,15 +51,8 @@ export async function mountReport<TContext extends object>(
 ) {
   let config = defaultConfig
   let configError = ''
-  let icons: Record<string, string> = {}
   try {
     config = await loadConfig()
-    const response = await fetch(assetUrl('assets/dashboard-icons.json'))
-    if (!response.ok)
-      throw new Error(
-        'Cannot load dashboard icons. Rebuild the PureStack site.',
-      )
-    icons = (await response.json()) as Record<string, string>
   } catch (error) {
     configError = (error as Error).message
   }

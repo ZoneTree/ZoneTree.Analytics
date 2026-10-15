@@ -17,13 +17,13 @@
     "lint": "biome check ./ --formatter-enabled=false --write"
   },
   "dependencies": {
-    "@purestack/ts-components": "^1.1.10",
-    "@purestack/ts-css": "^1.1.10",
-    "@purestack/ts-html": "^1.1.10",
-    "@purestack/ts-style": "^1.1.10",
-    "@purestack/ts-svg-icons": "^1.1.10",
-    "@purestack/ts-util": "^1.1.10",
-    "purestack": "^1.1.10",
+    "@purestack/ts-components": "^1.1.12",
+    "@purestack/ts-css": "^1.1.12",
+    "@purestack/ts-html": "^1.1.12",
+    "@purestack/ts-style": "^1.1.12",
+    "@purestack/ts-svg-icons": "^1.1.12",
+    "@purestack/ts-util": "^1.1.12",
+    "purestack": "^1.1.11",
     "regor": "^1.7.4"
   },
   "devDependencies": {

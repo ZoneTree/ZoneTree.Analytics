@@ -73,15 +73,12 @@ try {
         `${file} must not include the full icon catalog`,
       )
   }
-  const icons = JSON.parse(
-    await readFile(
-      'test-results/subpath-site/assets/dashboard-icons.json',
-      'utf8',
-    ),
+  await assert.rejects(
+    readFile('test-results/subpath-site/assets/dashboard-icons.json'),
+    { code: 'ENOENT' },
   )
-  assert.equal(Object.keys(icons).length, 7)
   console.log(
-    'PureStack subpath checks passed: navigation, styles, entry bundle, config base path, generated icons, bundle size.',
+    'PureStack subpath checks passed: navigation, styles, entry bundle, config base path, tree-shaken icons, bundle size.',
   )
 } finally {
   await rm(content, { recursive: true, force: true })

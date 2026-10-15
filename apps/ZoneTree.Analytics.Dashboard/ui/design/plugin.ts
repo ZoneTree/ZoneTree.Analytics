@@ -1,7 +1,6 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { h } from '@purestack/ts-html'
-import { getSvgIcon } from '@purestack/ts-svg-icons'
 import { withBasePath } from '@purestack/ts-util'
 import { definePlugin } from 'purestack'
 import { dashboardConfigPath, dashboardEventPath, dashboardTrackerPath, defaultConfig } from '../content/lib/contracts'
@@ -56,28 +55,6 @@ export const dashboardPlugin = definePlugin({
           .replace(`src="${resolvedPath}`, `src="${dashboardTrackerPath}`)
           .replace(`src=${resolvedPath}`, `src=${dashboardTrackerPath}`)
       }
-    },
-    onBuildComplete: async (_context, result) => {
-      // Keep the full PureStack catalog out of browser entry bundles.
-      const names = [
-        'lucide:chevron-down',
-        'tabler:adjustments-horizontal',
-        'tabler:calendar',
-        'tabler:download',
-        'tabler:refresh',
-        'tabler:world',
-        'tabler:x',
-      ] as const
-      const icons = Object.fromEntries(
-        names.map((name) => [name, getSvgIcon(name)]),
-      )
-      const directory = path.join(result.outDir, 'assets')
-      await mkdir(directory, { recursive: true })
-      await writeFile(
-        path.join(directory, 'dashboard-icons.json'),
-        JSON.stringify(icons),
-        'utf8',
-      )
     },
   },
   templates: {
