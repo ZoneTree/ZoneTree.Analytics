@@ -14,8 +14,8 @@ sealed class DashboardDevelopmentServer(
   {
     Timeout = Timeout.InfiniteTimeSpan,
   };
-  Process? process;
-  Uri? origin;
+  Process process;
+  Uri origin;
 
   public async Task StartAsync(CancellationToken cancellationToken)
   {

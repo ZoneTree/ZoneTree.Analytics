@@ -1,4 +1,3 @@
-#nullable enable
 using System.Diagnostics;
 using System.Globalization;
 using System.Runtime;
@@ -11,14 +10,14 @@ sealed record SampleBenchmarkResult(int Events, int Days, int Workers, bool Perc
     long Ingested, long Errors, long Dropped, long Rejected, string Build, string GarbageCollection, string TieredCompilation,
     string FromDate = "", string ToDate = "");
 sealed record SampleBenchmarkStatus(string State = "idle", int Requested = 0, int Prepared = 0, int Submitted = 0,
-    int Workers = 20, int Days = 365, bool Percentiles = false, string? Error = null, SampleBenchmarkResult? Result = null,
+    int Workers = 20, int Days = 365, bool Percentiles = false, string Error = null, SampleBenchmarkResult Result = null,
     long Ingested = 0, double ElapsedMs = 0, double EventsPerSecond = 0);
 sealed record SampleBenchmarkProgress(string State, int Prepared = 0, int Submitted = 0,
     long Ingested = 0, double ElapsedMs = 0, double EventsPerSecond = 0);
 
 // Preparation uses the same realistic generator. The measured interval contains
 // submission and the final flush; store creation, statistics and cleanup are outside it.
-sealed class SampleBenchmark(string contentRoot, TimeZoneInfo timeZone, ILogger? logger = null) : IAsyncDisposable
+sealed class SampleBenchmark(string contentRoot, TimeZoneInfo timeZone, ILogger logger = null) : IAsyncDisposable
 {
   public BenchmarkReportStore Reports { get; } = new(contentRoot, logger);
 
@@ -37,7 +36,7 @@ sealed class SampleBenchmark(string contentRoot, TimeZoneInfo timeZone, ILogger?
     return events;
   }
 
-  public async Task<SampleBenchmarkResult?> RunAsync(SampleBenchmarkRequest request, Action<SampleBenchmarkProgress> progress,
+  public async Task<SampleBenchmarkResult> RunAsync(SampleBenchmarkRequest request, Action<SampleBenchmarkProgress> progress,
       CancellationToken cancellationToken, CancellationToken applicationStopping)
   {
     var preparation = Stopwatch.StartNew();
@@ -57,7 +56,7 @@ sealed class SampleBenchmark(string contentRoot, TimeZoneInfo timeZone, ILogger?
     finally { Reports.RemoveUnpublishedRun(directory); }
   }
 
-  async Task<SampleBenchmarkResult?> MeasureAsync(string directory, AnalyticsEvent[] events, SampleBenchmarkRequest request, DateTimeOffset end,
+  async Task<SampleBenchmarkResult> MeasureAsync(string directory, AnalyticsEvent[] events, SampleBenchmarkRequest request, DateTimeOffset end,
       double preparationMs, Action<SampleBenchmarkProgress> progress, CancellationToken cancellationToken, CancellationToken applicationStopping)
   {
     var options = DashboardAnalyticsOptions.CreateBenchmark(directory, timeZone, request.Workers, request.Percentiles, logger);

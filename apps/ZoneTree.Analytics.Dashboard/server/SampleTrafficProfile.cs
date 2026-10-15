@@ -1,4 +1,3 @@
-#nullable enable
 
 // An hourly probability curve keeps generation bounded even for millions of
 // events. Sampling its cumulative weights produces coherent traffic patterns.

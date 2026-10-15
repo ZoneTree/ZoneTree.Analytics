@@ -9,7 +9,7 @@ sealed class SampleDataStore(IWebHostEnvironment environment, IConfiguration con
   public const string ApiPath = "/_analytics/sample-data/api";
   readonly object sync = new();
   readonly string directory = Path.GetFullPath(Path.Combine(environment.ContentRootPath, "data/performance-samples"));
-  AnalyticsEngine? engine;
+  AnalyticsEngine engine;
   int workerCount = 1;
   int readers;
   bool resetting;
@@ -42,7 +42,7 @@ sealed class SampleDataStore(IWebHostEnvironment environment, IConfiguration con
   {
     if (workers is < 1 or > 64) throw new ArgumentOutOfRangeException(nameof(workers));
     Task wait;
-    AnalyticsEngine? current;
+    AnalyticsEngine current;
     lock (sync)
     {
       if (resetting) throw new SampleDataBusyException();
@@ -95,7 +95,7 @@ sealed class SampleDataStore(IWebHostEnvironment environment, IConfiguration con
   public async Task ClearAsync(CancellationToken cancellationToken)
   {
     Task wait;
-    AnalyticsEngine? current;
+    AnalyticsEngine current;
     lock (sync)
     {
       if (resetting) throw new SampleDataBusyException();
@@ -118,7 +118,7 @@ sealed class SampleDataStore(IWebHostEnvironment environment, IConfiguration con
 
   public async ValueTask DisposeAsync()
   {
-    AnalyticsEngine? current;
+    AnalyticsEngine current;
     lock (sync) { resetting = true; current = engine; engine = null; }
     if (current != null) await current.DisposeAsync();
   }

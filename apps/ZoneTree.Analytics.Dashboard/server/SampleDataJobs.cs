@@ -2,18 +2,18 @@ using System.Diagnostics;
 using ZoneTree.Analytics;
 
 sealed record SampleGenerationRequest(int Events, int Days = 60, int Workers = 1);
-sealed record SampleDataStatus(string State, int Requested, int Processed, long TotalGenerated, long ElapsedMs, string? Error,
+sealed record SampleDataStatus(string State, int Requested, int Processed, long TotalGenerated, long ElapsedMs, string Error,
     int Workers = 1, long Ingested = 0, double EventsPerSecond = 0, double AverageEventsPerSecond = 0,
-    string? ActiveOperation = null, SampleBenchmarkStatus? Benchmark = null);
+    string ActiveOperation = null, SampleBenchmarkStatus Benchmark = null);
 
 sealed class SampleDataJobs(SampleDataStore store, SampleBenchmark benchmark, IHostApplicationLifetime lifetime, ILogger<SampleDataJobs> logger)
     : IHostedService, IDisposable
 {
   readonly object sync = new();
   SampleDataStatus status = new("idle", 0, 0, store.ReadCount(), 0, null);
-  CancellationTokenSource? cancellation;
+  CancellationTokenSource cancellation;
   Task operation = Task.CompletedTask;
-  string? activeOperation;
+  string activeOperation;
   SampleBenchmarkStatus benchmarkStatus = new(Result: benchmark.Reports.Result);
 
   public SampleDataStatus Status

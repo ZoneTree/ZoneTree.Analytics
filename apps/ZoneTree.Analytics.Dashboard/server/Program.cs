@@ -130,8 +130,8 @@ if (watchDashboard)
   app.MapFallback("/{**path}", app.Services.GetRequiredService<DashboardDevelopmentServer>().ForwardAsync);
 else
 {
-  app.UseDefaultFiles(new DefaultFilesOptions { FileProvider = files! });
-  app.UseStaticFiles(new StaticFileOptions { FileProvider = files! });
+  app.UseDefaultFiles(new DefaultFilesOptions { FileProvider = files });
+  app.UseStaticFiles(new StaticFileOptions { FileProvider = files });
 }
 // Complete migrations before browsers start their reporting request timeouts.
 if (sampleDataEnabled)

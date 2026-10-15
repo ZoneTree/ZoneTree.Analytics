@@ -21,8 +21,6 @@ sealed class RollupActivations
 
   const string GranularityPrefix = "granularity:";
 
-  const string GranularityFormat = "granularity-format";
-
   readonly Dictionary<string, long> definitions = new(StringComparer.Ordinal);
 
   readonly Dictionary<string, long> aggregates = new(StringComparer.Ordinal);
@@ -32,7 +30,7 @@ sealed class RollupActivations
   /// <summary>
   /// Records the activations of the configured rollups and loads them.
   /// </summary>
-  public static RollupActivations Register(MetaStore meta, RollupOptions rollups, bool isNewDirectory, string dataRoot)
+  public static RollupActivations Register(MetaStore meta, RollupOptions rollups, bool isNewDirectory)
   {
     var definitionKeys = rollups.Definitions.ToDictionary(x => x.Id, DefinitionKey, StringComparer.Ordinal);
     var aggregateKeys = new List<string>();
@@ -43,19 +41,10 @@ sealed class RollupActivations
     }
     aggregateKeys.AddRange(rollups.DistinctDimensions.Select(DistinctKey));
     var enabled = RollupStore.Granularities.Where(x => (rollups.Granularities & x) != 0).ToArray();
-    // Earlier directories did not record tier activations. Adopt tiers that already hold
-    // partitions, preserving their historical reads; a tier with no data starts now.
-    var legacy = !isNewDirectory && meta.Get(GranularityFormat) == null && meta.ListByPrefix(GranularityPrefix).Count == 0;
-    var tierActivations = enabled.ToDictionary(GranularityKey, granularity =>
-    {
-      var tier = Path.Combine(dataRoot, "rollups", granularity.ToString().ToLowerInvariant());
-      var existed = legacy && Directory.Exists(tier) && Directory.EnumerateDirectories(tier)
-          .Any(path => DateTime.TryParseExact(Path.GetFileName(path), "yyyy-MM-dd",
-              CultureInfo.InvariantCulture, DateTimeStyles.None, out _));
-      return (isNewDirectory || existed ? 0 : DateTime.UtcNow.Ticks).ToString(CultureInfo.InvariantCulture);
-    }, StringComparer.Ordinal);
     var configuredKeys = definitionKeys.Values.Concat(aggregateKeys)
         .Concat(enabled.Select(GranularityKey)).ToHashSet(StringComparer.Ordinal);
+    // The rollups of a new directory cover all of its data; one added to an existing directory
+    // covers the data recorded from now on.
     var activation = (isNewDirectory ? 0 : DateTime.UtcNow.Ticks).ToString(CultureInfo.InvariantCulture);
     meta.Update(entries =>
     {
@@ -65,8 +54,7 @@ sealed class RollupActivations
           entries.Remove(key);
       }
       foreach (var key in configuredKeys)
-        entries.TryAdd(key, tierActivations.GetValueOrDefault(key) ?? activation);
-      entries[GranularityFormat] = "1";
+        entries.TryAdd(key, activation);
     });
     var result = new RollupActivations();
     foreach (var (id, key) in definitionKeys)

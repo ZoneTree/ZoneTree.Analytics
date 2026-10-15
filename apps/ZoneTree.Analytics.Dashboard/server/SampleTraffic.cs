@@ -1,4 +1,3 @@
-#nullable enable
 using ZoneTree.Analytics;
 
 // Streaming generation through the real engine; memory does not grow with the
@@ -8,8 +7,8 @@ static class SampleTraffic
   public static Task SeedAsync(AnalyticsEngine engine) => GenerateAsync(engine, 10_000);
 
   public static async Task GenerateAsync(
-      AnalyticsEngine engine, int eventCount, int days = 60, string? site = null,
-      Action<int>? progress = null, int workers = 1, CancellationToken cancellationToken = default)
+      AnalyticsEngine engine, int eventCount, int days = 60, string site = null,
+      Action<int> progress = null, int workers = 1, CancellationToken cancellationToken = default)
   {
     if (eventCount is < 1 or > 10_000_000 || days is < 1 or > 365 || workers is < 1 or > 64)
       throw new ArgumentException("Choose 1–10,000,000 events, 365 days, and 1–64 workers.");
@@ -47,7 +46,7 @@ static class SampleTraffic
   }
 
   public static IEnumerable<AnalyticsEvent> CreateEvents(
-      int eventCount, int days, string? site = null, TimeZoneInfo? timeZone = null,
+      int eventCount, int days, string site = null, TimeZoneInfo timeZone = null,
       DateTimeOffset? endingAt = null)
   {
     if (eventCount is < 1 or > 10_000_000)

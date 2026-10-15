@@ -25,7 +25,8 @@ public sealed class AnalyticsOptions
 
   /// <summary>
   /// The site used for events and queries that do not specify one. Default is "default".
-  /// Must contain valid Unicode and no control characters.
+  /// Must contain valid Unicode, no control characters and no surrounding whitespace, and be
+  /// at most 128 characters: the form in which events store their site.
   /// </summary>
   public string DefaultSite { get; set; } = "default";
 
@@ -121,6 +122,10 @@ public sealed class AnalyticsOptions
     if (string.IsNullOrWhiteSpace(DataDirectory))
       throw new ArgumentException("DataDirectory is required.");
     Text.ValidateStoredName(DefaultSite, nameof(DefaultSite));
+    // Events name their site the same way, so the default site has one identity.
+    if (Text.Name(DefaultSite) != DefaultSite)
+      throw new ArgumentException(
+          $"DefaultSite must be a site name as events store it: no surrounding whitespace and at most {Text.MaxNameLength} characters.");
     if (TimeZone == null)
       throw new ArgumentException("TimeZone is required.");
     Ingestion.Validate();

@@ -171,28 +171,6 @@ public sealed class ReleaseRegressionTests : DirectoryTest
   }
 
   [Test]
-  public void LegacyExistingTiersKeepTheirHistoricalCoverage()
-  {
-    using (var engine = TestEngine.Create(directory))
-      engine.Track(new AnalyticsEvent("purchase") { Timestamp = Utc(Day0.AddHours(1)) });
-    var meta = new MetaStore(Path.Combine(directory, "meta"));
-    meta.Update(entries =>
-    {
-      foreach (var key in entries.Keys.Where(x => x.StartsWith("granularity:", StringComparison.Ordinal)).ToArray())
-        entries.Remove(key);
-      entries.Remove("granularity-format");
-    });
-    using var reopened = TestEngine.Create(directory);
-    var result = reopened.Query(new AnalyticsQuery { Event = "purchase", Range = Day(Day0), Metrics = { Metric.Events } });
-    Assert.Multiple(() =>
-    {
-      Assert.That(result.Totals[Metric.Events], Is.EqualTo(1));
-      Assert.That(result.Plan.UsedRollups, Is.True);
-      Assert.That(result.Plan.IsComplete, Is.True);
-    });
-  }
-
-  [Test]
   public void RawQueriesFollowLongSessionsAndDoNotCountPrematureExits()
   {
     using var engine = TestEngine.Create(directory);

@@ -7,18 +7,8 @@ public sealed class ChangeReviewRegressionTests : DirectoryTest
 {
   static readonly DateTime Day0 = DateTime.UtcNow.Date.AddDays(-2);
 
-  static void RemoveTierMetadata(string root)
-  {
-    new MetaStore(Path.Combine(root, "meta")).Update(entries =>
-    {
-      foreach (var key in entries.Keys.Where(x => x.StartsWith("granularity:", StringComparison.Ordinal)).ToArray())
-        entries.Remove(key);
-      entries.Remove("granularity-format");
-    });
-  }
-
   [Test]
-  public void LegacyDailyHistorySurvivesWhenFinerDataExpired()
+  public void DailyHistorySurvivesWhenFinerDataExpired()
   {
     var oldDay = DateTime.UtcNow.Date.AddDays(-500);
     void Configure(AnalyticsOptions options)
@@ -31,8 +21,7 @@ public sealed class ChangeReviewRegressionTests : DirectoryTest
       engine.Track(new AnalyticsEvent("purchase") { Timestamp = Utc(oldDay.AddHours(1)) });
       engine.Flush();
     }
-    RemoveTierMetadata(directory);
-    // Check both the migration and subsequent reopen, with no raw/hourly data to fall back to.
+    // Reopen twice, with no raw or hourly data to fall back to.
     for (var run = 0; run < 2; ++run)
     {
       using var reopened = TestEngine.Create(directory, Configure);
@@ -53,11 +42,11 @@ public sealed class ChangeReviewRegressionTests : DirectoryTest
   }
 
   [Test]
-  public void LegacyMigrationDoesNotInventCoverageForANewTier()
+  public void ANewTierDoesNotClaimEarlierCoverage()
   {
     using (var engine = TestEngine.Create(directory, o => o.Rollups.Granularities = Granularity.Hour))
       engine.Track(new AnalyticsEvent("purchase") { Timestamp = Utc(Day0.AddHours(1)) });
-    RemoveTierMetadata(directory);
+    // Daily rollups are enabled now: the earlier day is answered by hourly rollups.
     using var reopened = TestEngine.Create(directory);
     var result = reopened.Query(new AnalyticsQuery { Event = "purchase", Range = Day(Day0), Metrics = { Metric.Events } });
     Assert.Multiple(() =>
@@ -69,19 +58,23 @@ public sealed class ChangeReviewRegressionTests : DirectoryTest
   }
 
   [Test]
-  public void LegacyDefaultSiteIdentityAndErasureSurviveReopen()
+  public void DefaultSiteIdentityAndErasureSurviveReopen()
   {
     void Configure(AnalyticsOptions options)
     {
-      options.DefaultSite = " shop ";
+      options.DefaultSite = "shop";
       options.Ingestion.WorkerCount = 4;
     }
+    // The default site is stored as events store their site, so it has one identity.
+    Assert.Throws<ArgumentException>(() => TestEngine.Create(directory, o => o.DefaultSite = " shop ").Dispose());
     using (var engine = TestEngine.Create(directory, Configure))
       engine.Track(new AnalyticsEvent("pageview") { VisitorId = "alice", Url = "/before", Timestamp = Utc(Day0) });
     using var reopened = TestEngine.Create(directory, Configure);
     Assert.Multiple(() =>
     {
-      Assert.That(reopened.DefaultSite, Is.EqualTo(" shop "));
+      Assert.That(reopened.DefaultSite, Is.EqualTo("shop"));
+      Assert.That(reopened.Query(new AnalyticsQuery { Site = " shop ", Range = Day(Day0), Metrics = { Metric.PageViews } })
+          .Totals[Metric.PageViews], Is.EqualTo(1));
       Assert.That(reopened.Query(new AnalyticsQuery { Range = Day(Day0), Metrics = { Metric.PageViews } })
           .Totals[Metric.PageViews], Is.EqualTo(1));
     });

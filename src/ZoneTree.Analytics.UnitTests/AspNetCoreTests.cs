@@ -44,8 +44,8 @@ public sealed class AspNetCoreTests : DirectoryTest
           // Options are fixed once the engine exists: the timeout test needs its own value.
           if (TestContext.CurrentContext.Test.MethodName == nameof(ReportingApiReportsTimeouts))
             options.Queries.Timeout = TimeSpan.FromTicks(1);
-          if (TestContext.CurrentContext.Test.MethodName == nameof(ReportingApiPreservesLegacyDefaultSiteIdentity))
-            options.DefaultSite = " shop ";
+          if (TestContext.CurrentContext.Test.MethodName == nameof(ReportingApiAuthorizesTheDefaultSite))
+            options.DefaultSite = "shop";
         },
         web =>
         {
@@ -205,22 +205,22 @@ public sealed class AspNetCoreTests : DirectoryTest
   }
 
   [Test]
-  public async Task ReportingApiPreservesLegacyDefaultSiteIdentity()
+  public async Task ReportingApiAuthorizesTheDefaultSite()
   {
-    Engine.Track(new AnalyticsEvent("pageview") { VisitorId = "alice", Url = "/legacy" });
+    Engine.Track(new AnalyticsEvent("pageview") { VisitorId = "alice", Url = "/home" });
     await Engine.FlushAsync();
     string authorizedSite = null;
     var options = app.Services.GetRequiredService<AnalyticsWebOptions>();
     options.AuthorizeSite = (_, site) =>
     {
       authorizedSite = site;
-      return site == " shop ";
+      return site == "shop";
     };
     var (status, report) = await GetJson("/_analytics/api/summary?range=1h");
     Assert.Multiple(() =>
     {
       Assert.That(status, Is.EqualTo(HttpStatusCode.OK));
-      Assert.That(authorizedSite, Is.EqualTo(" shop "));
+      Assert.That(authorizedSite, Is.EqualTo("shop"));
       Assert.That(report.GetProperty("summary").GetProperty("pageViews").GetInt32(), Is.EqualTo(1));
     });
   }

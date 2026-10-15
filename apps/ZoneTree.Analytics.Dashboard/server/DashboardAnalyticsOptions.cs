@@ -1,4 +1,3 @@
-#nullable enable
 using Microsoft.Extensions.Logging;
 using ZoneTree.Analytics;
 using ZoneTree.Analytics.AspNetCore;
@@ -32,7 +31,7 @@ static class DashboardAnalyticsOptions
   }
 
   public static AnalyticsOptions CreatePerformanceSamples(string directory, TimeZoneInfo timeZone,
-      int workers, ILogger? logger = null)
+      int workers, ILogger logger = null)
   {
     var options = Create(directory, PerformanceSite, timeZone, logger);
     options.Ingestion.WorkerCount = workers;
@@ -41,7 +40,7 @@ static class DashboardAnalyticsOptions
   }
 
   public static AnalyticsOptions CreateBenchmark(string directory, TimeZoneInfo timeZone,
-      int workers, bool percentiles, ILogger? logger = null)
+      int workers, bool percentiles, ILogger logger = null)
   {
     var options = Create(directory, BenchmarkSite, timeZone, logger);
     options.Ingestion.WorkerCount = workers;
@@ -52,10 +51,10 @@ static class DashboardAnalyticsOptions
 
   // Reopening uses the saved dataset time zone and percentile setting, with one worker.
   public static AnalyticsOptions CreateBenchmarkReport(string directory, string timeZoneId,
-      bool percentiles, ILogger? logger = null) =>
+      bool percentiles, ILogger logger = null) =>
       CreateBenchmark(directory, TimeZoneInfo.FindSystemTimeZoneById(timeZoneId), 1, percentiles, logger);
 
-  static AnalyticsOptions Create(string directory, string site, TimeZoneInfo timeZone, ILogger? logger)
+  static AnalyticsOptions Create(string directory, string site, TimeZoneInfo timeZone, ILogger logger)
   {
     var options = new AnalyticsOptions();
     ConfigureCommon(options);

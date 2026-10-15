@@ -137,7 +137,7 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
     {
       meta = new MetaStore(Path.Combine(root, "meta"));
       var isNew = ValidateConfiguration();
-      var activations = RollupActivations.Register(meta, options.Rollups, isNew, root);
+      var activations = RollupActivations.Register(meta, options.Rollups, isNew);
       sequence = Math.Max(
           DateTime.UtcNow.Ticks,
           meta.Get("raw-sequence") is { } stored ? long.Parse(stored, CultureInfo.InvariantCulture) : 0);

@@ -1,4 +1,3 @@
-#nullable enable
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using ZoneTree.Analytics;
@@ -11,18 +10,18 @@ sealed class BenchmarkReportStore : IAsyncDisposable
   public const string ApiPath = "/_analytics/sample-data/benchmark-api";
   readonly object sync = new();
   readonly string root;
-  readonly ILogger? logger;
-  Dataset? current;
-  AnalyticsEngine? engine;
+  readonly ILogger logger;
+  Dataset current;
+  AnalyticsEngine engine;
   int readers;
   bool switching;
   TaskCompletionSource drained = new(TaskCreationOptions.RunContinuationsAsynchronously);
   const string Marker = ".zonetree-benchmark";
-  static readonly Action<ILogger, Exception?> CleanupWarning = LoggerMessage.Define(LogLevel.Warning,
+  static readonly Action<ILogger, Exception> CleanupWarning = LoggerMessage.Define(LogLevel.Warning,
       new EventId(1, "BenchmarkCleanup"), "Previous benchmark directory could not be removed.");
   sealed record Dataset(string Directory, string TimeZone, SampleBenchmarkResult Result);
 
-  public BenchmarkReportStore(string contentRoot, ILogger? logger = null)
+  public BenchmarkReportStore(string contentRoot, ILogger logger = null)
   {
     root = Path.GetFullPath(Path.Combine(contentRoot, "data/ingestion-benchmarks"));
     this.logger = logger;
@@ -34,7 +33,7 @@ sealed class BenchmarkReportStore : IAsyncDisposable
     }
   }
 
-  public SampleBenchmarkResult? Result { get { lock (sync) return current?.Result; } }
+  public SampleBenchmarkResult Result { get { lock (sync) return current?.Result; } }
 
   public string CreateRunDirectory()
   {
@@ -87,7 +86,7 @@ sealed class BenchmarkReportStore : IAsyncDisposable
       var manifest = Path.Combine(root, "latest.json");
       await File.WriteAllTextAsync(manifest + ".tmp", JsonSerializer.Serialize(dataset), token);
       File.Move(manifest + ".tmp", manifest, overwrite: true);
-      Dataset? previous;
+      Dataset previous;
       lock (sync) { previous = current; current = dataset; }
       if (previous != null)
       {
@@ -104,7 +103,7 @@ sealed class BenchmarkReportStore : IAsyncDisposable
     await BeginSwitchAsync(token);
     try
     {
-      Dataset? previous;
+      Dataset previous;
       lock (sync) previous = current;
       if (previous == null) return;
       DeleteRun(Path.Combine(root, previous.Directory));
