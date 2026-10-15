@@ -50,7 +50,7 @@ jobs:
         id: login
         uses: NuGet/login@v1
         with:
-          user: ZoneTree
+          user: koculu
       - name: Publish the packages to nuget.org
         # Pushing a .nupkg also pushes the .snupkg symbol package next to it.
         run: dotnet nuget push "artifacts/packages/*.nupkg" --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
