@@ -212,7 +212,7 @@ sealed class RollupIndexStore : IDisposable
     if (!copies.TryGetValue((granularity, definitionId), out var destinations)) return 0;
     var key = StorageKeyCodec.DecodeRollup(originalKey.Span);
     var store = destinations[0].Store;
-    using var lease = store.Acquire(store.Route(key.BucketTicks));
+    using var lease = store.Acquire(store.RouteWrite(key.BucketTicks));
     if (lease == null) return 0;
     var written = 0;
     foreach (var index in destinations)

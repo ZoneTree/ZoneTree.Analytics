@@ -15,8 +15,10 @@ namespace ZoneTree.Analytics.Privacy;
 /// <list type="bullet">
 /// <item>Explicit visitor ids: HMAC(secret, site | id). Stable over time.</item>
 /// <item>Anonymous visitors: HMAC(salt of the UTC day, site | ip | user agent).
-/// Salts are random, kept only for the current and previous day, then destroyed,
-/// so hashes cannot be recomputed or linked across days.</item>
+/// Salts are random, kept for the current and previous day, then destroyed, so hashes cannot
+/// be recomputed or linked across days. The salt of an older day, created for events with
+/// historical timestamps, is kept until a day after its last use, so a backfill hashes each
+/// visitor of that day the same way across salt rotations and restarts.</item>
 /// </list>
 /// </remarks>
 sealed class VisitorHasher
@@ -25,6 +27,12 @@ sealed class VisitorHasher
 
   const string SaltPrefix = "salt:";
 
+  /// <summary>The UTC ticks of the last use of an older day's salt, per day.</summary>
+  const string SaltUsePrefix = "salt-used:";
+
+  /// <summary>How often the last use of an older day's salt is persisted.</summary>
+  const long UseRefreshTicks = TimeSpan.TicksPerHour;
+
   readonly VisitorIdentification mode;
 
   readonly byte[] secret;
@@ -32,6 +40,9 @@ sealed class VisitorHasher
   readonly MetaStore meta;
 
   readonly ConcurrentDictionary<long, byte[]> salts = new();
+
+  /// <summary>The last persisted use of each older day's salt in use.</summary>
+  readonly ConcurrentDictionary<long, long> uses = new();
 
   readonly object saltLock = new();
 
@@ -81,54 +92,77 @@ sealed class VisitorHasher
     return Hash(key, "anon", site, ipAddress ?? "", userAgent ?? "");
   }
 
+  static string DayName(long utcDay) => new DateTime(utcDay).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+
+  static long ParseDay(string name) => DateTime.ParseExact(name, "yyyy-MM-dd", CultureInfo.InvariantCulture).Ticks;
+
+  /// <summary>The first day whose salt is kept by date: the previous UTC day.</summary>
+  static long KeptFrom(long utcNowTicks) => utcNowTicks - utcNowTicks % TimeSpan.TicksPerDay - TimeSpan.TicksPerDay;
+
   byte[] GetSalt(long utcDay)
   {
-    if (salts.TryGetValue(utcDay, out var salt))
+    var now = DateTime.UtcNow.Ticks;
+    var older = utcDay < KeptFrom(now);
+    if (salts.TryGetValue(utcDay, out var salt) &&
+        (!older || (uses.TryGetValue(utcDay, out var used) && now - used < UseRefreshTicks)))
       return salt;
     lock (saltLock)
     {
-      if (salts.TryGetValue(utcDay, out salt))
-        return salt;
-      var name = SaltPrefix + new DateTime(utcDay).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
-      var stored = meta.Get(name);
-      if (stored != null)
+      var name = SaltPrefix + DayName(utcDay);
+      var created = false;
+      if (!salts.TryGetValue(utcDay, out salt))
       {
-        salt = Convert.FromBase64String(stored);
+        var stored = meta.Get(name);
+        created = stored == null;
+        salt = created ? RandomNumberGenerator.GetBytes(32) : Convert.FromBase64String(stored);
       }
-      else
+      var recordUse = older && (!uses.TryGetValue(utcDay, out var lastUse) || now - lastUse >= UseRefreshTicks);
+      if (created || recordUse)
       {
-        salt = RandomNumberGenerator.GetBytes(32);
-        meta.Set(name, Convert.ToBase64String(salt));
+        meta.Update(entries =>
+        {
+          if (created)
+            entries[name] = Convert.ToBase64String(salt);
+          if (recordUse)
+            entries[SaltUsePrefix + DayName(utcDay)] = now.ToString(CultureInfo.InvariantCulture);
+        });
       }
+      if (recordUse)
+        uses[utcDay] = now;
       salts[utcDay] = salt;
       return salt;
     }
   }
 
   /// <summary>
-  /// Destroys salts older than the previous UTC day.
+  /// Destroys the salts older than the previous UTC day that were not used during the last day.
   /// </summary>
   public void RotateSalts(DateTime utcNow)
   {
-    var keepFrom = utcNow.Date.AddDays(-1).Ticks;
+    var keepFrom = KeptFrom(utcNow.Ticks);
+    var idleFrom = utcNow.Ticks - TimeSpan.TicksPerDay;
     lock (saltLock)
     {
-      foreach (var day in salts.Keys)
+      var lastUses = meta.ListByPrefix(SaltUsePrefix).ToDictionary(
+          x => ParseDay(x.Key[SaltUsePrefix.Length..]), x => long.Parse(x.Value, CultureInfo.InvariantCulture));
+      var days = meta.ListByPrefix(SaltPrefix).Select(x => ParseDay(x.Key[SaltPrefix.Length..]))
+          .Concat(salts.Keys).Concat(lastUses.Keys).ToHashSet();
+      var expired = days.Where(day => day < keepFrom &&
+          Math.Max(lastUses.GetValueOrDefault(day, long.MinValue), uses.GetValueOrDefault(day, long.MinValue)) < idleFrom).ToList();
+      if (expired.Count == 0)
+        return;
+      meta.Update(entries =>
       {
-        if (day < keepFrom)
-          salts.TryRemove(day, out _);
-      }
-      var expired = meta.ListByPrefix(SaltPrefix)
-          .Select(x => x.Key)
-          .Where(name => DateTime.ParseExact(name[SaltPrefix.Length..], "yyyy-MM-dd", CultureInfo.InvariantCulture).Ticks < keepFrom)
-          .ToList();
-      if (expired.Count > 0)
-      {
-        meta.Update(entries =>
+        foreach (var day in expired)
         {
-          foreach (var name in expired)
-            entries.Remove(name);
-        });
+          entries.Remove(SaltPrefix + DayName(day));
+          entries.Remove(SaltUsePrefix + DayName(day));
+        }
+      });
+      foreach (var day in expired)
+      {
+        salts.TryRemove(day, out _);
+        uses.TryRemove(day, out _);
       }
     }
   }

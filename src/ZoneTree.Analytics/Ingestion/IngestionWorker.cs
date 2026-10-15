@@ -516,7 +516,7 @@ sealed class IngestionWorker : IAsyncDisposable
   void WriteRawEvent(EnrichedEvent ev, SessionState session)
   {
     var store = services.RawEvents.Store;
-    var partition = store.Route(ev.Ticks);
+    var partition = store.RouteWrite(ev.Ticks);
     if (rawLease == null || rawLease.Name != partition)
     {
       rawLease?.Dispose();

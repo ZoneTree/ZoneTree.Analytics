@@ -186,6 +186,9 @@ public static class RawEventCodec
     foreach (var (name, value) in rawEvent.Dimensions)
     {
       Text.ValidateStoredName(name, nameof(rawEvent));
+      // Ingestion never stores control characters; rollup keys reserve some of them.
+      if (value != null && value.Any(char.IsControl))
+        throw new ArgumentException("Dimension values cannot contain control characters.", nameof(rawEvent));
       Text.ValidateUnicode(value, nameof(rawEvent));
     }
     foreach (var (name, _) in rawEvent.Values)
@@ -307,6 +310,8 @@ public static class RawEventCodec
         if (requireEnd && (string.IsNullOrWhiteSpace(key) || key.Any(char.IsControl)))
           throw new FormatException("A raw event dimension has an invalid name.");
         var value = reader.ReadString(strings);
+        if (requireEnd && value != null && value.Any(char.IsControl))
+          throw new FormatException("A raw event dimension value contains a control character.");
         target.Dimensions.Add(new(key, value));
         continue;
       }

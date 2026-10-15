@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text;
 using ZoneTree.Analytics.Internal;
 using ZoneTree.Logger;
 
@@ -64,15 +65,26 @@ sealed class PartitionedStore<TKey, TValue> : IDisposable
   }
 
   /// <summary>
+  /// The latest time routed to a partition for a write, or <see cref="long.MinValue"/> when it
+  /// is unknown. Maps share the instances, so a write never updates a replaced copy.
+  /// </summary>
+  sealed class HighWater(long ticks = long.MinValue)
+  {
+    public long Ticks = ticks;
+  }
+
+  /// <summary>
   /// The partitions in time order. Replaced, never modified, so readers route without a lock.
   /// </summary>
-  sealed class PartitionMap(long[] starts, string[] names)
+  sealed class PartitionMap(long[] starts, string[] names, HighWater[] marks)
   {
-    public static PartitionMap Empty { get; } = new([], []);
+    public static PartitionMap Empty { get; } = new([], [], []);
 
     public long[] Starts { get; } = starts;
 
     public string[] Names { get; } = names;
+
+    public HighWater[] Marks { get; } = marks;
 
     public int Count => Starts.Length;
 
@@ -89,16 +101,30 @@ sealed class PartitionedStore<TKey, TValue> : IDisposable
       return index >= 0 ? index : Math.Max(0, ~index - 1);
     }
 
-    public PartitionMap Add(long start, string name) => new([.. Starts, start], [.. Names, name]);
+    public PartitionMap Add(long start, string name) => Insert(Count, start, name);
+
+    public PartitionMap Insert(int index, long start, string name) => new(
+        [.. Starts[..index], start, .. Starts[index..]],
+        [.. Names[..index], name, .. Names[index..]],
+        [.. Marks[..index], new HighWater(), .. Marks[index..]]);
 
     public PartitionMap Remove(string name)
     {
       var index = Array.IndexOf(Names, name);
       if (index < 0)
         return this;
-      return new([.. Starts[..index], .. Starts[(index + 1)..]], [.. Names[..index], .. Names[(index + 1)..]]);
+      return new([.. Starts[..index], .. Starts[(index + 1)..]], [.. Names[..index], .. Names[(index + 1)..]],
+          [.. Marks[..index], .. Marks[(index + 1)..]]);
     }
   }
+
+  /// <summary>
+  /// The file in the root directory that holds the high-water marks of the partitions:
+  /// one "name ticks" line each.
+  /// </summary>
+  const string HighWaterFile = "high-water";
+
+  string savedHighWater;
 
   readonly object sync = new();
 
@@ -162,7 +188,7 @@ sealed class PartitionedStore<TKey, TValue> : IDisposable
 
   static string NameOf(long start) => new DateTime(start).ToString(NameFormat, CultureInfo.InvariantCulture);
 
-  static PartitionMap LoadMap(string rootDirectory)
+  PartitionMap LoadMap(string rootDirectory)
   {
     var starts = new SortedDictionary<long, string>();
     foreach (var directory in Directory.EnumerateDirectories(rootDirectory))
@@ -171,7 +197,47 @@ sealed class PartitionedStore<TKey, TValue> : IDisposable
       if (DateTime.TryParseExact(name, NameFormat, CultureInfo.InvariantCulture, DateTimeStyles.None, out var start))
         starts[start.Ticks] = name;
     }
-    return new([.. starts.Keys], [.. starts.Values]);
+    // A damaged or missing file leaves the marks unknown.
+    var marks = new Dictionary<string, long>(StringComparer.Ordinal);
+    var path = Path.Combine(rootDirectory, HighWaterFile);
+    if (File.Exists(path))
+    {
+      foreach (var line in File.ReadAllLines(path))
+      {
+        var parts = line.Split(' ');
+        if (parts.Length == 2 && long.TryParse(parts[1], NumberStyles.None, CultureInfo.InvariantCulture, out var ticks))
+          marks[parts[0]] = ticks;
+      }
+    }
+    var names = starts.Values.ToArray();
+    var result = new PartitionMap([.. starts.Keys], names,
+        [.. names.Select(name => new HighWater(marks.GetValueOrDefault(name, long.MinValue)))]);
+    savedHighWater = HighWaterText(result);
+    return result;
+  }
+
+  static string HighWaterText(PartitionMap map) => string.Join('\n', Enumerable.Range(0, map.Count)
+      .Where(i => Volatile.Read(ref map.Marks[i].Ticks) != long.MinValue)
+      .Select(i => map.Names[i] + " " + Volatile.Read(ref map.Marks[i].Ticks).ToString(CultureInfo.InvariantCulture)));
+
+  /// <summary>
+  /// Persists the high-water marks that changed. Marks raised after the last save are lost in
+  /// a crash; the day boundary after a mark and the clock bound of new partitions cover them.
+  /// </summary>
+  void SaveHighWater()
+  {
+    var text = HighWaterText(map);
+    if (text == savedHighWater)
+      return;
+    var path = Path.Combine(RootDirectory, HighWaterFile);
+    var temporary = path + ".tmp";
+    using (var stream = new FileStream(temporary, FileMode.Create, FileAccess.Write, FileShare.None))
+    {
+      stream.Write(Encoding.UTF8.GetBytes(text));
+      stream.Flush(flushToDisk: true);
+    }
+    File.Move(temporary, path, overwrite: true);
+    savedHighWater = text;
   }
 
   /// <summary>
@@ -197,6 +263,28 @@ sealed class PartitionedStore<TKey, TValue> : IDisposable
       map = current.Add(start, name);
       return name;
     }
+  }
+
+  /// <summary>
+  /// <see cref="Route"/> for a record about to be written: raises the partition's high-water
+  /// mark, which keeps later partition boundaries after the record.
+  /// </summary>
+  public string RouteWrite(long ticks)
+  {
+    var current = map;
+    if (current.Count == 0)
+    {
+      Route(ticks);
+      current = map;
+    }
+    var index = current.IndexOf(ticks);
+    var mark = current.Marks[index];
+    for (var seen = Volatile.Read(ref mark.Ticks); ticks > seen; seen = Volatile.Read(ref mark.Ticks))
+    {
+      if (Interlocked.CompareExchange(ref mark.Ticks, ticks, seen) == seen)
+        break;
+    }
+    return current.Names[index];
   }
 
   /// <summary>
@@ -310,11 +398,15 @@ sealed class PartitionedStore<TKey, TValue> : IDisposable
   }
 
   /// <summary>
-  /// Starts a new partition when the latest one holds the configured number of records. The new
-  /// partition starts at the day boundary at or after <paramref name="earliestStart"/>, which
-  /// must be later than any record written so far: records written before the new partition
-  /// existed then still belong to the range of the previous one. Only an open latest partition
-  /// is counted; a closed one receives no records. Returns true when a partition was started.
+  /// Starts a new partition when the partition that receives new records holds the configured
+  /// number of records. That is the latest partition, unless a clock that ran ahead started a
+  /// later one: then it is the partition holding <paramref name="earliestStart"/>, provided its
+  /// high-water mark is known. The new partition starts at the day boundary at or after
+  /// <paramref name="earliestStart"/>, which must be later than any record the engine can still
+  /// receive, and after the day of the partition's high-water mark: records written before the
+  /// new partition existed, even by a clock that ran ahead, still belong to the range of the
+  /// previous one. Only an open partition is counted; a closed one receives no records. Also
+  /// persists the high-water marks. Returns true when a partition was started.
   /// </summary>
   public bool RollOver(long earliestStart)
   {
@@ -322,19 +414,40 @@ sealed class PartitionedStore<TKey, TValue> : IDisposable
     {
       if (isDisposed)
         return false;
+      try
+      {
+        SaveHighWater();
+      }
+      catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+      {
+        // The marks in memory are exact; a later call saves them.
+        logger.LogError(exception);
+      }
       var current = map;
-      if (current.Count == 0 ||
-          !partitions.TryGetValue(current.Names[^1], out var latest) ||
-          latest.State != PartitionState.Open ||
-          latest.DropRequested ||
-          latest.Tree.Maintenance.TotalRecordCount < recordsPerPartition)
+      if (current.Count == 0)
+        return false;
+      var index = current.IndexOf(earliestStart);
+      var written = Volatile.Read(ref current.Marks[index].Ticks);
+      if (index < current.Count - 1 && written == long.MinValue)
+      {
+        index = current.Count - 1;
+        written = Volatile.Read(ref current.Marks[index].Ticks);
+      }
+      if (!partitions.TryGetValue(current.Names[index], out var target) ||
+          target.State != PartitionState.Open ||
+          target.DropRequested ||
+          target.Tree.Maintenance.TotalRecordCount < recordsPerPartition)
         return false;
       var start = Math.Max(
           ReportingCalendar.FloorTicks(earliestStart + TimeSpan.TicksPerDay - 1, TimeSpan.TicksPerDay),
-          current.Starts[^1] + TimeSpan.TicksPerDay);
+          current.Starts[index] + TimeSpan.TicksPerDay);
+      if (written != long.MinValue)
+        start = Math.Max(start, ReportingCalendar.FloorTicks(written, TimeSpan.TicksPerDay) + TimeSpan.TicksPerDay);
+      if (index < current.Count - 1 && start >= current.Starts[index + 1])
+        return false;
       var name = NameOf(start);
       Directory.CreateDirectory(PathOf(name));
-      map = current.Add(start, name);
+      map = current.Insert(index + 1, start, name);
       return true;
     }
   }
@@ -619,6 +732,14 @@ sealed class PartitionedStore<TKey, TValue> : IDisposable
     {
       if (CloseOrDrop(partition, partition.DropRequested, disposingStore: true) is { } failure)
         failures.Add(failure);
+    }
+    try
+    {
+      SaveHighWater();
+    }
+    catch (Exception exception)
+    {
+      failures.Add(exception);
     }
     Disposal.ThrowFailures(failures);
   }

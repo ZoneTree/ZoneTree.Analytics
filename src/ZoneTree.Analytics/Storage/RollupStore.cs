@@ -100,7 +100,7 @@ sealed class RollupStore : IDisposable
     foreach (var (key, accumulator) in rows)
     {
       var store = GetStore(key.Granularity);
-      var partition = store.Route(key.Bucket);
+      var partition = store.RouteWrite(key.Bucket);
       if (!groups.TryGetValue((key.Granularity, partition), out var writes))
       {
         writes = new(key.Granularity, partition);

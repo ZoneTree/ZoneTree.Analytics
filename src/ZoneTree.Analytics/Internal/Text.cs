@@ -39,7 +39,7 @@ static class Text
 
   /// <summary>
   /// Sanitizes a name (event, site, dimension or value name): removes control characters,
-  /// trims and truncates. Returns empty for null.
+  /// replaces unpaired surrogates, trims and truncates. Returns empty for null.
   /// </summary>
   public static string Name(string value)
   {
@@ -47,7 +47,43 @@ static class Text
       return "";
     if (ContainsControl(value))
       value = string.Concat(value.Where(c => !char.IsControl(c)));
-    return Truncate(value.Trim(), MaxNameLength);
+    return Truncate(ReplaceUnpairedSurrogates(value).Trim(), MaxNameLength);
+  }
+
+  /// <summary>
+  /// Replaces each unpaired surrogate with U+FFFD, as UTF-8 encoding does when the text is
+  /// stored. Sanitized text then equals the text read back, so its hashes and in-memory keys
+  /// agree with the stored bytes.
+  /// </summary>
+  static string ReplaceUnpairedSurrogates(string value)
+  {
+    var first = value.AsSpan().IndexOfAnyInRange('\uD800', '\uDFFF');
+    if (first < 0)
+      return value;
+    var index = IndexOfUnpairedSurrogate(value, first);
+    if (index < 0)
+      return value;
+    var chars = value.ToCharArray();
+    for (; index >= 0; index = IndexOfUnpairedSurrogate(value, index + 1))
+      chars[index] = '�';
+    return new string(chars);
+  }
+
+  static int IndexOfUnpairedSurrogate(string value, int start)
+  {
+    for (var i = start; i < value.Length; ++i)
+    {
+      var c = value[i];
+      if (!char.IsSurrogate(c))
+        continue;
+      if (char.IsHighSurrogate(c) && i + 1 < value.Length && char.IsLowSurrogate(value[i + 1]))
+      {
+        ++i;
+        continue;
+      }
+      return i;
+    }
+    return -1;
   }
 
   /// <summary>
@@ -66,8 +102,8 @@ static class Text
   }
 
   /// <summary>
-  /// Sanitizes a dimension value: replaces control characters with spaces,
-  /// trims and truncates. Returns empty for null.
+  /// Sanitizes a dimension value: replaces control characters with spaces and unpaired
+  /// surrogates with U+FFFD, trims and truncates. Returns empty for null.
   /// </summary>
   public static string Value(string value, int maxLength)
   {
@@ -81,7 +117,7 @@ static class Text
           span[i] = char.IsControl(source[i]) ? ' ' : source[i];
       });
     }
-    return Truncate(value.Trim(), maxLength);
+    return Truncate(ReplaceUnpairedSurrogates(value).Trim(), maxLength);
   }
 
   static bool ContainsControl(string value)
