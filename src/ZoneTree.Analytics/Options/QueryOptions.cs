@@ -10,7 +10,8 @@ public sealed class QueryOptions
   /// <see cref="AnalyticsQueryTimeoutException"/>. It protects the host application from
   /// expensive ad-hoc queries, for example long raw event scans requested through a reporting
   /// API. Null means no limit. Default is 30 seconds.
-  /// Must not exceed approximately 49.7 days, the cancellation timer's maximum delay.
+  /// Must not exceed approximately 49.7 days, the cancellation timer's maximum delay. The timer
+  /// counts whole milliseconds, so a timeout under one millisecond expires before the query starts.
   /// </summary>
   public TimeSpan? Timeout { get; set; } = TimeSpan.FromSeconds(30);
 

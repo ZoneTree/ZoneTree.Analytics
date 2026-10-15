@@ -1,4 +1,6 @@
+using System.Collections.Concurrent;
 using System.Globalization;
+using System.Runtime.CompilerServices;
 
 namespace ZoneTree.Analytics.Internal;
 
@@ -17,7 +19,13 @@ static class TimeDimension
     return name == StandardDimensions.HourOfDay ? Hours[date.Hour] : Days[((int)date.DayOfWeek + 6) % 7];
   }
 
-  /// <summary>A UTC bucket must not span a change of local hour or date.</summary>
+  /// <summary>Per zone: whether the offsets of a (UTC year, bucket width) are bucket aligned.</summary>
+  static readonly ConditionalWeakTable<TimeZoneInfo, ConcurrentDictionary<(int Year, long Width), bool>> AlignedYears = new();
+
+  /// <summary>
+  /// A UTC bucket must not span a change of local hour or date: every UTC offset in the
+  /// range, and every instant where the offset changes, must be a multiple of the bucket width.
+  /// </summary>
   public static bool CanRead(Granularity granularity, ReportingCalendar calendar, string[] dimensions, long from, long to)
   {
     if (dimensions.Length == 0)
@@ -26,69 +34,57 @@ static class TimeDimension
       return !dimensions.Contains(StandardDimensions.HourOfDay);
     var width = granularity == Granularity.Hour ? TimeSpan.TicksPerHour : TimeSpan.TicksPerMinute;
     var zone = calendar.TimeZone;
-    if (zone.BaseUtcOffset.Ticks % width != 0)
-      return false;
-    var start = new DateTime(from, DateTimeKind.Utc).Date;
-    var end = new DateTime(to - 1, DateTimeKind.Utc).Date;
-    // Adjustment-rule dates are local dates, which can be adjacent to the UTC scan dates.
-    if (start > DateTime.MinValue.Date)
-      start = start.AddDays(-1);
-    if (end < DateTime.MaxValue.Date)
-      end = end.AddDays(1);
-    foreach (var rule in zone.GetAdjustmentRules())
+    var years = AlignedYears.GetValue(zone, static _ => new());
+    var last = new DateTime(Math.Max(from, to), DateTimeKind.Utc).Year;
+    for (var year = new DateTime(from, DateTimeKind.Utc).Year; year <= last; ++year)
     {
-      if (rule.DateEnd < start || rule.DateStart > end)
-        continue;
-      if (rule.BaseUtcOffsetDelta.Ticks % width != 0 || rule.DaylightDelta.Ticks % width != 0)
+      if (!years.GetOrAdd((year, width), static (key, zone) => IsAligned(zone, key.Year, key.Width), zone))
         return false;
-      if (rule.DaylightDelta == TimeSpan.Zero)
-        continue;
-      var begins = rule.DaylightTransitionStart.TimeOfDay.TimeOfDay.Ticks;
-      var ends = rule.DaylightTransitionEnd.TimeOfDay.TimeOfDay.Ticks;
-      if (begins % width != 0)
-        return false;
-      if (ends % width != 0)
-      {
-        // Some system zones describe the last millisecond before a transition. Custom
-        // rules instead describe the transition itself. Check the runtime's offsets;
-        // accepting both representations just from the time would misclassify custom zones.
-        if ((ends + TimeSpan.TicksPerMillisecond) % width != 0 ||
-            !EndsAtBoundary(zone, rule, start.Year, end.Year))
-          return false;
-      }
     }
     return true;
   }
 
-  static bool EndsAtBoundary(TimeZoneInfo zone, TimeZoneInfo.AdjustmentRule rule, int firstYear, int lastYear)
+  /// <summary>
+  /// Reads the offsets from the runtime, which also converts raw event times, rather than
+  /// from adjustment rules: Windows, Unix (TZif data) and custom zones represent the same
+  /// transitions with different rule fields. Offsets are sampled daily, and each change is
+  /// located to the tick; time zones do not change and restore an offset within one day.
+  /// </summary>
+  static bool IsAligned(TimeZoneInfo zone, int year, long width)
   {
-    var daylight = zone.BaseUtcOffset + rule.BaseUtcOffsetDelta + rule.DaylightDelta;
-    var standard = zone.BaseUtcOffset + rule.BaseUtcOffsetDelta;
-    for (var year = firstYear; year <= lastYear; ++year)
+    // Start a day early, so a change at the start of the year is found too.
+    var at = year == 1 ? DateTime.MinValue.Ticks : new DateTime(year, 1, 1).Ticks - TimeSpan.TicksPerDay;
+    var end = year == DateTime.MaxValue.Year ? DateTime.MaxValue.Ticks : new DateTime(year + 1, 1, 1).Ticks;
+    var offset = Offset(zone, at);
+    if (offset % width != 0)
+      return false;
+    while (at < end)
     {
-      var transition = rule.DaylightTransitionEnd;
-      var date = new DateTime(year, transition.Month, 1);
-      if (transition.IsFixedDateRule)
-        date = date.AddDays(Math.Min(transition.Day, DateTime.DaysInMonth(year, transition.Month)) - 1);
-      else
+      var next = Math.Min(at + TimeSpan.TicksPerDay, end);
+      var nextOffset = Offset(zone, next);
+      while (offset != nextOffset)
       {
-        var day = ((int)transition.DayOfWeek - (int)date.DayOfWeek + 7) % 7 + (transition.Week - 1) * 7;
-        if (day >= DateTime.DaysInMonth(year, transition.Month))
-          day -= 7;
-        date = date.AddDays(day);
+        // Find the tick where the offset changes: low keeps the old offset, high does not.
+        var low = at;
+        var high = next;
+        while (high - low > 1)
+        {
+          var middle = low + (high - low) / 2;
+          if (Offset(zone, middle) == offset)
+            low = middle;
+          else
+            high = middle;
+        }
+        offset = Offset(zone, high);
+        if (high % width != 0 || offset % width != 0)
+          return false;
+        at = high;
       }
-      if (date < rule.DateStart || date > rule.DateEnd)
-        continue;
-      var ticks = date.Ticks + transition.TimeOfDay.TimeOfDay.Ticks - daylight.Ticks;
-      var boundary = ticks + TimeSpan.TicksPerMillisecond;
-      if (ticks < DateTime.MinValue.Ticks || boundary > DateTime.MaxValue.Ticks)
-        return false;
-      // The offset must stay unchanged through the last tick of the bucket, and change
-      // exactly at the following boundary. This is safe for both system and custom zones.
-      if (zone.GetUtcOffset(new DateTime(boundary - 1, DateTimeKind.Utc)) != daylight ||
-          zone.GetUtcOffset(new DateTime(boundary, DateTimeKind.Utc)) != standard)
-        return false;
+      at = next;
     }
     return true;
   }
+
+  static long Offset(TimeZoneInfo zone, long ticks) =>
+      zone.GetUtcOffset(new DateTime(ticks, DateTimeKind.Utc)).Ticks;
 }

@@ -595,9 +595,15 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
     if (timeout == null)
       return execute(cancellationToken);
     using var source = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-    source.CancelAfter(timeout.Value);
+    // CancelAfter rounds down to whole milliseconds and fires on a timer thread, so a shorter
+    // timeout would race the query. It expires before the query starts instead.
+    if (timeout.Value < TimeSpan.FromMilliseconds(1))
+      source.Cancel();
+    else
+      source.CancelAfter(timeout.Value);
     try
     {
+      source.Token.ThrowIfCancellationRequested();
       return execute(source.Token);
     }
     catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && source.IsCancellationRequested)
