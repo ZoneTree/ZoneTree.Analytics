@@ -698,6 +698,9 @@ public sealed class EngineTests : DirectoryTest
     engine.Track(new AnalyticsEvent(StandardEvents.PageView) { Url = "/", VisitorId = "3", Timestamp = DateTimeOffset.UtcNow.AddHours(-1) });
     engine.Flush();
     Assert.That(engine.Web.GetCurrentVisitors(), Is.EqualTo(2));
+    Assert.That(engine.Web.GetCurrentVisitors(window: WebAnalytics.MaxCurrentVisitorsWindow), Is.EqualTo(2));
+    Assert.Throws<ArgumentOutOfRangeException>(() => engine.Web.GetCurrentVisitors(window: TimeSpan.FromHours(1).Add(TimeSpan.FromTicks(1))));
+    Assert.Throws<ArgumentOutOfRangeException>(() => engine.Web.GetCurrentVisitors(window: TimeSpan.Zero));
   }
 
   [Test]

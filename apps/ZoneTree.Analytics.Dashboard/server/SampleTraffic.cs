@@ -101,6 +101,9 @@ static class SampleTraffic
           UserAgent = bot ? "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
               : onMobile ? mobile : desktop,
         };
+        // Set like a CDN country header would be, so no engine needs a fake geolocator.
+        if (!bot)
+          item.Dimensions[StandardDimensions.Country] = visitor % 5 < 3 ? "US" : "DE";
         if (name == "purchase")
         {
           var team = random.NextDouble() < 0.22;

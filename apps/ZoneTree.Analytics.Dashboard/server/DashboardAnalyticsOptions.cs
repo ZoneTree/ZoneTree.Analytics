@@ -17,8 +17,8 @@ static class DashboardAnalyticsOptions
   {
     options.Retention.RawEvents = TimeSpan.FromDays(365 * 3);
     options.Web.Bots = BotTraffic.TrackSeparately;
-    options.Web.GeoLocator = GeoLocator.Create(static ipAddress =>
-        new(ipAddress.EndsWith(".1", StringComparison.Ordinal) ? "US" : "DE"));
+    // No geolocator: real traffic needs a real one (see WebOptions.GeoLocator). Generated
+    // samples carry their country as a dimension.
     ConfigureIndexes(options);
   }
 

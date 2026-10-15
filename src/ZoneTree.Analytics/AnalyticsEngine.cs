@@ -645,13 +645,18 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
   /// <summary>
   /// Counts distinct visitors seen in the last <paramref name="window"/>, from raw events.
   /// Raw events are written immediately, so the count is real-time. Returns null when raw
-  /// events are not stored.
+  /// events are not stored. Like queries, the scan is limited by <see cref="QueryOptions.Timeout"/>.
   /// </summary>
   internal long? GetCurrentVisitors(TimeSpan window, string site, CancellationToken cancellationToken)
   {
     ObjectDisposedException.ThrowIf(IsDisposed, this);
     if (rawEvents == null)
       return null;
+    return WithTimeout(token => CountCurrentVisitors(window, site, token), cancellationToken);
+  }
+
+  long CountCurrentVisitors(TimeSpan window, string site, CancellationToken cancellationToken)
+  {
     site = enricher.NormalizeSite(site);
     var now = DateTime.UtcNow.Ticks;
     var slices = rawEvents.Scan(

@@ -367,6 +367,8 @@ public sealed class AspNetCoreTests : DirectoryTest
     var (_, goals) = await GetJson("/_analytics/api/goals?range=today");
     var (_, series) = await GetJson("/_analytics/api/timeseries?range=today&interval=hour");
     var (_, realtime) = await GetJson("/_analytics/api/realtime?minutes=30");
+    var (longStatus, longWindow) = await GetJson("/_analytics/api/realtime?minutes=61");
+    var (zeroStatus, _) = await GetJson("/_analytics/api/realtime?minutes=0");
     Assert.Multiple(() =>
     {
       Assert.That(summaryStatus, Is.EqualTo(HttpStatusCode.OK));
@@ -387,6 +389,10 @@ public sealed class AspNetCoreTests : DirectoryTest
       Assert.That(series.GetProperty("rows").GetArrayLength(), Is.EqualTo(24));
       Assert.That(series.GetProperty("totalRows").GetInt32(), Is.EqualTo(24));
       Assert.That(realtime.GetProperty("visitors").GetInt32(), Is.EqualTo(2));
+      // The live count is a short window, never an unbounded raw scan.
+      Assert.That(longStatus, Is.EqualTo(HttpStatusCode.BadRequest));
+      Assert.That(longWindow.GetProperty("error").GetString(), Does.Contain("between 1 and 60"));
+      Assert.That(zeroStatus, Is.EqualTo(HttpStatusCode.BadRequest));
     });
   }
 

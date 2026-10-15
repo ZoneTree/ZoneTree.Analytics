@@ -502,11 +502,25 @@ public sealed class WebAnalytics
       Task.Run(() => GetBots(request, cancellationToken), cancellationToken);
 
   /// <summary>
-  /// Unique visitors active in the last <paramref name="window"/> (default 5 minutes).
-  /// Real-time; requires raw event storage. Returns null when raw events are not stored.
+  /// The longest window of <see cref="GetCurrentVisitors"/>: one hour. Visitors of longer
+  /// periods are a report, see <see cref="GetSummary"/>.
   /// </summary>
-  public long? GetCurrentVisitors(string site = null, TimeSpan? window = null, CancellationToken cancellationToken = default) =>
-      engine.GetCurrentVisitors(window ?? TimeSpan.FromMinutes(5), site, cancellationToken);
+  public static TimeSpan MaxCurrentVisitorsWindow { get; } = TimeSpan.FromHours(1);
+
+  /// <summary>
+  /// Unique visitors active in the last <paramref name="window"/> (default 5 minutes, at most
+  /// <see cref="MaxCurrentVisitorsWindow"/>). Real-time; requires raw event storage. Returns null
+  /// when raw events are not stored.
+  /// </summary>
+  /// <exception cref="ArgumentOutOfRangeException">The window is not positive or exceeds <see cref="MaxCurrentVisitorsWindow"/>.</exception>
+  /// <exception cref="AnalyticsQueryTimeoutException">The count ran longer than <see cref="QueryOptions.Timeout"/>.</exception>
+  public long? GetCurrentVisitors(string site = null, TimeSpan? window = null, CancellationToken cancellationToken = default)
+  {
+    var span = window ?? TimeSpan.FromMinutes(5);
+    if (span <= TimeSpan.Zero || span > MaxCurrentVisitorsWindow)
+      throw new ArgumentOutOfRangeException(nameof(window), "The window must be positive and at most one hour.");
+    return engine.GetCurrentVisitors(span, site, cancellationToken);
+  }
 
   /// <inheritdoc cref="GetCurrentVisitors"/>
   public Task<long?> GetCurrentVisitorsAsync(string site = null, TimeSpan? window = null, CancellationToken cancellationToken = default) =>

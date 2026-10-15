@@ -19,7 +19,7 @@ public sealed class DashboardAnalyticsOptionsTests : DirectoryTest
       Assert.That(options.Retention.RawEvents, Is.EqualTo(TimeSpan.FromDays(365 * 3)));
       Assert.That(options.TimeZone.Id, Is.EqualTo(zone.Id));
       Assert.That(options.Web.Bots, Is.EqualTo(BotTraffic.TrackSeparately));
-      Assert.That(options.Web.GeoLocator.Locate("192.0.2.1").Country, Is.EqualTo("US"));
+      Assert.That(options.Web.GeoLocator, Is.Null, "real traffic must never get invented countries");
       Assert.That(options.Storage.DimensionIndexes.Dimensions, Is.EquivalentTo(new[] { "source", "country", "device", "page" }));
       Assert.That(options.Storage.RollupIndexes.Definitions.Select(index => string.Join(',', index.Dimensions)),
           Is.EquivalentTo(primary.Storage.RollupIndexes.Definitions.Select(index => string.Join(',', index.Dimensions))));

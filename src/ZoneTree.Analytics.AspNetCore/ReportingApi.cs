@@ -472,9 +472,12 @@ static class ReportingApi
   public static async Task<RealtimeResponse> RealtimeAsync(HttpContext context, ApiParameters parameters, CancellationToken cancellationToken)
   {
     var minutes = parameters.GetInt("minutes") ?? 5;
+    var maxMinutes = (int)WebAnalytics.MaxCurrentVisitorsWindow.TotalMinutes;
+    if (minutes < 1 || minutes > maxMinutes)
+      throw new FormatException($"'minutes' must be between 1 and {maxMinutes}.");
     var visitors = await Engine(context).Web.GetCurrentVisitorsAsync(
-        parameters.Get("site"), TimeSpan.FromMinutes(Math.Max(1, minutes)), cancellationToken);
-    return new(visitors, Math.Max(1, minutes));
+        parameters.Get("site"), TimeSpan.FromMinutes(minutes), cancellationToken);
+    return new(visitors, minutes);
   }
 
   public static async Task<QueryResponse> QueryAsync(HttpContext context, ApiParameters parameters, CancellationToken cancellationToken)

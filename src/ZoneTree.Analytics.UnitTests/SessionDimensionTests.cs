@@ -265,6 +265,7 @@ public sealed class LimitsTests : DirectoryTest
       var timeout = Assert.Throws<AnalyticsQueryTimeoutException>(() => engine.Query(query));
       Assert.ThrowsAsync<AnalyticsQueryTimeoutException>(() => engine.QueryAsync(query));
       Assert.ThrowsAsync<AnalyticsQueryTimeoutException>(() => engine.QueryAsync(funnel));
+      Assert.Throws<AnalyticsQueryTimeoutException>(() => engine.Web.GetCurrentVisitors());
       Assert.That(timeout.Timeout, Is.EqualTo(TimeSpan.FromTicks(1)));
     }
 

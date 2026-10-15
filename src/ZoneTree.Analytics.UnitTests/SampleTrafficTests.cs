@@ -54,6 +54,8 @@ public sealed class SampleTrafficTests
     Assert.That(visits.Count(visit => visit.Count == 1), Is.GreaterThan(visits.Count * 0.15), "Single-page bounces");
     Assert.That(visits.Count(visit => visit.Count > 3), Is.GreaterThan(visits.Count * 0.15), "Longer visits");
     Assert.That(events.Any(item => item.VisitorId == null), Is.True, "Bot traffic");
+    Assert.That(humans.Select(item => item.Dimensions[StandardDimensions.Country]).Distinct(), Is.EquivalentTo(new[] { "US", "DE" }),
+        "Samples carry their country, since the dashboard engines have no geolocator");
     Assert.That(humans.Any(item => item.Name == "signup"), Is.True);
     Assert.That(humans.Any(item => item.Name == "purchase" && item.Values["revenue"] > 0), Is.True);
     foreach (var visit in visits)

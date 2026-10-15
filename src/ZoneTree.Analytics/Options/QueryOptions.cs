@@ -6,8 +6,8 @@ namespace ZoneTree.Analytics;
 public sealed class QueryOptions
 {
   /// <summary>
-  /// The longest a query or funnel may run before it is cancelled with an
-  /// <see cref="AnalyticsQueryTimeoutException"/>. It protects the host application from
+  /// The longest a query, funnel, event name listing or current visitor count may run before
+  /// it is cancelled with an <see cref="AnalyticsQueryTimeoutException"/>. It protects the host application from
   /// expensive ad-hoc queries, for example long raw event scans requested through a reporting
   /// API. Null means no limit. Default is 30 seconds.
   /// Must not exceed approximately 49.7 days, the cancellation timer's maximum delay. The timer
