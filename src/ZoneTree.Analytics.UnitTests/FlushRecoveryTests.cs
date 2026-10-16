@@ -53,6 +53,59 @@ public sealed class FlushRecoveryTests : DirectoryTest
   }
 
   [Test]
+  public void WritesOfRowsInOtherLockStripesDoNotWait()
+  {
+    var options = TestEngine.Options(directory);
+    using var tree = Factory(options).OpenRollups(Path.Combine(directory, "rollups"), Granularity.Hour);
+    var first = KeyCodec.RollupKey("default", "purchase", "", Day0.Ticks, "");
+    var second = Enumerable.Range(1, 1_000)
+        .Select(hour => KeyCodec.RollupKey("default", "purchase", "", Day0.AddHours(hour).Ticks, ""))
+        .First(key => RollupWriter.StripeOf(key.Span) != RollupWriter.StripeOf(first.Span));
+    using var copying = new ManualResetEventSlim();
+    using var secondWritten = new ManualResetEventSlim();
+    // The copy of the first row runs under its lock and waits for the second row's write.
+    var writer = new RollupWriter(tree, copy: (key, _) =>
+    {
+      if (!key.Span.SequenceEqual(first.Span))
+        return;
+      copying.Set();
+      secondWritten.Wait(TimeSpan.FromSeconds(30));
+    });
+    var blocked = Task.Run(() => writer.Write(new RollupWrite(first, Value(1, 1))));
+    Assert.That(copying.Wait(TimeSpan.FromSeconds(10)), Is.True);
+    var other = Task.Run(() => writer.Write(new RollupWrite(second, Value(2, 2))));
+    // Before: one lock per tree made the second write wait for the first copy.
+    var finished = other.Wait(TimeSpan.FromSeconds(5));
+    secondWritten.Set();
+    blocked.Wait();
+    other.Wait();
+    Assert.That(finished, Is.True, "the second row waited for the first row's lock");
+  }
+
+  [Test]
+  public async Task ConcurrentWritersOfTheSameRowsAddEveryDelta()
+  {
+    var options = TestEngine.Options(directory);
+    using var tree = Factory(options).OpenRollups(Path.Combine(directory, "rollups"), Granularity.Hour);
+    var writer = new RollupWriter(tree);
+    var keys = Enumerable.Range(0, 50).Select(hour => KeyCodec.RollupKey("default", "purchase", "", Day0.AddHours(hour).Ticks, "")).ToArray();
+    const int Writers = 16, WritesPerWriter = 1_000;
+    await Task.WhenAll(Enumerable.Range(0, Writers).Select(worker => Task.Run(() =>
+    {
+      for (var i = 0; i < WritesPerWriter; ++i)
+        writer.Write(new RollupWrite(keys[(worker + i) % keys.Length], Value((ulong)(worker * WritesPerWriter + i + 1), 1)));
+    })));
+    var total = 0L;
+    foreach (var key in keys)
+    {
+      Assert.That(tree.TryGet(key, out var stored), Is.True);
+      Assert.That(stored.Values.Single().Sum, Is.EqualTo(stored.Count));
+      total += stored.Count;
+    }
+    Assert.That(total, Is.EqualTo(Writers * WritesPerWriter));
+  }
+
+  [Test]
   public async Task OtherWorkersFinishTheFailedReplacementBeforeAddingTheirDeltas()
   {
     var options = TestEngine.Options(directory);
