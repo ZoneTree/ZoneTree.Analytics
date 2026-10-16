@@ -485,8 +485,10 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
   /// aggregates are written to storage.
   /// </summary>
   /// <remarks>
-  /// A storage failure is reported to the caller. Pending aggregates are retained and retried
-  /// by subsequent flushes, including automatic flushes, without applying successful writes twice.
+  /// A storage failure is reported to the caller; a failure to write rollups as an
+  /// <see cref="AnalyticsStorageException"/> whose inner exception is the storage failure.
+  /// Pending aggregates are retained and retried by subsequent flushes, including automatic
+  /// flushes, without applying successful writes twice.
   /// </remarks>
   public async Task FlushAsync(CancellationToken cancellationToken = default)
   {

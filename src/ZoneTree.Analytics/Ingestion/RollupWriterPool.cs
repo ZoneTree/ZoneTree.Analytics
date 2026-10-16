@@ -1,4 +1,3 @@
-using System.Runtime.ExceptionServices;
 using ZoneTree.Analytics.Internal;
 using ZoneTree.Analytics.Storage;
 using ZoneTree.Logger;
@@ -105,7 +104,7 @@ sealed class RollupWriterPool : IDisposable
   /// Writes a worker's flushed rows with its rows kept from failed flushes, and waits. Rows a
   /// writer did not accept stay in <paramref name="kept"/>, by writer, for the next flush.
   /// </summary>
-  /// <exception cref="Exception">
+  /// <exception cref="AnalyticsStorageException">
   /// A writer failed; its rows are retained for a retry. Failures of further writers are logged.
   /// </exception>
   public void Write(Dictionary<RollupBufferKey, RollupAccumulator> rows,
@@ -140,8 +139,10 @@ sealed class RollupWriterPool : IDisposable
       else
         logger.LogError(writerFailure);
     }
+    // A writer completes every piece of a failed batch with the same failure. Each worker throws
+    // an exception of its own: throwing one instance on several threads mixes their stack traces.
     if (failure != null)
-      ExceptionDispatchInfo.Throw(failure);
+      throw new AnalyticsStorageException("Writing rollups failed: " + failure.Message, failure);
   }
 
   public void Dispose()

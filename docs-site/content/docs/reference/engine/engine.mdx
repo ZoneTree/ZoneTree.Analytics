@@ -80,7 +80,7 @@ Partition record counts are approximate and may be null for partitions not opene
 
 ## Errors and cancellation
 
-`AnalyticsException` is the base for engine-specific errors. `AnalyticsConfigurationException` reports incompatible options or dataset configuration. `AnalyticsQueryException` reports unanswerable or bounded queries; `AnalyticsQueryTimeoutException` is its timeout subclass.
+`AnalyticsException` is the base for engine-specific errors. `AnalyticsConfigurationException` reports incompatible options or dataset configuration. `AnalyticsQueryException` reports unanswerable or bounded queries; `AnalyticsQueryTimeoutException` is its timeout subclass. `AnalyticsStorageException` reports a flush whose rollup rows could not be written; its inner exception is the storage failure, and the rows are retried by later flushes.
 
 Invalid arguments use standard argument exceptions. Caller cancellation uses the cancellation token; configured query timeout additionally protects expensive report execution.
 

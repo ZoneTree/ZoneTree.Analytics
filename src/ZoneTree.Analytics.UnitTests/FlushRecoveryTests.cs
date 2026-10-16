@@ -9,6 +9,10 @@ public sealed class FlushRecoveryTests : DirectoryTest
 {
   static readonly DateTime Day0 = DateTime.UtcNow.Date.AddDays(-2);
 
+  /// <summary>Asserts that writing rollups fails with a storage failure of the given type.</summary>
+  static void AssertRollupWriteFails<TFailure>(Func<Task> code) where TFailure : Exception =>
+      Assert.That(Assert.ThrowsAsync<AnalyticsStorageException>(code).InnerException, Is.TypeOf<TFailure>());
+
   static RollupValue Value(ulong visitor, double amount)
   {
     var accumulator = new RollupAccumulator { Count = 1 };
@@ -148,7 +152,7 @@ public sealed class FlushRecoveryTests : DirectoryTest
     using (var engine = TestEngine.Create(directory, Configure))
     {
       Track(engine, "/entry", 0, 10);
-      Assert.ThrowsAsync<IOException>(() => engine.FlushAsync().WaitAsync(TimeSpan.FromSeconds(5)));
+      AssertRollupWriteFails<IOException>(() => engine.FlushAsync().WaitAsync(TimeSpan.FromSeconds(5)));
       Assert.That(engine.GetStatistics().Flushes, Is.Zero);
       Track(engine, "/exit", 1, 20);
       await engine.FlushAsync().WaitAsync(TimeSpan.FromSeconds(5));
@@ -261,8 +265,8 @@ public sealed class FlushRecoveryTests : DirectoryTest
     try
     {
       Track(engine, "/exit", 1, 20);
-      Assert.ThrowsAsync<ZoneTree.Exceptions.ZoneTreeIsReadOnlyException>(() => engine.FlushAsync());
-      Assert.ThrowsAsync<ZoneTree.Exceptions.ZoneTreeIsReadOnlyException>(() => engine.FlushAsync());
+      AssertRollupWriteFails<ZoneTree.Exceptions.ZoneTreeIsReadOnlyException>(() => engine.FlushAsync());
+      AssertRollupWriteFails<ZoneTree.Exceptions.ZoneTreeIsReadOnlyException>(() => engine.FlushAsync());
       store.CloseIdle(TimeSpan.Zero, keepLatestOpen: false);
       Assert.Multiple(() =>
       {
@@ -338,7 +342,7 @@ public sealed class FlushRecoveryTests : DirectoryTest
       };
     });
     Track(engine, "/entry", 0, 0);
-    Assert.ThrowsAsync<IOException>(() => engine.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5)));
+    AssertRollupWriteFails<IOException>(() => engine.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5)));
     unavailable = false;
     using var reopened = TestEngine.Create(directory);
     Assert.That(reopened.Query(new AnalyticsQuery
@@ -384,7 +388,7 @@ public sealed class FlushRecoveryTests : DirectoryTest
       });
       if (shutdown)
       {
-        Assert.ThrowsAsync<IOException>(() => harness.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5)));
+        AssertRollupWriteFails<IOException>(() => harness.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5)));
       }
       else
       {

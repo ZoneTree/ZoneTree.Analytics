@@ -57,6 +57,46 @@ public sealed class RollupWriterPoolTests : DirectoryTest
   }
 
   [Test]
+  public void WorkersOfAFailedBatchEachGetAnExceptionOfTheirOwn()
+  {
+    using var opening = new ManualResetEventSlim();
+    using var release = new ManualResetEventSlim();
+    var opens = 0;
+    // Every partition open fails; the first one waits there, while two more workers flush.
+    var options = TestEngine.Options(directory, o => o.Storage.Rollups.ConfigureMaintainer = _ =>
+    {
+      if (Interlocked.Increment(ref opens) == 1)
+      {
+        opening.Set();
+        release.Wait(TimeSpan.FromSeconds(30));
+      }
+      throw new IOException("Rollup storage unavailable");
+    });
+    using var rollups = new RollupStore(Path.Combine(directory, "rollups"), Granularity.Hour,
+        options.Storage.Partitioning, [new RollupDefinition()], Factory(options), new RecordingLogger());
+    using var pool = new RollupWriterPool(rollups, 1, new RecordingLogger());
+    var key = new RollupBufferKey(Granularity.Hour, Day0.AddHours(3).Ticks, "default", "purchase", 0, "");
+    Task Flush(ulong visitor) => Task.Run(() => pool.Write(Rows(key, visitor), new Dictionary<RollupBufferKey, RollupAccumulator>[1], new RollupHandoff(1)));
+
+    var first = Flush(1);
+    Assert.That(opening.Wait(TimeSpan.FromSeconds(10)), Is.True);
+    Task[] others = [Flush(2), Flush(3)];
+    Assert.That(SpinWait.SpinUntil(() => pool.QueuedPieces == 2, TimeSpan.FromSeconds(10)), Is.True);
+    release.Set();
+    Assert.ThrowsAsync<AnalyticsStorageException>(() => first);
+    // The retry of the first batch fails once, for both queued flushes.
+    var failures = others.Select(task => Assert.ThrowsAsync<AnalyticsStorageException>(() => task)).ToArray();
+    Assert.Multiple(() =>
+    {
+      // Before: both workers rethrew the one failure, each rewriting its stack trace.
+      Assert.That(failures[0], Is.Not.SameAs(failures[1]));
+      Assert.That(failures[0].InnerException, Is.SameAs(failures[1].InnerException));
+      Assert.That(failures[0].InnerException, Is.TypeOf<IOException>());
+      Assert.That(failures[0].Message, Does.Contain("Rollup storage unavailable"));
+    });
+  }
+
+  [Test]
   public void ManyWorkersAndWritersCountEveryEventOnce()
   {
     using var engine = TestEngine.Create(directory, o =>
@@ -109,7 +149,7 @@ public sealed class RollupWriterPoolTests : DirectoryTest
     {
       for (var i = 0; i < 200; ++i)
         engine.Track(new AnalyticsEvent("purchase") { Site = "s" + i, Timestamp = Utc(Day0.AddMinutes(i)) });
-      Assert.Throws<IOException>(() => engine.Flush());
+      Assert.That(Assert.Throws<AnalyticsStorageException>(() => engine.Flush()).InnerException, Is.TypeOf<IOException>());
       var failures = logger.Problems.Count(problem => problem.Contains("Rollup storage unavailable", StringComparison.Ordinal));
       // Before: the worker reported the first writer's failure and dropped the others.
       Assert.That(failures, Is.GreaterThan(1));
