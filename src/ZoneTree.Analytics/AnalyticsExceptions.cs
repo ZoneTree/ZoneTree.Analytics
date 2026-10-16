@@ -45,6 +45,33 @@ public sealed class AnalyticsConfigurationException : AnalyticsException
 }
 
 /// <summary>
+/// Raised by a flush when its rollup rows could not be written to storage. The rows are retained
+/// and retried by later flushes. <see cref="Exception.InnerException"/> is the storage failure.
+/// </summary>
+/// <remarks>
+/// Rollup writer threads write the rows of every worker that flushed together, so one storage
+/// failure can fail several flushes at once. Each of them raises an exception of its own, with
+/// that failure as its inner exception.
+/// </remarks>
+public sealed class AnalyticsStorageException : AnalyticsException
+{
+  /// <summary>Creates the exception.</summary>
+  public AnalyticsStorageException()
+  {
+  }
+
+  /// <summary>Creates the exception with a message.</summary>
+  public AnalyticsStorageException(string message) : base(message)
+  {
+  }
+
+  /// <summary>Creates the exception with a message and the exception that caused it.</summary>
+  public AnalyticsStorageException(string message, Exception innerException) : base(message, innerException)
+  {
+  }
+}
+
+/// <summary>
 /// Raised when a query is invalid or cannot be answered with the configured storage.
 /// </summary>
 public class AnalyticsQueryException : AnalyticsException

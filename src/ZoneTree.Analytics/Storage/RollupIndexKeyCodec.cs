@@ -52,24 +52,4 @@ static class RollupIndexKeyCodec
   }
 
   public static ReadOnlySpan<byte> OriginalKey(ReadOnlySpan<byte> key) => key[(HeadLength(key) + 8)..];
-
-  public static bool IsRangeExpired(ReadOnlySpan<byte> first, ReadOnlySpan<byte> last, ExpiredKeyPredicate expired)
-  {
-    var head = HeadLength(first);
-    return last.Length > head && last[..head].SequenceEqual(first[..head]) && expired(last);
-  }
-
-  public static int DeleteFirstExpired(IZoneTree<Memory<byte>, RollupValue> tree, ExpiredKeyPredicate expired)
-  {
-    var count = 0;
-    using var iterator = tree.CreateIterator(new IteratorOptions { IteratorType = IteratorType.NoRefresh, IncludeDeletedRecords = true });
-    iterator.SeekFirst();
-    while (iterator.Next())
-    {
-      var key = iterator.CurrentKey;
-      if (expired(key.Span)) { tree.ForceDelete(key); ++count; }
-      iterator.Seek(DimensionIndexKeyCodec.AfterPrefix(key.Span[..HeadLength(key.Span)]));
-    }
-    return count;
-  }
 }

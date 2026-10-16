@@ -116,7 +116,7 @@ public sealed class ReleaseRegressionTests : DirectoryTest
       };
     });
     engine.Track(new AnalyticsEvent("before") { VisitorId = "alice", Timestamp = Utc(Day0.AddHours(1)) });
-    Assert.Throws<IOException>(() => engine.Flush());
+    Assert.That(Assert.Throws<AnalyticsStorageException>(() => engine.Flush()).InnerException, Is.TypeOf<IOException>());
     Assert.That(engine.Track(new AnalyticsEvent("after") { VisitorId = "bob", Timestamp = Utc(Day0.AddHours(2)) }), Is.True);
     engine.Flush();
     Assert.Multiple(() =>

@@ -37,6 +37,10 @@ public sealed class DashboardAnalyticsOptionsTests : DirectoryTest
       Assert.That(samples.Ingestion.WorkerCount, Is.EqualTo(4));
       Assert.That(benchmark.Ingestion.WorkerCount, Is.EqualTo(20));
       Assert.That(reports.Ingestion.WorkerCount, Is.EqualTo(1));
+      // Generated ingestion runs one rollup writer per worker.
+      Assert.That(samples.Ingestion.RollupWriterCount, Is.EqualTo(4));
+      Assert.That(benchmark.Ingestion.RollupWriterCount, Is.EqualTo(20));
+      Assert.That(reports.Ingestion.RollupWriterCount, Is.EqualTo(1));
       Assert.That(benchmark.Ingestion.QueueFullBehavior, Is.EqualTo(QueueFullBehavior.Wait));
       Assert.That(primary.Rollups.ValueAggregates["load_time"], Is.EqualTo(ValueAggregates.Percentiles));
       Assert.That(samples.Rollups.ValueAggregates["load_time"], Is.EqualTo(ValueAggregates.Percentiles));

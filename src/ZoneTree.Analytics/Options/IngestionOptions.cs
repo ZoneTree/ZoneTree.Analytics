@@ -18,6 +18,14 @@ public sealed class IngestionOptions
   public int WorkerCount { get; set; } = 1;
 
   /// <summary>
+  /// Number of dedicated rollup writer threads. Each writer owns a share of the rollup rows: it
+  /// merges the rows that all workers buffered for them and writes each row once per flush,
+  /// instead of once per worker. Default is 1, which suits single-processor machines; with
+  /// several workers on several cores, more writers write rows in parallel.
+  /// </summary>
+  public int RollupWriterCount { get; set; } = 1;
+
+  /// <summary>
   /// How often buffered aggregates and session states are written to storage.
   /// Rollup-based queries lag behind ingestion by at most this interval.
   /// Default is 2 seconds.
@@ -51,6 +59,8 @@ public sealed class IngestionOptions
       throw new ArgumentException("Ingestion.QueueCapacity must be positive.");
     if (WorkerCount is < 1 or > 64)
       throw new ArgumentException("Ingestion.WorkerCount must be between 1 and 64.");
+    if (RollupWriterCount is < 1 or > 64)
+      throw new ArgumentException("Ingestion.RollupWriterCount must be between 1 and 64.");
     if (FlushInterval <= TimeSpan.Zero)
       throw new ArgumentException("Ingestion.FlushInterval must be positive.");
     if (FlushInterval > TimeSpan.FromMilliseconds(uint.MaxValue - 1))

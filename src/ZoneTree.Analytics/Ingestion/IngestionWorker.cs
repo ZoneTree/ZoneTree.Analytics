@@ -56,6 +56,9 @@ sealed class IngestionServices
 
   public RollupStore Rollups;
 
+  /// <summary>The threads that write every worker's rollup rows.</summary>
+  public RollupWriterPool RollupWriters;
+
   public RawEventStore RawEvents;
 
   public DimensionIndexStore DimensionIndexes;
@@ -88,7 +91,8 @@ sealed class IngestionServices
 /// </para>
 /// <para>
 /// Raw events are written to ZoneTree immediately. Rollup rows are pre-aggregated in
-/// memory and merged into ZoneTree on flush, together with the changed session states.
+/// memory and handed to the <see cref="RollupWriterPool"/> on flush, which merges the rows of
+/// all workers; the changed session states are written once the rollups are.
 /// </para>
 /// </remarks>
 sealed class IngestionWorker : IAsyncDisposable
@@ -138,7 +142,11 @@ sealed class IngestionWorker : IAsyncDisposable
 
   PartitionLease<Memory<byte>, Memory<byte>> rawLease;
 
-  RollupWriteBatch pendingRollups;
+  // Rows a rollup writer did not accept because storage was failing, by writer, retried by the
+  // next flush. Rows a writer accepted are its own to retry.
+  readonly Dictionary<RollupBufferKey, RollupAccumulator>[] keptRollups;
+
+  readonly RollupHandoff handoff;
 
   Exception lastFlushFailure;
 
@@ -173,6 +181,8 @@ sealed class IngestionWorker : IAsyncDisposable
     storeRawEvents = options.Storage.StoreRawEvents && services.RawEvents != null;
     indexWriter = services.DimensionIndexes?.CreateWriter();
     maxBufferedRows = options.Ingestion.MaxBufferedRollupRows;
+    keptRollups = new Dictionary<RollupBufferKey, RollupAccumulator>[services.RollupWriters.Count];
+    handoff = new RollupHandoff(services.RollupWriters.Count);
     lookupHorizon = services.StoredSessionHorizon;
     RefreshRetentionCutoffs();
   }
@@ -256,7 +266,20 @@ sealed class IngestionWorker : IAsyncDisposable
     }
     finally
     {
-      pendingRollups?.Dispose();
+      // Rows still kept at shutdown are lost with the failure that kept them.
+      Array.Clear(keptRollups);
+    }
+  }
+
+  /// <summary>The rollup rows waiting for a flush: buffered, or kept from failed flushes.</summary>
+  int RetainedRollupRows
+  {
+    get
+    {
+      var count = buffer.Count;
+      foreach (var kept in keptRollups)
+        count += kept?.Count ?? 0;
+      return count;
     }
   }
 
@@ -268,7 +291,7 @@ sealed class IngestionWorker : IAsyncDisposable
   async Task WaitForFlushRecoveryAsync()
   {
     while (lastFlushFailure != null && !stopping.Task.IsCompleted &&
-        (buffer.Count >= maxBufferedRows || sessions.Count >= services.Options.Sessions.MaxCachedSessions))
+        (RetainedRollupRows >= maxBufferedRows || sessions.Count >= services.Options.Sessions.MaxCachedSessions))
     {
       await Task.WhenAny(Task.Delay(services.Options.Ingestion.FlushInterval), stopping.Task).ConfigureAwait(false);
       if (!stopping.Task.IsCompleted)
@@ -568,29 +591,19 @@ sealed class IngestionWorker : IAsyncDisposable
     return lastFlushFailure;
   }
 
-  void WritePendingRollups()
-  {
-    if (pendingRollups == null)
-      return;
-    services.Rollups.Write(pendingRollups);
-    pendingRollups.Dispose();
-    pendingRollups = null;
-  }
-
   void Flush()
   {
     lastFlushTimestamp = Stopwatch.GetTimestamp();
     RefreshRetentionCutoffs();
     try
     {
-      WritePendingRollups();
       foreach (var visitor in dirtySessions)
       {
         if (sessions.TryGetValue(visitor, out var dirty))
           EmitSessionDeltas(dirty);
       }
-      pendingRollups = new RollupWriteBatch(buffer.Swap());
-      WritePendingRollups();
+      // Waits until every writer has written these rows and the rows it accepted before.
+      services.RollupWriters.Write(buffer.Swap(), keptRollups, handoff);
 
       if (dirtySessions.Count > 0)
       {

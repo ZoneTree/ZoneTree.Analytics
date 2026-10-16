@@ -150,7 +150,7 @@ sealed class RollupIndexStore : IDisposable
         if (lease == null) continue;
         sourcePartitions++;
         Memory<byte> lastKey = default;
-        IndexRecoveryScan.Visit(lease.Tree, dirtyDays?.GetValueOrDefault(source.Granularity), key => KeyCodec.HeadLength(key, 3), (key, value) =>
+        IndexRecoveryScan.Visit(lease.Tree, dirtyDays?.GetValueOrDefault(source.Granularity), KeyCodec.RollupHead, (key, value) =>
         {
           lastKey = key;
           var written = CopyCore(source.Granularity, key, value);
@@ -204,7 +204,7 @@ sealed class RollupIndexStore : IDisposable
   public void BeforeWrite(Granularity granularity, Memory<byte> key)
   {
     if (!recovery.TryGetValue(granularity, out var journal)) return;
-    var definition = KeyCodec.ReadSegment(key.Span, KeyCodec.HeadLength(key.Span, 2), out _);
+    var definition = KeyCodec.ReadDimensionSetId(key.Span);
     if (copies.ContainsKey((granularity, definition))) journal.Track(KeyCodec.ReadRollupBucket(key.Span));
   }
 
@@ -212,7 +212,7 @@ sealed class RollupIndexStore : IDisposable
   {
     // Ordinary rollup rows do not need dimension arrays/dictionaries merely to discover
     // that their combination is not indexed.
-    var definitionId = KeyCodec.ReadSegment(originalKey.Span, KeyCodec.HeadLength(originalKey.Span, 2), out _);
+    var definitionId = KeyCodec.ReadDimensionSetId(originalKey.Span);
     if (!copies.TryGetValue((granularity, definitionId), out var destinations)) return 0;
     var key = StorageKeyCodec.DecodeRollup(originalKey.Span);
     var store = destinations[0].Store;
@@ -281,14 +281,14 @@ sealed class RollupIndexStore : IDisposable
     var dropped = 0;
     foreach (var granularity in RollupStore.Granularities)
     {
-      var cutoff = granularity == Granularity.Day ? cutoffs.DayRollupsLocalDay : cutoffs.Of(granularity);
+      var cutoff = cutoffs.RollupCutoff(granularity);
       if (cutoff == long.MinValue) continue;
       if (stores.TryGetValue(granularity, out var store))
       {
         dropped += store.DropPartitionsEndingBefore(cutoff);
         if (removed.GetValueOrDefault(granularity, long.MinValue) == cutoff) continue;
         ExpiredKeyPredicate expired = key => clock.IsRollupExpired(granularity, RollupIndexKeyCodec.OriginalKey(key));
-        store.RemoveExpired(cutoff, tree => RollupIndexKeyCodec.DeleteFirstExpired(tree, expired));
+        store.RemoveExpired(cutoff, tree => ExpiredRecords.DeleteFirstOfExpiredHeads(tree, RollupIndexKeyCodec.HeadLength, expired));
       }
       removed[granularity] = cutoff;
     }

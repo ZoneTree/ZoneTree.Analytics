@@ -20,6 +20,7 @@ Measure a consistent Release build. Include representative filtered and unfilter
 | Setting | Tradeoff |
 | --- | --- |
 | WorkerCount | More processing concurrency, with larger combined per-worker budgets |
+| RollupWriterCount | More parallel rollup writes, with one more thread each; rows of every worker are merged before they are written |
 | QueueCapacity | More burst capacity, with more queued memory |
 | MaxBufferedRollupRows | More aggregation state held per worker before writing |
 | Sessions.MaxCachedSessions | More active-session state held per worker |

@@ -50,7 +50,7 @@ sealed class RetentionClock
   public bool IsRollupExpired(Granularity granularity, ReadOnlySpan<byte> key)
   {
     var cutoffs = current.Cutoffs;
-    var cutoff = granularity == Granularity.Day ? cutoffs.DayRollupsLocalDay : cutoffs.Of(granularity);
+    var cutoff = cutoffs.RollupCutoff(granularity);
     return cutoff != long.MinValue && KeyCodec.ReadRollupBucket(key) < cutoff;
   }
 }

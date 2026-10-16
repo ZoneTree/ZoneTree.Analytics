@@ -14,8 +14,8 @@ delegate bool ExpiredKeyPredicate(ReadOnlySpan<byte> key);
 /// A ZoneTree merge drops the deleted records it reads. It reads every disk segment part whose
 /// first record is deleted, and every part that a newer record falls into; it copies the other
 /// parts as they are. Keys are ordered by head (the site of a raw event; the site, event and
-/// dimension set of a rollup row), then by time, so the expired records of a head are its first
-/// ones.
+/// dimension set of a rollup row; everything before the time of an index row), then by time, so
+/// the expired records of a head are its first ones.
 /// </para>
 /// <para>
 /// Deleting the first record of every head whose first record has expired makes the next merge
@@ -42,12 +42,12 @@ static class ExpiredRecords
   /// </summary>
   /// <param name="first">The first key of the range.</param>
   /// <param name="last">The last key of the range.</param>
-  /// <param name="headSegments">The number of key segments that make up a head.</param>
+  /// <param name="headLength">The head length of the tree's keys.</param>
   /// <param name="isExpired">The retention part of the tree's deletion predicate.</param>
   public static bool IsRangeExpired(
-      ReadOnlySpan<byte> first, ReadOnlySpan<byte> last, int headSegments, ExpiredKeyPredicate isExpired)
+      ReadOnlySpan<byte> first, ReadOnlySpan<byte> last, KeyHeadLength headLength, ExpiredKeyPredicate isExpired)
   {
-    var head = KeyCodec.HeadLength(first, headSegments);
+    var head = headLength(first);
     return last.Length > head && last[..head].SequenceEqual(first[..head]) && isExpired(last);
   }
 
@@ -56,10 +56,10 @@ static class ExpiredRecords
   /// Returns the number of records deleted.
   /// </summary>
   /// <param name="tree">The tree.</param>
-  /// <param name="headSegments">The number of key segments that make up a head.</param>
+  /// <param name="headLength">The head length of the tree's keys.</param>
   /// <param name="isExpired">The retention part of the tree's deletion predicate.</param>
   public static int DeleteFirstOfExpiredHeads<TValue>(
-      IZoneTree<Memory<byte>, TValue> tree, int headSegments, ExpiredKeyPredicate isExpired)
+      IZoneTree<Memory<byte>, TValue> tree, KeyHeadLength headLength, ExpiredKeyPredicate isExpired)
   {
     var deleted = 0;
     // Deleted records are included: hidden expired records are what it looks for. Each delete
@@ -79,8 +79,7 @@ static class ExpiredRecords
         ++deleted;
       }
       // Skip to the next head: past every key that starts with this head.
-      var head = key.Span[..(KeyCodec.HeadLength(key.Span, headSegments) - 1)];
-      iterator.Seek(KeyCodec.AfterSegment(head));
+      iterator.Seek(KeyCodec.AfterPrefix(key.Span[..headLength(key.Span)]));
     }
     return deleted;
   }

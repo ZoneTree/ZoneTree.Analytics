@@ -80,7 +80,7 @@ Partition record counts are approximate and may be null for partitions not opene
 
 ## Errors and cancellation
 
-`AnalyticsException` is the base for engine-specific errors. `AnalyticsConfigurationException` reports incompatible options or dataset configuration. `AnalyticsQueryException` reports unanswerable or bounded queries; `AnalyticsQueryTimeoutException` is its timeout subclass.
+`AnalyticsException` is the base for engine-specific errors. `AnalyticsConfigurationException` reports incompatible options or dataset configuration. `AnalyticsQueryException` reports unanswerable or bounded queries; `AnalyticsQueryTimeoutException` is its timeout subclass. `AnalyticsStorageException` reports a flush whose rollup rows could not be written; its inner exception is the storage failure, and the rows are retried by later flushes.
 
 Invalid arguments use standard argument exceptions. Caller cancellation uses the cancellation token; configured query timeout additionally protects expensive report execution.
 
@@ -131,6 +131,8 @@ raw events, rollups and cached sessions inconsistent. The metadata store uses fi
 than ZoneTree and is not exposed.
 
 For shared indexes, restrict iterators using the returned logical `KeyPrefix`. Each accessor exposes a logical namespace within the shared physical store.
+
+See the [storage format reference](../storage-format/storage-format.mdx) for directory layouts, exact key and payload encodings, metadata generations, and recovery behavior.
 
 ## Related pages
 

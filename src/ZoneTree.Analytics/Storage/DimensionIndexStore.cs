@@ -128,7 +128,7 @@ sealed class DimensionIndexStore : IDisposable
         {
           using var lease = Store.Acquire(partition);
           if (lease == null) continue;
-          IndexRecoveryScan.Visit(lease.Tree, days, key => key.Length - 16, (key, _) => lease.Tree.ForceDelete(key));
+          IndexRecoveryScan.Visit(lease.Tree, days, DimensionIndexKeyCodec.HeadLength, (key, _) => lease.Tree.ForceDelete(key));
         }
       IndexRecoveryScan.Persist(AllStores);
       checkpoint.Cleared();
@@ -151,7 +151,7 @@ sealed class DimensionIndexStore : IDisposable
       if (lease == null) continue;
       partitions++;
       Memory<byte> lastKey = default;
-      IndexRecoveryScan.Visit(lease.Tree, days, key => KeyCodec.HeadLength(key, 1), (key, value) =>
+      IndexRecoveryScan.Visit(lease.Tree, days, KeyCodec.RawEventHead, (key, value) =>
       {
         lastKey = key;
         var rawKey = StorageKeyCodec.DecodeRawEvent(key.Span);

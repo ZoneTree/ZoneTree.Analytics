@@ -102,6 +102,7 @@ The dashboard extends raw retention and enables selected aggregates and indexes.
 | --- | --- | --- |
 | `QueueCapacity` | `int` | Maximum number of queued events per worker. Default is 100,000. |
 | `WorkerCount` | `int` | Number of background ingestion workers. Events are routed to workers by visitor, so each visitor's events are processed in order. Default is 1, which handles well over a hundred thousand events per second. |
+| `RollupWriterCount` | `int` | Number of dedicated rollup writer threads, 1 to 64. Each writer owns a share of the rollup rows: it merges the rows that all workers buffered for them and writes each row once per flush, instead of once per worker. Default is 1, which suits single-processor machines; with several workers on several cores, more writers write rows in parallel. |
 | `FlushInterval` | `TimeSpan` | How often buffered aggregates and session states are written to storage. Rollup-based queries lag behind ingestion by at most this interval. Default is 2 seconds. Must not exceed approximately 49.7 days, the timer's maximum period. |
 | `MaxBufferedRollupRows` | `int` | Forces a flush when a worker buffers more distinct rollup rows than this. Default is 100,000. |
 | `QueueFullBehavior` | `QueueFullBehavior` | Behavior of `AnalyticsEngine.Track` when the queue is full. Default is `QueueFullBehavior.Drop`, so request threads never block. |

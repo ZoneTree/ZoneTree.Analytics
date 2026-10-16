@@ -9,6 +9,10 @@ public sealed class FlushRecoveryTests : DirectoryTest
 {
   static readonly DateTime Day0 = DateTime.UtcNow.Date.AddDays(-2);
 
+  /// <summary>Asserts that writing rollups fails with a storage failure of the given type.</summary>
+  static void AssertRollupWriteFails<TFailure>(Func<Task> code) where TFailure : Exception =>
+      Assert.That(Assert.ThrowsAsync<AnalyticsStorageException>(code).InnerException, Is.TypeOf<TFailure>());
+
   static RollupValue Value(ulong visitor, double amount)
   {
     var accumulator = new RollupAccumulator { Count = 1 };
@@ -148,7 +152,7 @@ public sealed class FlushRecoveryTests : DirectoryTest
     using (var engine = TestEngine.Create(directory, Configure))
     {
       Track(engine, "/entry", 0, 10);
-      Assert.ThrowsAsync<IOException>(() => engine.FlushAsync().WaitAsync(TimeSpan.FromSeconds(5)));
+      AssertRollupWriteFails<IOException>(() => engine.FlushAsync().WaitAsync(TimeSpan.FromSeconds(5)));
       Assert.That(engine.GetStatistics().Flushes, Is.Zero);
       Track(engine, "/exit", 1, 20);
       await engine.FlushAsync().WaitAsync(TimeSpan.FromSeconds(5));
@@ -261,8 +265,8 @@ public sealed class FlushRecoveryTests : DirectoryTest
     try
     {
       Track(engine, "/exit", 1, 20);
-      Assert.ThrowsAsync<ZoneTree.Exceptions.ZoneTreeIsReadOnlyException>(() => engine.FlushAsync());
-      Assert.ThrowsAsync<ZoneTree.Exceptions.ZoneTreeIsReadOnlyException>(() => engine.FlushAsync());
+      AssertRollupWriteFails<ZoneTree.Exceptions.ZoneTreeIsReadOnlyException>(() => engine.FlushAsync());
+      AssertRollupWriteFails<ZoneTree.Exceptions.ZoneTreeIsReadOnlyException>(() => engine.FlushAsync());
       store.CloseIdle(TimeSpan.Zero, keepLatestOpen: false);
       Assert.Multiple(() =>
       {
@@ -338,7 +342,7 @@ public sealed class FlushRecoveryTests : DirectoryTest
       };
     });
     Track(engine, "/entry", 0, 0);
-    Assert.ThrowsAsync<IOException>(() => engine.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5)));
+    AssertRollupWriteFails<IOException>(() => engine.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5)));
     unavailable = false;
     using var reopened = TestEngine.Create(directory);
     Assert.That(reopened.Query(new AnalyticsQuery
@@ -359,6 +363,8 @@ public sealed class FlushRecoveryTests : DirectoryTest
       options.Sessions.Enabled = false;
       options.Ingestion.MaxBufferedRollupRows = 1;
       options.Ingestion.QueueCapacity = 8;
+      // One writer opens one partition per flush attempt, so two opens are two attempts.
+      options.Ingestion.RollupWriterCount = 1;
       // A long delay makes it clear that shutdown wakes the retry wait immediately.
       options.Storage.Rollups.ConfigureMaintainer = _ =>
       {
@@ -382,7 +388,7 @@ public sealed class FlushRecoveryTests : DirectoryTest
       });
       if (shutdown)
       {
-        Assert.ThrowsAsync<IOException>(() => harness.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5)));
+        AssertRollupWriteFails<IOException>(() => harness.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5)));
       }
       else
       {
@@ -414,6 +420,7 @@ public sealed class FlushRecoveryTests : DirectoryTest
   sealed class WorkerHarness : IAsyncDisposable
   {
     readonly RollupStore rollups;
+    readonly RollupWriterPool rollupWriters;
     readonly IZoneTree<ulong, SessionState> sessions;
     readonly IMaintainer maintainer;
     bool disposed;
@@ -444,10 +451,11 @@ public sealed class FlushRecoveryTests : DirectoryTest
       var definitions = options.Rollups.Definitions.ToArray();
       rollups = new RollupStore(Path.Combine(directory, "rollups"), options.Rollups.Granularities,
           options.Storage.Partitioning, definitions, factory, logger);
+      rollupWriters = new RollupWriterPool(rollups, options.Ingestion.RollupWriterCount, logger);
       Worker = new IngestionWorker(new IngestionServices
       {
         Options = options, Calendar = calendar, Enricher = enricher, Sessions = SessionFault,
-        Rollups = rollups, Definitions = definitions, Logger = logger, Counters = Counters
+        Rollups = rollups, RollupWriters = rollupWriters, Definitions = definitions, Logger = logger, Counters = Counters
       });
       Worker.Start();
     }
@@ -476,6 +484,7 @@ public sealed class FlushRecoveryTests : DirectoryTest
       }
       finally
       {
+        rollupWriters.Dispose();
         rollups.Dispose();
         maintainer?.Dispose();
         sessions?.Dispose();

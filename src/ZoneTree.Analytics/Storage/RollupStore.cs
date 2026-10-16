@@ -11,8 +11,10 @@ namespace ZoneTree.Analytics.Storage;
 /// <remarks>
 /// Each granularity has its own partitioned store, which starts a new partition after the
 /// number of rows configured in <see cref="PartitioningOptions"/>.
-/// A writer per partition serializes merges and resumes failed writes, which keeps concurrent
-/// flushes from several ingestion workers consistent even when an upsert throws after updating memory.
+/// A <see cref="RollupWriter"/> per partition serializes the merges of each row by lock stripe
+/// and resumes failed writes, which keeps concurrent writes consistent even when an upsert throws
+/// after updating memory. During ingestion, the threads of the
+/// <see cref="Ingestion.RollupWriterPool"/> call <see cref="Write"/>.
 /// </remarks>
 sealed class RollupStore : IDisposable
 {

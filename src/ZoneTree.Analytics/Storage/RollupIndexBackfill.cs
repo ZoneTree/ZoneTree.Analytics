@@ -89,24 +89,22 @@ static class RollupIndexBackfill
       state.Sessions++;
       if (session.Start >= coverage)
       {
-        changes.Clear();
-        changes.Add(new(StandardValues.Bounces, session.Interactions <= 1 ? 1 : 0, true));
-        changes.Add(new(StandardValues.Duration, Math.Max(0, session.Last - session.Start) / (double)TimeSpan.TicksPerSecond, true));
-        changes.Add(new(StandardValues.SessionPageViews, session.PageViews, true));
+        RawSessionContributions.SessionValues(session, changes);
         buffer.Contribute(site, StandardEvents.Session, session.Start, session.Dimensions, 1, session.Visitor, changes, DimensionScope.Session);
       }
-      if (session.FirstIsPageView && session.FirstPage != null && session.Start >= coverage)
-      {
-        changes.Clear(); changes.Add(new(StandardValues.Entrances, 1, true));
-        buffer.Contribute(site, StandardEvents.PageView, session.Start,
-            pageDimensions.Of(session.Dimensions, session.FirstPage, session.FirstHostname), 0, 0, changes, DimensionScope.PageView);
-      }
-      if (session.LastPage != null && session.LastPageTicks >= coverage)
-      {
-        changes.Clear(); changes.Add(new(StandardValues.Exits, 1, true));
-        buffer.Contribute(site, StandardEvents.PageView, session.LastPageTicks,
-            pageDimensions.Of(session.Dimensions, session.LastPage, session.LastHostname), 0, 0, changes, DimensionScope.PageView);
-      }
+      if (RawSessionContributions.Entrance(session, out var ticks, out var page, out var hostname))
+        ContributePageMark(site, session, ticks, page, hostname, StandardValues.Entrances);
+      if (RawSessionContributions.Exit(session, out ticks, out page, out hostname))
+        ContributePageMark(site, session, ticks, page, hostname, StandardValues.Exits);
+    }
+    void ContributePageMark(string site, RawSession session, long ticks, string page, string hostname, string value)
+    {
+      if (ticks < coverage)
+        return;
+      changes.Clear();
+      changes.Add(new(value, 1, true));
+      buffer.Contribute(site, StandardEvents.PageView, ticks,
+          pageDimensions.Of(session.Dimensions, page, hostname), 0, 0, changes, DimensionScope.PageView);
     }
     // One chronological stream per site keeps only sessions within an inactivity window.
     // Original session IDs/starts preserve attribution; events are never re-ingested or re-enriched.
@@ -216,7 +214,7 @@ static class RollupIndexBackfill
         using var iterator = lease.Tree.CreateIterator(new IteratorOptions { IteratorType = IteratorType.NoRefresh });
         iterator.SeekFirst();
         while (iterator.Next())
-          if (definitions.Contains(StorageKeyCodec.DecodeRollup(iterator.CurrentKey.Span).DimensionSetId))
+          if (definitions.Contains(KeyCodec.ReadDimensionSetId(iterator.CurrentKey.Span)))
             lease.Tree.ForceDelete(iterator.CurrentKey);
       }
   }

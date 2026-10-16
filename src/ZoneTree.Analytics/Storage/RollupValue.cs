@@ -863,6 +863,22 @@ sealed class RollupAccumulator
     }
   }
 
+  /// <summary>
+  /// Merges <paramref name="accumulator"/> into the row of <paramref name="key"/>, or adds it as
+  /// that row. Returns true when it merged into an existing row.
+  /// </summary>
+  public static bool MergeInto<TKey>(Dictionary<TKey, RollupAccumulator> rows, TKey key, RollupAccumulator accumulator)
+  {
+    ref var existing = ref CollectionsMarshal.GetValueRefOrAddDefault(rows, key, out var exists);
+    if (!exists)
+    {
+      existing = accumulator;
+      return false;
+    }
+    existing.Merge(accumulator);
+    return true;
+  }
+
   public void Merge(RollupAccumulator other)
   {
     Count += other.Count;
@@ -1049,7 +1065,7 @@ sealed class RollupValueSerializer : ISerializer<RollupValue>
       var entries = new RollupSection<ValueDetail>[CheckedCount(ref reader, 1)];
       for (var i = 0; i < entries.Length; ++i)
       {
-        var entry = ReadEntry(ref reader, bytes, allowEmpty: true);
+        var entry = ReadLengthPrefixed(ref reader, bytes, allowEmpty: true);
         if (!entry.IsEmpty)
           entries[i] = new(entry, DecodeDetail);
       }
@@ -1077,7 +1093,7 @@ sealed class RollupValueSerializer : ISerializer<RollupValue>
       for (var i = 0; i < count; ++i)
       {
         names[i] = reader.ReadString() ?? throw new FormatException("A distinct dimension has no name.");
-        sketches[i] = new(ReadEntry(ref reader, bytes, allowEmpty: false), DecodeVisitors);
+        sketches[i] = new(ReadLengthPrefixed(ref reader, bytes, allowEmpty: false), DecodeVisitors);
       }
       RequireEnd(reader);
       return new DistinctEntries(names, sketches);
@@ -1088,12 +1104,15 @@ sealed class RollupValueSerializer : ISerializer<RollupValue>
     }
   }
 
-  /// <summary>Reads the length of an entry and returns its bytes without decoding them.</summary>
-  static ReadOnlyMemory<byte> ReadEntry(ref ByteReader reader, ReadOnlyMemory<byte> bytes, bool allowEmpty)
+  /// <summary>
+  /// Reads the length of a section or entry and returns its bytes without decoding them.
+  /// Only a detail entry may be empty: sections are written only when they hold something.
+  /// </summary>
+  static ReadOnlyMemory<byte> ReadLengthPrefixed(ref ByteReader reader, ReadOnlyMemory<byte> bytes, bool allowEmpty)
   {
     var length = reader.ReadVarUInt64();
     if ((length == 0 && !allowEmpty) || length > (ulong)reader.Remaining)
-      throw new FormatException("A rollup value entry is empty or truncated.");
+      throw new FormatException("A rollup value section or entry is empty or truncated.");
     var start = bytes.Length - reader.Remaining;
     reader.ReadBytes((int)length);
     return bytes.Slice(start, (int)length);
@@ -1191,10 +1210,10 @@ sealed class RollupValueSerializer : ISerializer<RollupValue>
     RollupSection<DetailEntries> details = null;
     RollupSection<DistinctEntries> distinct = null;
     if ((header & HasVisitors) != 0)
-      visitors = new(ReadSection(ref sectionReader, sections), DecodeVisitors);
+      visitors = new(ReadLengthPrefixed(ref sectionReader, sections, allowEmpty: false), DecodeVisitors);
     if ((header & HasDetails) != 0)
     {
-      var section = ReadSection(ref sectionReader, sections);
+      var section = ReadLengthPrefixed(ref sectionReader, sections, allowEmpty: false);
       // Details align with the values: their count is checked now, the details decoded when read.
       var detailReader = new ByteReader(section.Span);
       if (detailReader.ReadVarUInt64() != (ulong)nameCount)
@@ -1202,7 +1221,7 @@ sealed class RollupValueSerializer : ISerializer<RollupValue>
       details = new(section, DecodeDetails);
     }
     if ((header & HasDistinct) != 0)
-      distinct = new(ReadSection(ref sectionReader, sections), DecodeDistinct);
+      distinct = new(ReadLengthPrefixed(ref sectionReader, sections, allowEmpty: false), DecodeDistinct);
     if (sectionReader.Remaining != 0)
       throw new FormatException("The rollup value has trailing bytes.");
     return new RollupValue(count, visitors, names, values, details, distinct);
@@ -1223,17 +1242,6 @@ sealed class RollupValueSerializer : ISerializer<RollupValue>
   /// <summary>Whether the bytes are a whole array, which holds nothing but this value.</summary>
   static bool OwnsBuffer(ReadOnlyMemory<byte> bytes) =>
       MemoryMarshal.TryGetArray(bytes, out var segment) && segment.Offset == 0 && segment.Count == segment.Array.Length;
-
-  /// <summary>Reads the length of a section and returns its bytes without decoding them.</summary>
-  static ReadOnlyMemory<byte> ReadSection(ref ByteReader reader, ReadOnlyMemory<byte> bytes)
-  {
-    var length = reader.ReadVarUInt64();
-    if (length == 0 || length > (ulong)reader.Remaining)
-      throw new FormatException("A rollup value section is empty or truncated.");
-    var start = bytes.Length - reader.Remaining;
-    reader.ReadBytes((int)length);
-    return bytes.Slice(start, (int)length);
-  }
 
   public Memory<byte> Serialize(in RollupValue entry)
   {

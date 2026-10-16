@@ -323,15 +323,8 @@ sealed class QueryEngine
   static void MergeGroups(QueryContext context, Dictionary<GroupKey, RollupAccumulator> target, Dictionary<GroupKey, RollupAccumulator> source)
   {
     foreach (var (key, accumulator) in source)
-    {
-      if (target.TryGetValue(key, out var existing))
-      {
-        existing.Merge(accumulator);
+      if (RollupAccumulator.MergeInto(target, key, accumulator))
         context.GroupBudget.Release();
-      }
-      else
-        target.Add(key, accumulator);
-    }
     source.Clear();
   }
 
@@ -515,12 +508,10 @@ sealed class QueryEngine
     ++accumulator.Count;
     if (source.ReadsVisitors)
       accumulator.AddVisitor(session.Visitor, context.Precision);
-    accumulator.AddValueDelta(StandardValues.Bounces, session.Interactions <= 1 ? 1 : 0);
-    var duration = session.Last - session.Start;
-    if (duration > 0)
-      accumulator.AddValueDelta(StandardValues.Duration, (double)duration / TimeSpan.TicksPerSecond);
-    if (session.PageViews > 0)
-      accumulator.AddValueDelta(StandardValues.SessionPageViews, session.PageViews);
+    var values = sessionValues ??= [];
+    RawSessionContributions.SessionValues(session, values);
+    foreach (var value in values)
+      accumulator.AddValueDelta(value.Name, value.Value);
     foreach (var dimension in source.DistinctDimensions)
     {
       var value = new FilterValues(session.Dimensions, session.Start, context.Calendar).Get(dimension);
@@ -529,9 +520,13 @@ sealed class QueryEngine
     }
   }
 
+  // The values of one session row, reused by the scan threads (see RawSessionContributions).
+  [ThreadStatic]
+  static List<ValueChange> sessionValues;
+
   /// <summary>
-  /// Entrances count at the first event of a session when it is a page view; exits count at
-  /// the last page view of a session. This matches how ingestion maintains them in rollups.
+  /// The entrance and the exit of a session (see <see cref="RawSessionContributions"/>), when
+  /// they lie in the segment.
   /// </summary>
   static void AddRawEntranceAndExit(
       QueryContext context,
@@ -542,24 +537,29 @@ sealed class QueryEngine
       ReadSegment segment,
       PageDimensions pageDimensions)
   {
-    if (session.FirstIsPageView && session.Start >= segment.From && session.Start < segment.To)
-    {
-      var dimensions = pageDimensions.Of(session.Dimensions, session.FirstPage, session.FirstHostname);
-      if (MatchAndGroup(context, source, dimensions, session.Start, groupValues))
-      {
-        GetGroup(context, groups, context.Calendar.Bucket(session.Start, context.Interval), groupValues)
-            .AddValueDelta(StandardValues.Entrances, 1);
-      }
-    }
-    if (session.LastPage != null && session.LastPageTicks >= segment.From && session.LastPageTicks < segment.To)
-    {
-      var dimensions = pageDimensions.Of(session.Dimensions, session.LastPage, session.LastHostname);
-      if (MatchAndGroup(context, source, dimensions, session.LastPageTicks, groupValues))
-      {
-        GetGroup(context, groups, context.Calendar.Bucket(session.LastPageTicks, context.Interval), groupValues)
-            .AddValueDelta(StandardValues.Exits, 1);
-      }
-    }
+    if (RawSessionContributions.Entrance(session, out var ticks, out var page, out var hostname))
+      AddPageMark(context, source, groups, session, groupValues, segment, pageDimensions, ticks, page, hostname, StandardValues.Entrances);
+    if (RawSessionContributions.Exit(session, out ticks, out page, out hostname))
+      AddPageMark(context, source, groups, session, groupValues, segment, pageDimensions, ticks, page, hostname, StandardValues.Exits);
+  }
+
+  static void AddPageMark(
+      QueryContext context,
+      SourceContext source,
+      Dictionary<GroupKey, RollupAccumulator> groups,
+      RawSession session,
+      string[] groupValues,
+      ReadSegment segment,
+      PageDimensions pageDimensions,
+      long ticks,
+      string page,
+      string hostname,
+      string value)
+  {
+    if (ticks < segment.From || ticks >= segment.To)
+      return;
+    if (MatchAndGroup(context, source, pageDimensions.Of(session.Dimensions, page, hostname), ticks, groupValues))
+      GetGroup(context, groups, context.Calendar.Bucket(ticks, context.Interval), groupValues).AddValueDelta(value, 1);
   }
 
   static bool MatchAndGroup(
