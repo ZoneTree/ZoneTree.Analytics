@@ -375,14 +375,34 @@ public sealed class HyperLogLog
     }
     if (format != SparseFormat)
       throw new FormatException("Unknown HyperLogLog format.");
-    var count = (int)reader.ReadVarUInt64();
+    var count = checked((int)reader.ReadVarUInt64());
+    // Every entry takes at least one byte: a larger count is corrupt, not an allocation to try.
+    if (count > reader.Remaining)
+      throw new FormatException("The HyperLogLog entry count exceeds its bytes.");
     var entries = new uint[count];
+    // Deltas are at most five bytes: decoding them in a local loop keeps the position in a register.
+    var bytes = reader.Rest;
+    var position = 0;
     uint previous = 0;
     for (var i = 0; i < count; ++i)
     {
-      previous += (uint)reader.ReadVarUInt64();
+      uint delta = 0;
+      var shift = 0;
+      byte b;
+      do
+      {
+        b = bytes[position++];
+        // A fifth byte carries the top four bits of a 32-bit delta and ends it.
+        if (shift == 28 && b > 0x0F)
+          throw new FormatException("Invalid HyperLogLog entry.");
+        delta |= (uint)(b & 0x7F) << shift;
+        shift += 7;
+      }
+      while ((b & 0x80) != 0);
+      previous += delta;
       entries[i] = previous;
     }
+    reader.ReadBytes(position);
     return new HyperLogLog(precision, entries, count, null);
   }
 

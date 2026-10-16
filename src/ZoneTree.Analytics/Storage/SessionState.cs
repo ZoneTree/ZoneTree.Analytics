@@ -123,8 +123,12 @@ sealed class SessionStateSerializer : ISerializer<SessionState>
   public SessionState Deserialize(Memory<byte> bytes)
   {
     var reader = new ByteReader(bytes.Span);
-    if (reader.ReadByte() == Deleted)
+    var header = reader.ReadByte();
+    // A header or trailing bytes this reader does not know are a layout it cannot read.
+    if (header == Deleted && reader.Remaining == 0)
       return null;
+    if (header != Present)
+      throw new FormatException("The session state has an unknown layout.");
     var state = new SessionState
     {
       SessionId = reader.ReadVarUInt64(),
@@ -153,6 +157,8 @@ sealed class SessionStateSerializer : ISerializer<SessionState>
       if (index >= SessionSchema.StandardCount)
         dimensions[index] = value;
     }
+    if (reader.Remaining != 0)
+      throw new FormatException("The session state has trailing bytes.");
     state.Dimensions = dimensions;
     return state;
   }

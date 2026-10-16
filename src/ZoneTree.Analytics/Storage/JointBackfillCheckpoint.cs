@@ -46,8 +46,6 @@ sealed class JointBackfillReplacement
 /// </remarks>
 sealed class JointBackfillCheckpoint
 {
-  const int Version = 1;
-
   const int HeaderLength = 56;
 
   static readonly byte[] Magic = "ZTAJRNL1"u8.ToArray();
@@ -157,7 +155,7 @@ sealed class JointBackfillCheckpoint
 
   static void Write(BinaryWriter writer, JointBackfillState state)
   {
-    writer.Write(Version);
+    writer.Write(StorageFormats.JointBackfillJournal);
     writer.Write(state.Configuration);
     writer.Write(state.Copying);
     writer.Write(state.Coverage);
@@ -209,8 +207,7 @@ sealed class JointBackfillCheckpoint
 
   static JointBackfillState Read(BinaryReader reader)
   {
-    if (reader.ReadInt32() != Version)
-      throw new AnalyticsConfigurationException("The joint rollup backfill journal has an unknown version.");
+    StorageFormats.Require(reader.ReadInt32(), StorageFormats.JointBackfillJournal, "The joint rollup backfill journal");
     var state = new JointBackfillState
     {
       Configuration = reader.ReadString(),

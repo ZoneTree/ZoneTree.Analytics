@@ -296,11 +296,14 @@ public static class RawEventCodec
     var sessionOffset = reader.ReadVarInt64();
     target.SessionStartTicks = checked(ticks - sessionOffset);
     var flags = reader.ReadByte();
+    // A flag this reader does not know is a layout it cannot read.
+    if ((flags & ~InteractiveFlag) != 0)
+      throw new FormatException("The raw event has an unknown layout.");
     target.Interactive = (flags & InteractiveFlag) != 0;
-    if (requireEnd && (string.IsNullOrWhiteSpace(target.Name) || target.Name.Any(char.IsControl) || (flags & ~InteractiveFlag) != 0 ||
+    if (requireEnd && (string.IsNullOrWhiteSpace(target.Name) || target.Name.Any(char.IsControl) ||
         (target.SessionId == 0 && sessionOffset != 0) ||
         target.SessionStartTicks < 0 || target.SessionStartTicks > DateTime.MaxValue.Ticks))
-      throw new FormatException("The raw event header contains an invalid name, session start or flags.");
+      throw new FormatException("The raw event header contains an invalid name or session start.");
     var dimensionCount = checked((int)reader.ReadVarUInt64());
     for (var i = 0; i < dimensionCount; ++i)
     {

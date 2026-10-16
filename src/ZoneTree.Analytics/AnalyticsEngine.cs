@@ -38,8 +38,6 @@ namespace ZoneTree.Analytics;
 /// </remarks>
 public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisposable
 {
-  const string FormatVersion = "1";
-
   readonly AnalyticsOptions options;
 
   readonly ILogger logger;
@@ -316,17 +314,17 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
       ("hll-precision", options.Rollups.HyperLogLogPrecision.ToString(CultureInfo.InvariantCulture), "HyperLogLog precision"),
       ("wal-directory", walDirectory, "write-ahead-log directory"),
     ];
-    if (meta.Get("format-version") == null)
+    if (meta.Get(StorageFormats.DatasetKey) is not { } format)
     {
       meta.Update(entries =>
       {
         foreach (var (key, value, _) in settings)
           entries[key] = value;
-        entries["format-version"] = FormatVersion;
+        entries[StorageFormats.DatasetKey] = StorageFormats.Text(StorageFormats.Dataset);
       });
       return true;
     }
-    Require("format-version", FormatVersion, "format version");
+    StorageFormats.Require(format, StorageFormats.Dataset, "The analytics data directory");
     foreach (var (key, value, description) in settings)
       Require(key, value, description);
     return false;

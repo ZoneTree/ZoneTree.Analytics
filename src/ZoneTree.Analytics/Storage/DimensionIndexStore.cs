@@ -21,7 +21,6 @@ sealed class DimensionIndexStore : IDisposable
 {
   const string DimensionsKey = "dimension-index.dimensions";
   const string CleanKey = "dimension-index.clean";
-  const string Format = "2";
   const string PartitionsKey = "dimension-index.partitions.shared";
   const int ProbeLimit = 1024;
   readonly MetaStore meta;
@@ -62,12 +61,17 @@ sealed class DimensionIndexStore : IDisposable
   {
     using var startup = new StartupLog(logger, "Dimension index initialization", directory);
     using var check = new StartupLog(logger, "Dimension index backfill check", directory);
-    if (meta.Get("dimension-index.format") is { } format && format != Format)
-      throw new AnalyticsConfigurationException("Dimension indexes use a new shared storage format. Start with a fresh analytics data directory.");
+    var format = meta.Get(StorageFormats.DimensionIndexKey);
+    if (format != null)
+      StorageFormats.Require(format, StorageFormats.DimensionIndex, "The dimension indexes of the analytics data directory");
     var reasons = new List<string>();
-    if (meta.Get(CleanKey) != "true") reasons.Add("missing or unclean checkpoint");
-    if (meta.Get(DimensionsKey) != manifest) reasons.Add("configuration changed");
-    if (meta.Get("dimension-index.format") != Format) reasons.Add("format changed");
+    // Indexes that were never initialized have no checkpoint, manifest or format to compare.
+    if (format == null) reasons.Add("new indexes");
+    else
+    {
+      if (meta.Get(CleanKey) != "true") reasons.Add("missing or unclean checkpoint");
+      if (meta.Get(DimensionsKey) != manifest) reasons.Add("configuration changed");
+    }
     if (!factory.RawEventsDurable || !factory.DimensionIndexesDurable) reasons.Add("write-ahead logging disabled");
     var dirtyDays = recovery.Days;
     var partitions = 0;
@@ -279,7 +283,7 @@ sealed class DimensionIndexStore : IDisposable
     meta.Update(entries =>
     {
       entries[DimensionsKey] = manifest;
-      entries["dimension-index.format"] = Format;
+      entries[StorageFormats.DimensionIndexKey] = StorageFormats.Text(StorageFormats.DimensionIndex);
       entries[PartitionsKey] = Store == null ? "" : string.Join(',', Store.ListPartitions());
       entries[CleanKey] = factory.RawEventsDurable && factory.DimensionIndexesDurable ? "true" : "false";
       recovery.Clear(entries);
