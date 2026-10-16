@@ -18,7 +18,7 @@ Use engine statistics, initialization logs, and query plans to understand collec
 | Live visitors decrease | Identities leaving the recent sliding window | [Time and freshness](../../concepts/time-and-accuracy/time-and-accuracy.mdx#report-freshness) |
 | A filtered report is much slower | Plan sources and required joint dimensions | [Explain a slow report](#explain-a-slow-report) |
 | Country rows are missing | Geolocation adapter or trusted country dimensions | [Website context](../../concepts/data-model/data-model.mdx#standard-website-context) |
-| Startup takes longer after configuration changes | Index necessity checks and backfill progress | [Explain startup duration](#explain-startup-duration) |
+| Reports are slower after an index change | Plan notices and backfill progress | [Explain index work](#explain-index-work) |
 | Reporting returns 403 | Host policy and AuthorizeSite for the normalized site | [Sites and tenants](../../guides/sites-and-tenants/sites-and-tenants.mdx) |
 | Reporting returns 503 | Error body, concurrency, timeout, and response-size limits | [HTTP limits](../../reference/http-api/http-api.mdx#limits-and-authorization) |
 
@@ -38,10 +38,11 @@ Statistics cover the current engine instance. Lightweight polling with `includeP
 | EventsFiltered grows | Collection policy is excluding events |
 | Errors grows | Extension, processing, storage, or maintenance failures |
 | Flushes stops advancing during activity | Aggregate-saving progress or storage health |
+| IndexMaintenance has a value | An index build, repair, or rollup history reconstruction is running |
 
 Accepted and processed counters can differ while background work is active. Bot counters distinguish excluded and separately reported automated traffic.
 
-## Explain startup duration
+## Explain index work
 
 Enable Information logging for `ZoneTree.Analytics` in an ASP.NET Core host to see initialization detail. The standalone core defaults to warning-level console output.
 
@@ -55,9 +56,15 @@ For a standalone engine, set its logger before opening it:
 
 An engine opened outside dependency injection in an ASP.NET Core host can also use the integration's `UseLogger` extension to forward engine and storage messages to a host logger.
 
-Backfill checks report whether stores are disabled, reusable, need repair of affected days, or require rebuilding. Work logs report durable checkpoints, resumed event or row counts, completion duration, and throughput. Each identifies the dataset directory.
+Backfill checks report whether stores are disabled, reusable, need repair of affected days, or require rebuilding. Work logs report saved checkpoints, resumed event or row counts, completion duration, and throughput. Each identifies the dataset directory.
 
-These logs distinguish several engines in one host and explain why a restart can take longer after changing index configuration.
+These logs distinguish several engines in one host. `Plan.Notices` identifies temporary query fallbacks during background index work; the [index guide](../../performance/secondary-indexes/secondary-indexes.mdx#plan-backfill-work) explains how to interpret them.
+
+`IndexMaintenance` is null when no job is running, including after a failed build. Use `WaitForIndexesAsync` to confirm successful completion. A failed build raises `AnalyticsStorageException` through that wait and is logged; the remaining jobs still run. Queries keep using available sources until the engine reopens and resumes the failed build.
+
+## Explain shutdown duration
+
+Disposal logs each stage it waits for, such as draining queued events and closing each store, with its duration. Use them to choose the host's shutdown timeout.
 
 ## Explain a slow report
 
@@ -69,7 +76,7 @@ These logs distinguish several engines in one host and explain why a restart can
 
 The number of rows displayed is not the number of records read. A filtered card can do far more work than the same unfiltered card.
 
-The [rollup guide](../../performance/rollups/rollups.mdx#follow-a-reports-plan) includes code for inspecting sources, index dimensions, and warnings. Capture the exact site, range, filter values, metrics, and whether the read was cold or repeated with the timing.
+The [rollup guide](../../performance/rollups/rollups.mdx#follow-a-reports-plan) includes code for inspecting sources, index dimensions, warnings, and notices. Capture the exact site, range, filter values, metrics, and whether the read was cold or repeated with the timing.
 
 If the plan reads raw events, first check whether the requested joint rollup is missing. If it already reads rollups but visits many irrelevant aggregate rows, consider an equality-leading [rollup index](../../performance/secondary-indexes/secondary-indexes.mdx). Increasing raw-scan parallelism does not address an aggregate-read bottleneck.
 

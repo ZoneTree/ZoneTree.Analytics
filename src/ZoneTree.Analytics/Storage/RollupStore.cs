@@ -14,7 +14,8 @@ namespace ZoneTree.Analytics.Storage;
 /// A <see cref="RollupWriter"/> per partition serializes the merges of each row by lock stripe
 /// and resumes failed writes, which keeps concurrent writes consistent even when an upsert throws
 /// after updating memory. During ingestion, the threads of the
-/// <see cref="Ingestion.RollupWriterPool"/> call <see cref="Write"/>.
+/// <see cref="Ingestion.RollupWriterPool"/> call <see cref="Write"/>; background index
+/// maintenance writes rebuilt history and folds rows through the same writers (<see cref="WriterOf"/>).
 /// </remarks>
 sealed class RollupStore : IDisposable
 {
@@ -86,15 +87,21 @@ sealed class RollupStore : IDisposable
       partition.Lease ??= GetStore(partition.Granularity).Acquire(partition.Name);
       if (partition.Lease == null)
         continue; // The partition was dropped by retention.
-      var granularity = partition.Granularity;
-      var writer = writers.GetValue(partition.Lease.Tree, tree => new RollupWriter(tree,
-          (key, value) => Indexes?.Copy(granularity, key, value), key => Indexes?.BeforeWrite(granularity, key)));
+      var writer = WriterOf(partition.Granularity, partition.Lease.Tree);
       for (; partition.NextRow < partition.Rows.Count; ++partition.NextRow)
         writer.Write(partition.Rows[partition.NextRow]);
       partition.Lease.Dispose();
       partition.Lease = null;
     }
   }
+
+  /// <summary>
+  /// The writer of a partition tree, which every write of its rows goes through: flushes, and
+  /// the rebuilds and folds of background maintenance.
+  /// </summary>
+  public RollupWriter WriterOf(Granularity granularity, IZoneTree<Memory<byte>, RollupValue> tree) =>
+      writers.GetValue(tree, tree => new RollupWriter(tree,
+          (key, value) => Indexes?.Copy(granularity, key, value), key => Indexes?.BeforeWrite(granularity, key)));
 
   List<RollupWriteBatch.PartitionWrites> PrepareWrites(Dictionary<RollupBufferKey, RollupAccumulator> rows)
   {
@@ -115,8 +122,15 @@ sealed class RollupStore : IDisposable
     return [.. groups.Values];
   }
 
-  /// <summary>Startup-only absolute replacements for an atomic backfill checkpoint.</summary>
-  public List<JointBackfillReplacement> BackfillReplacements(Dictionary<RollupBufferKey, RollupAccumulator> rows)
+  /// <summary>
+  /// The rebuilt parts of the rows after adding reconstructed contributions to them. They are
+  /// absolute, so a checkpoint can write them again after a crash.
+  /// </summary>
+  /// <remarks>
+  /// Only the reconstruction writes rebuilt parts, so they are read without the row locks:
+  /// concurrent flushes change the rest of the row.
+  /// </remarks>
+  public List<JointBackfillReplacement> RebuiltParts(Dictionary<RollupBufferKey, RollupAccumulator> rows)
   {
     var result = new List<JointBackfillReplacement>(rows.Count);
     var serializer = new RollupValueSerializer();
@@ -130,7 +144,7 @@ sealed class RollupStore : IDisposable
         result.Add(new()
         {
           Granularity = partition.Granularity, Partition = partition.Name, Key = row.Key.ToArray(),
-          Value = serializer.Serialize(RollupValue.Merge(existing, row.Delta)).ToArray()
+          Value = serializer.Serialize(RollupValue.Merge(existing?.Rebuilt, row.Delta)).ToArray()
         });
       }
     }
@@ -174,7 +188,9 @@ sealed class RollupStore : IDisposable
         var bucket = KeyCodec.ReadBucket(key, prefix.Length);
         if (bucket >= toBucket)
           break;
-        visit(bucket, KeyCodec.ReadValue(key, prefix.Length), iterator.CurrentValue);
+        var value = iterator.CurrentValue;
+        if (!value.IsRebuiltOnly)
+          visit(bucket, KeyCodec.ReadValue(key, prefix.Length), value);
       }
     }
   }

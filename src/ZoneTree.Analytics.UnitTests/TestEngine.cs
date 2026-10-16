@@ -74,8 +74,24 @@ static class TestEngine
     return engine.GetStatistics().PartitionsDropped - before;
   }
 
-  public static AnalyticsEngine Create(string directory, Action<AnalyticsOptions> configure = null) =>
-      new(Options(directory, configure));
+  /// <summary>
+  /// Opens an engine and waits until its background index work is done, so tests see the same
+  /// plans as a host that waits for readiness.
+  /// </summary>
+  public static AnalyticsEngine Create(string directory, Action<AnalyticsOptions> configure = null)
+  {
+    var engine = new AnalyticsEngine(Options(directory, configure));
+    try
+    {
+      engine.WaitForIndexesAsync().WaitAsync(TimeSpan.FromMinutes(2)).GetAwaiter().GetResult();
+    }
+    catch
+    {
+      engine.Dispose();
+      throw;
+    }
+    return engine;
+  }
 
   public static void Delete(string directory)
   {

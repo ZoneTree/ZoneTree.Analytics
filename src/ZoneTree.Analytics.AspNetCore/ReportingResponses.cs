@@ -51,7 +51,7 @@ sealed record FunnelResponse(
 sealed record FunnelRow(
     string Name, long Visitors, double? ConversionRate, double? StepConversionRate, long DropOff);
 
-sealed record PlanResponse(bool Complete, IReadOnlyList<string> Warnings, PlanStep[] Steps, RollupSuggestionResponse[] RollupSuggestions);
+sealed record PlanResponse(bool Complete, IReadOnlyList<string> Warnings, IReadOnlyList<string> Notices, PlanStep[] Steps, RollupSuggestionResponse[] RollupSuggestions);
 
 sealed record PlanStep(string Event, string Source, DateTimeOffset From, DateTimeOffset To)
 {

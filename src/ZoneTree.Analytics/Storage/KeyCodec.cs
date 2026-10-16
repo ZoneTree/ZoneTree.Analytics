@@ -150,6 +150,13 @@ static class KeyCodec
       (long)BinaryPrimitives.ReadUInt64BigEndian(key.Slice(key.Length - 16, 8));
 
   /// <summary>
+  /// The sequence of a raw key: its last 8 bytes. Sequences increase in the order the engine
+  /// stores events, across restarts.
+  /// </summary>
+  public static long ReadRawSequence(ReadOnlySpan<byte> key) =>
+      (long)BinaryPrimitives.ReadUInt64BigEndian(key[^8..]);
+
+  /// <summary>
   /// The bucket of a rollup key: the 8 bytes after its third terminator.
   /// </summary>
   public static long ReadRollupBucket(ReadOnlySpan<byte> key) =>

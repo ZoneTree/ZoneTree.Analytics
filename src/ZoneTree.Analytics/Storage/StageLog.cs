@@ -3,8 +3,11 @@ using ZoneTree.Logger;
 
 namespace ZoneTree.Analytics.Storage;
 
-/// <summary>Times startup stages without adding timers or logging to normal ingestion.</summary>
-sealed class StartupLog : IDisposable
+/// <summary>
+/// Logs and times a stage of opening the engine, of background index maintenance or of
+/// shutdown, without adding timers or logging to normal ingestion.
+/// </summary>
+sealed class StageLog : IDisposable
 {
   readonly ILogger logger;
   readonly string stage;
@@ -12,12 +15,12 @@ sealed class StartupLog : IDisposable
   readonly long started = Stopwatch.GetTimestamp();
   bool completed;
 
-  public StartupLog(ILogger logger, string stage, string directory)
+  public StageLog(ILogger logger, string stage, string directory, FormattableString metrics = null)
   {
     this.logger = logger;
     this.stage = stage;
     this.directory = directory;
-    Write("started");
+    Write("started", metrics);
   }
 
   public void Progress(FormattableString metrics, long units, string unit) =>
@@ -45,5 +48,16 @@ sealed class StartupLog : IDisposable
   public void Dispose()
   {
     if (!completed) Write("failed");
+  }
+}
+
+/// <summary>Logs and times the disposal of a resource as a stage of shutdown.</summary>
+sealed class StageDisposal(IDisposable resource, ILogger logger, string stage, string directory) : IDisposable
+{
+  public void Dispose()
+  {
+    using var log = new StageLog(logger, stage, directory);
+    resource.Dispose();
+    log.Complete(null);
   }
 }

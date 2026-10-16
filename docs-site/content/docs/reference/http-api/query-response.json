@@ -18,6 +18,7 @@
   "plan": {
     "complete": true,
     "warnings": [],
+    "notices": [],
     "steps": [
       {
         "event": "purchase",

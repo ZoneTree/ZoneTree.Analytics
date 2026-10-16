@@ -56,13 +56,19 @@ The default ten-million-row partition target counts combined copies. An event ca
 
 A new partition does not hide earlier data. Queries read every overlapping partition needed for their selected range.
 
-## Plan startup work
+## Plan backfill work
 
 Opening the engine checks whether indexes can be reused. Missing or incomplete dimension indexes rebuild from retained raw events. Index-managed joint combinations can rebuild eligible aggregate history, then populate their ordered rollup stores.
 
-Backfills complete before normal ingestion starts. Completed coverage is persisted immediately, so killing an idle process does not invalidate its indexes. After interrupted writes, startup repairs the affected days from authoritative data, including missing copies and orphaned copies from interrupted deletions.
+Backfills run in the background after the engine opens, while it ingests events and answers queries. Queries use raw events or primary rollups while an index or its rollup history is being built. `Plan.Notices` explains the temporary fallback; notices do not affect `Plan.IsComplete`. Continue to check `Plan.Warnings` for coverage or interpretation concerns.
 
-Interrupted backfills resume from durable checkpoints. Copy backfills checkpoint every 100,000 input records and at partition boundaries. Historical joint-rollup reconstruction also preserves active sessions and replays absolute replacements, so resuming does not count events twice.
+Await `WaitForIndexesAsync` before measuring query performance, or to delay readiness until the work finishes. See [deployment and lifecycle](../../operations/deployment/deployment.mdx#account-for-startup) for an example and failure behavior.
+
+Completed coverage is recorded for reuse after reopening. After interrupted writes, the engine repairs the affected days from authoritative data, including missing copies and orphaned copies from interrupted deletions.
+
+Interrupted backfills resume from saved checkpoints. Copy backfills checkpoint every 100,000 input records and at partition boundaries. Historical joint-rollup reconstruction also preserves active sessions and replays absolute contributions to avoid counting the same chunk twice.
+
+Recovery follows the configured write-ahead log (WAL) mode. The default `AsyncCompressed` mode can lose recent writes in a crash, including index copies or reconstructed aggregate contributions. Raw events can remain stored while their reconstructed aggregates miss those contributions. Use synchronous WAL for the stores involved when checkpoint recovery must retain every completed write.
 
 Information logs report reuse, repair, or rebuild decisions, checkpoint progress, resumed counts, duration, and throughput. Configuration changes, missing retained partitions, and stores configured without a write-ahead log can still require a full rebuild.
 

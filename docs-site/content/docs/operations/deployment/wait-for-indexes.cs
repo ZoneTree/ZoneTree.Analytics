@@ -1,0 +1,1 @@
+await analytics.WaitForIndexesAsync(cancellationToken);

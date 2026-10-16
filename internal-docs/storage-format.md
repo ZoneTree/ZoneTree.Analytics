@@ -1,15 +1,9 @@
----
-title: "Storage format"
-description: "Directory layout, binary keys and values, metadata, partition routing, and recovery contracts."
-order: 5
-template: doc
----
 
 # Storage format
 
 ZoneTree.Analytics stores a dataset as several ordered ZoneTree stores plus small, checksummed metadata files. This reference describes the format implemented by the current source: dataset `format-version` **2**, dimension-index format **2**, and rollup-index format **2**.
 
-Use this page to inspect a dataset, understand storage costs, or review a codec change. For application code, prefer the public [storage accessors and codecs](../engine/engine.mdx#advanced-storage-access). Those APIs return typed records without requiring callers to reproduce byte offsets.
+Use this page to inspect a dataset, understand storage costs, or review a codec change. For application code, prefer the public [storage accessors and codecs](../docs-site/content/docs/reference/engine/engine.mdx#advanced-storage-access). Those APIs return typed records without requiring callers to reproduce byte offsets.
 
 ## Format boundaries and compatibility
 
@@ -196,6 +190,7 @@ Keys order by site, event, dimension set, bucket, then combined values. All valu
 | `02` | Visitor sketch section |
 | `04` | Value detail section |
 | `08` | Distinct-dimension sketch section |
+| `10` | Rebuilt part |
 
 Live flags combine with bitwise OR. Readers reject other bits, a live header without the present bit, and trailing bytes. A live row containing no sketches, measured values, or optional details still has a header, event count, and zero measured-value count. Count zero does not make a row a tombstone: session and page metrics can contribute sum-only updates without adding another event.
 
@@ -210,10 +205,13 @@ Live flags combine with bitwise OR. Readers reject other bits, a live header wit
 | 5 | Visitor section | `vu` byte length, then the HLL layout below; only with header bit `02` |
 | 6 | Detail section | `vu` byte length, then `vu` detail count equal to the measured value count, then per measured value a `vu` entry length and its detail record; length `0` means the value has no details; only with header bit `04` |
 | 7 | Distinct section | `vu` byte length, then `vu` dimension count, then per dimension its name `str`, a nonzero `vu` entry length, and its HLL sketch; only with header bit `08` |
+| 8 | Rebuilt part | `vu` byte length, then a live value in this same layout, without a rebuilt part of its own; only with header bit `10` |
 
 Sections are nonempty and appear in this order, after every scalar field. The reader decodes the count and the scalar values with the row, checks each section's length and the detail count, and keeps the sections as stored bytes. When the value arrives as a slice of a larger buffer, such as a decompressed disk block, the sections are first copied into a buffer of their own, so a cached or merged row never keeps the block alive.
 
 Decoding happens one part at a time, the first time a query or a merge reads it: the visitor section, then a single value detail or a single distinct sketch. Reading a section's entry lengths and dimension names does not decode any sketch. A query that reads only counts and sums therefore never decodes a sketch, and a query for one distinct dimension or one value's percentiles decodes only that entry. A merge or index copy writes every section and entry it leaves unchanged back from its stored bytes, without re-encoding it.
+
+A rebuilt part remains in a row while historical joint-rollup reconstruction runs or its output awaits folding, including across restarts. It holds the contributions the reconstruction has made to the row so far, apart from what ingestion merges into the row meanwhile, and readers ignore it. Ingestion keeps it unchanged, and the reconstruction replaces it with absolute values, so each can repeat its writes after a failure without undoing the other's. A row holding only a rebuilt part has no ordinary data and is skipped by queries. After reconstruction completes, the rollup index build merges the rebuilt parts into their rows and removes the rebuilt sections. A build also folds pending rows of retained definitions whose indexes were removed.
 
 Measured-value names and distinct-dimension names are stored in ordinal order by the engine. Empty visitor sketches are omitted. A distinct-dimension sketch represents distinct values of that named dimension, independently of the row's visitor sketch.
 
@@ -383,6 +381,7 @@ The JSON body maps string keys to string values, with keys emitted in ordinal or
 | `rollup-index.dirty.` | Per-tier day intents, with tier and day ticks in the key suffix |
 | `rollup-index.backfill.` | Rollup copy-backfill configuration, phase, cursor, and count |
 | `rollup-index.backfill-pending` | Newline-separated pending historical joint-rollup definitions |
+| `rollup-index.folding` | Completed reconstructions whose rebuilt parts the rollup index build folds in: per line, the coverage start ticks, a tab, and the definition's activation key |
 
 ### Generations and writes
 
@@ -390,13 +389,13 @@ A metadata update creates the next generation by replacing the older file in pla
 
 When keys are removed, the store writes two successive generations so the removed entries disappear from both files. This applies to expired salts as well as completed recovery checkpoints. It is removal from the live metadata files, not secure erasure of historical backups or underlying storage media.
 
-Activation metadata records historical coverage. Definitions and aggregates present at dataset creation start at tick zero. A newly enabled definition, aggregate, or tier on an existing dataset starts at its activation time; removing and later restoring it does not claim continuous coverage of the gap. Eligible historical joint-rollup reconstruction can publish earlier coverage after its durable backfill completes. Existing row bytes alone are insufficient to infer complete coverage.
+Activation metadata records historical coverage. Definitions and aggregates present at dataset creation start at tick zero. A newly enabled definition, aggregate, or tier on an existing dataset starts at its activation time; removing and later restoring it does not claim continuous coverage of the gap. Eligible historical joint-rollup reconstruction can publish earlier coverage after its durable backfill completes and its rows are folded in. Existing row bytes alone are insufficient to infer complete coverage.
 
 ## Writes, durability, and recovery
 
 An accepted event first enters the ingestion queue. Raw records, session snapshots, rollups, and index copies are then maintained through different write paths. There is no dataset-wide transaction committing all of them together.
 
-`StoreOptions.WriteAheadLogMode` defaults to `AsyncCompressed`. Persistent tree writes follow the configured ZoneTree WAL mode. A successful tracking call reports queue acceptance, and a crash can lose queued events and buffered aggregates. `Flush` drains prior accepted ingestion work and writes buffered aggregates and session state; it does not make every configured WAL mode synchronous. Clean disposal drains work, flushes, closes stores, and releases the directory lock. `Compact` additionally moves open trees toward merged disk storage.
+`StoreOptions.WriteAheadLogMode` defaults to `AsyncCompressed`. Persistent tree writes follow the configured ZoneTree WAL mode; in that mode a process that dies can lose its most recent writes. A successful tracking call reports queue acceptance, and a crash can lose queued events and buffered aggregates. `Flush` drains prior accepted ingestion work and writes buffered aggregates and session state; it does not make every configured WAL mode synchronous. Clean disposal drains work, flushes, closes stores, and releases the directory lock. `Compact` additionally moves open trees toward merged disk storage.
 
 Ingestion workers do not write rollup rows themselves. On flush, a worker hands its buffered rows to dedicated rollup writers (`Ingestion.RollupWriterCount`), each of which owns a share of the rows by key. A writer merges the rows of all workers that flushed since its last write, writes each row once, and only then lets those workers persist their session states. Rollup writes serialize the updates of each row. A row's key selects one of 64 lock stripes of its partition, so writers update different rows of a partition in parallel and the same row one at a time; its covering index copies are written under the same lock, in order. The writer merges a delta with the existing value once, retains the absolute replacement for retries, and finishes a pending replacement before applying a newer delta in its stripe. This prevents retrying a failed upsert from applying the same contribution twice within that write path. It does not provide crash-atomic coordination between raw events and every aggregate tier.
 
@@ -404,17 +403,22 @@ Ingestion workers do not write rollup rows themselves. On flush, a worker hands 
 
 The primary raw store is authoritative for dimension copies; primary joint rollups are authoritative for rollup copies. Before changing a source/copy pair, the engine persists a dirty-day intent in metadata. The day is obtained by flooring that record's time coordinate to a whole day; minute/hour/raw coordinates are UTC, while day-rollup coordinates represent local calendar dates.
 
-Startup completes index checks and required repairs before ingestion workers begin:
+Opening the engine checks the indexes and decides the work; the work runs on one background thread once ingestion has started, in this order: dimension indexes, historical joint-rollup reconstruction, rollup indexes. Queries do not use an index until its work completes.
 
-| State | Startup behavior |
+An index copy failure leaves the affected indexes unavailable and their checkpoint incomplete. Maintenance continues with the remaining jobs, then fails `WaitForIndexesAsync` with `AnalyticsStorageException`. Reopening the engine resumes the failed build. `IndexMaintenance` is null whenever no job is running, including after such a failure.
+
+| State | Behavior |
 | --- | --- |
 | Matching configuration, format, retained partitions, and clean checkpoint | Reuse completed indexes |
 | Dirty-day intents with an otherwise reusable checkpoint | Remove affected copies and reconstruct those days from authoritative records, including interrupted deletions |
-| Configuration change, incomplete checkpoint, or missing retained index partitions | Rebuild the affected shared index stores |
+| Interrupted build of the same configuration | Resume from its checkpoint, then repair the days written since it began |
+| Configuration change, new indexes, or missing retained index partitions | Drop the copies when the engine opens, then rebuild the shared index stores |
 | Source or destination WAL disabled | Rebuild instead of trusting a durable completed checkpoint |
 | Explicit incompatible index format | Fail the format check |
 
-Copy backfills use metadata keys ending in `.config`, `.phase`, `.partition`, `.key`, and `.count`. Phase is `clear` or `copy`; the cursor key is base64, and the count is decimal text. Checkpoints advance after destination data is persisted, every 100,000 input records and at partition boundaries. Absolute upserts make replay of an unfinished chunk idempotent.
+Ingestion keeps writing its own copies while a build runs. A dimension-index build reads the raw events up to the sequence stored before the engine opened; ingestion copied the later ones. Copying an event again writes the same key and value. Erasure and each chunk of a build take turns, and every chunk reads the raw events again, so a build never copies an erased event back. A rollup-index build writes each copy under the row lock of the flushes, from the row's current value.
+
+Copy backfills use metadata keys ending in `.config`, `.phase`, `.partition`, `.key`, and `.count`. Phase is `clear` or `copy`; the cursor key is base64, and the count is decimal text. When a new build has dropped the old copies, the index format, configuration, and empty partition manifest are recorded with the index marked unclean, so an interrupted build resumes. Checkpoints advance after their writes return, every 100,000 input records and at partition boundaries. Absolute upserts make replay of an unfinished chunk idempotent. With the default asynchronous write-ahead log, copy and reconstruction writes can still be queued when the checkpoint advances. A crash can lose them even when their source raw events were already durable, leaving historical aggregates without those contributions. Synchronous logs for the stores involved make checkpoint recovery exact.
 
 Historical reconstruction of joint rollups has a separate binary journal, `backfill/joint-rollups/journal-a.bin` and `journal-b.bin`, written alternately like the metadata files:
 
@@ -426,9 +430,11 @@ Historical reconstruction of joint rollups has a separate binary journal, `backf
 | 4 | Body checksum | 32-byte SHA-256 of the body |
 | 5 | Body | The checkpoint |
 
-The header is written last, so a torn write never validates; startup reads the valid file with the highest generation. The body holds the configuration signature, coverage, site/partition/key cursor, progress counters, active reconstructed sessions, and a redo list of absolute rollup replacements. Redo records include granularity, partition, primary key bytes, and serialized rollup value bytes, stored as bytes rather than text. Replaying replacements avoids adding the same contributions twice after a crash; completed coverage is published only after the durable reconstruction checkpoint, and the journal files are deleted when reconstruction completes.
+The header is written last, so a torn write never validates; startup reads the valid file with the highest generation. The body holds the configuration signature, coverage, the fence, the raw partitions when the reconstruction began, the site/partition/key cursor, progress counters, active reconstructed sessions, and a redo list of absolute rebuilt parts. Redo records include granularity, partition, primary key bytes, and the serialized rebuilt part, stored as bytes rather than text.
 
-Recovery of derived indexes cannot recover raw events lost before persistence or history already removed by retention. Ordinary startup index reconciliation also does not imply that all ordinary raw history is replayed into every primary rollup after a crash.
+The reconstruction runs while ingestion writes to the same rows. It reads the raw events whose sequence is at most the fence, the raw event sequence when it began; ingestion writes every later event, late ones included, so each event counts once. Its contributions go to the rows' rebuilt parts under the row locks of the flushes. Replaying the absolute rebuilt parts avoids adding the same contributions twice after a crash and never undoes a flush. When the reconstruction begins, it deletes the rows the definitions kept from an earlier activation, before ingestion starts. Raw retention does not pass the coverage start until it completes. Then the journal files are deleted, the definitions are listed in `rollup-index.folding`, and the rollup index build folds the rebuilt parts in before the coverage is published.
+
+Recovery of derived indexes cannot recover raw events lost before persistence or history already removed by retention. Ordinary index reconciliation also does not imply that all ordinary raw history is replayed into every primary rollup after a crash.
 
 ## Deletion, expiration, and storage reclamation
 
@@ -444,7 +450,7 @@ Maintenance drops fully expired partitions and merges partially expired trees. W
 
 Defaults retain raw history for 90 days, minute rollups for two days when enabled, hourly rollups for 400 days, and daily rollups indefinitely. The default enabled tiers are Hour and Day. Null retention means keep indefinitely. Retention is rounded in whole UTC days, or whole hours for durations under one day; daily aggregate comparisons use the corresponding reporting-zone date.
 
-Visitor erasure removes retained raw events, their dimension-index copies, and the active session for an explicit visitor. It does not subtract contributions from existing aggregate rollups or their covering indexes. See [retention and erasure](../../operations/retention-and-erasure/retention-and-erasure.mdx) for the public operation.
+Visitor erasure removes retained raw events, their dimension-index copies, and the active session for an explicit visitor. It does not subtract contributions from existing aggregate rollups or their covering indexes. See [retention and erasure](../docs-site/content/docs/operations/retention-and-erasure/retention-and-erasure.mdx) for the public operation.
 
 ## Inspecting and transferring a dataset
 
@@ -456,7 +462,7 @@ Index accessors expose a logical namespace inside a shared tree. Restrict iterat
 
 Treat stored instances, arrays, and sketches as immutable. Direct tree writes bypass ingestion, aggregation, index coordination, session caches, and coverage metadata. Do not dispose or drop engine-owned trees or maintainers, or create an additional maintainer. Release leases before engine disposal.
 
-For a coordinated file copy, close the engine cleanly and copy the entire data root plus the separate WAL root, if configured. Preserve metadata, sessions, all tiers, and any active recovery journal together. If the identity secret is supplied in configuration, retain that configuration securely as well. Reopening requires the persisted format settings, including the same configured absolute WAL root; relocation of that root is not supported by simply changing the option. Test a restored copy in isolation before depending on it. [Deployment and lifecycle](../../operations/deployment/deployment.mdx) covers operational ownership and backups.
+For a coordinated file copy, close the engine cleanly and copy the entire data root plus the separate WAL root, if configured. Preserve metadata, sessions, all tiers, and any active recovery journal together. If the identity secret is supplied in configuration, retain that configuration securely as well. Reopening requires the persisted format settings, including the same configured absolute WAL root; relocation of that root is not supported by simply changing the option. Test a restored copy in isolation before depending on it. [Deployment and lifecycle](../docs-site/content/docs/operations/deployment/deployment.mdx) covers operational ownership and backups.
 
 ## Implementation map
 
@@ -477,12 +483,13 @@ These source files define the contracts described here:
 | Embedded sketches | [HyperLogLog.cs](https://github.com/ZoneTree/ZoneTree.Analytics/blob/main/src/ZoneTree.Analytics/Sketches/HyperLogLog.cs), [QuantileSketch.cs](https://github.com/ZoneTree/ZoneTree.Analytics/blob/main/src/ZoneTree.Analytics/Sketches/QuantileSketch.cs) |
 | Index key layouts | [DimensionIndexKeyCodec.cs](https://github.com/ZoneTree/ZoneTree.Analytics/blob/main/src/ZoneTree.Analytics/Storage/DimensionIndexKeyCodec.cs), [RollupIndexKeyCodec.cs](https://github.com/ZoneTree/ZoneTree.Analytics/blob/main/src/ZoneTree.Analytics/Storage/RollupIndexKeyCodec.cs) |
 | Metadata generations and historical coverage | [MetaStore.cs](https://github.com/ZoneTree/ZoneTree.Analytics/blob/main/src/ZoneTree.Analytics/Storage/MetaStore.cs), [RollupActivations.cs](https://github.com/ZoneTree/ZoneTree.Analytics/blob/main/src/ZoneTree.Analytics/Storage/RollupActivations.cs) |
-| Copy recovery and historical reconstruction journal | [IndexRecovery.cs](https://github.com/ZoneTree/ZoneTree.Analytics/blob/main/src/ZoneTree.Analytics/Storage/IndexRecovery.cs), [JointBackfillCheckpoint.cs](https://github.com/ZoneTree/ZoneTree.Analytics/blob/main/src/ZoneTree.Analytics/Storage/JointBackfillCheckpoint.cs) |
+| Background index work and its order | [IndexMaintenance.cs](https://github.com/ZoneTree/ZoneTree.Analytics/blob/main/src/ZoneTree.Analytics/Storage/IndexMaintenance.cs) |
+| Copy recovery, historical reconstruction, and its journal | [IndexRecovery.cs](https://github.com/ZoneTree/ZoneTree.Analytics/blob/main/src/ZoneTree.Analytics/Storage/IndexRecovery.cs), [JointRollupReconstruction.cs](https://github.com/ZoneTree/ZoneTree.Analytics/blob/main/src/ZoneTree.Analytics/Storage/JointRollupReconstruction.cs), [JointBackfillCheckpoint.cs](https://github.com/ZoneTree/ZoneTree.Analytics/blob/main/src/ZoneTree.Analytics/Storage/JointBackfillCheckpoint.cs) |
 
 ## Related pages
 
-- [Engine API and advanced storage access](../engine/engine.mdx)
-- [Secondary indexes and backfilling](../../performance/secondary-indexes/secondary-indexes.mdx)
-- [Configuration reference](../configuration/configuration.mdx)
-- [Time and accuracy](../../concepts/time-and-accuracy/time-and-accuracy.mdx)
-- [Deployment and lifecycle](../../operations/deployment/deployment.mdx)
+- [Engine API and advanced storage access](../docs-site/content/docs/reference/engine/engine.mdx)
+- [Secondary indexes and backfilling](../docs-site/content/docs/performance/secondary-indexes/secondary-indexes.mdx)
+- [Configuration reference](../docs-site/content/docs/reference/configuration/configuration.mdx)
+- [Time and accuracy](../docs-site/content/docs/concepts/time-and-accuracy/time-and-accuracy.mdx)
+- [Deployment and lifecycle](../docs-site/content/docs/operations/deployment/deployment.mdx)

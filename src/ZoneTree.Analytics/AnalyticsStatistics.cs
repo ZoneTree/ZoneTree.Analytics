@@ -45,6 +45,13 @@ public sealed class AnalyticsStatistics
   public int OpenPartitions { get; init; }
 
   /// <summary>
+  /// The index work running in the background since the engine opened: "dimension indexes",
+  /// "joint rollup history" or "rollup indexes". Null when no job is running, including after
+  /// a failed build; <see cref="AnalyticsEngine.WaitForIndexesAsync"/> reports whether the work succeeded.
+  /// </summary>
+  public string IndexMaintenance { get; init; }
+
+  /// <summary>
   /// Completed partition deletions reported by retention. Failed or still-leased drops are
   /// counted by a later retention check after cleanup succeeds.
   /// </summary>

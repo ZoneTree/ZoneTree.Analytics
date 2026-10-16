@@ -37,7 +37,7 @@ public sealed class ReportingSerializationTests
           "visitors": 2, "pageViews": 3, "sessions": null, "bounceRate": null,
           "averageSessionDuration": 1.25, "pageViewsPerSession": 1.5, "botHits": null
         },
-        "plan": { "complete": true, "warnings": [], "steps": [], "rollupSuggestions": [] }
+        "plan": { "complete": true, "warnings": [], "notices": [], "steps": [], "rollupSuggestions": [] }
       }
       """);
   }
@@ -119,7 +119,7 @@ public sealed class ReportingSerializationTests
     AssertJson(Serialize(new ReportingResponseMapper().Pages(report), ReportingJsonContext.Default.PagesResponse), """
       { "from": "2025-01-01T00:00:00+00:00", "to": "2025-01-02T00:00:00+00:00",
         "totalRows": 42, "rows": [],
-        "plan": { "complete": true, "warnings": [], "steps": [], "rollupSuggestions": [] } }
+        "plan": { "complete": true, "warnings": [], "notices": [], "steps": [], "rollupSuggestions": [] } }
       """);
   }
 

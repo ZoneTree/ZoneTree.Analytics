@@ -60,6 +60,8 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
 
   readonly RollupIndexStore rollupIndexes;
 
+  readonly IndexMaintenance maintenance;
+
   bool started;
 
   readonly VisitorHasher visitorHasher;
@@ -108,8 +110,15 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
   /// Opens or creates the analytics data directory and starts the ingestion workers.
   /// </summary>
   /// <remarks>
+  /// <para>
   /// The engine works on a copy of <paramref name="options"/>: changes made to them afterwards
   /// have no effect. Extensions, hooks and the logger are shared, not copied.
+  /// </para>
+  /// <para>
+  /// Index builds and repairs, and the history of newly indexed rollups, run in the background
+  /// once the engine is open; see <see cref="WaitForIndexesAsync"/>. Opening does the quick part:
+  /// it decides that work and removes data it replaces.
+  /// </para>
   /// </remarks>
   /// <exception cref="ArgumentException">The options are invalid.</exception>
   /// <exception cref="AnalyticsConfigurationException">The options conflict with the storage format of the data directory, or its metadata is damaged.</exception>
@@ -149,8 +158,9 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
       if (options.Sessions.Enabled)
       {
         var sessionResources = new DisposalGroup();
-        ownedStores.Add(sessionResources);
-        sessions = factory.OpenSessions(Path.Combine(root, "sessions"), enricher.Schema);
+        var sessionsDirectory = Path.Combine(root, "sessions");
+        ownedStores.Add(new StageDisposal(sessionResources, storageLogger, "Session store shutdown", sessionsDirectory));
+        sessions = factory.OpenSessions(sessionsDirectory, enricher.Schema);
         sessionResources.Add(sessions);
         sessionsMaintainer = factory.CreateSessionsMaintainer(sessions);
         sessionResources.Add(sessionsMaintainer);
@@ -166,15 +176,24 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
         ownedStores.Add(rawEvents);
       }
 
+      // Opening decides the index work; it runs in the background once ingestion has started.
       dimensionIndexes = new DimensionIndexStore(Path.Combine(root, "indexes"),
           options.Storage.DimensionIndexes, rawEvents, factory, meta, storageLogger);
       ownedStores.Add(dimensionIndexes);
-      dimensionIndexes.Initialize();
+      // Every event stored so far has a sequence up to the current one: background work reads
+      // those, and ingestion writes the later ones to the indexes and rollups itself.
+      var fence = Interlocked.Read(ref sequence);
+      dimensionIndexes.Initialize(fence);
       if (rawEvents != null) rawEvents.Indexes = dimensionIndexes;
+
+      var reconstruction = JointRollupReconstruction.Prepare(options, rollups, rawEvents, activations, calendar,
+          enricher.Schema, meta, storageLogger, fence);
+      if (reconstruction != null)
+        retentionClock.HoldRawEvents(reconstruction.Coverage);
 
       rollupIndexes = new RollupIndexStore(Path.Combine(root, "rollup-indexes"), options, rollups, factory, meta, storageLogger);
       ownedStores.Add(rollupIndexes);
-      rollupIndexes.Initialize(rawEvents, activations, calendar, enricher.Schema);
+      rollupIndexes.Initialize(activations);
       rollups.Indexes = rollupIndexes;
       // Registered after the stores it writes to, so it stops before they close.
       var rollupWriters = new RollupWriterPool(rollups, options.Ingestion.RollupWriterCount, logger);
@@ -201,8 +220,8 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
         workers[i] = new IngestionWorker(services);
 
       queryEngine = new QueryEngine(
-          options, calendar, rollups, rawEvents, definitions, activations, enricher);
-      funnelEngine = new FunnelEngine(options, calendar, rawEvents, enricher);
+          options, calendar, rollups, rawEvents, definitions, activations, enricher, retentionClock);
+      funnelEngine = new FunnelEngine(options, calendar, rawEvents, enricher, retentionClock);
       Web = new WebAnalytics(this);
       Storage = new AnalyticsStorage(rawEvents?.Store, rollups, sessions, sessionsMaintainer,
           () => ObjectDisposedException.ThrowIf(IsDisposed, this), dimensionIndexes, rollupIndexes);
@@ -212,6 +231,10 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
       timer = new Timer(OnTimer, null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
       foreach (var worker in workers)
         worker.Start();
+      // Registered after the stores it writes to, so it stops before they close.
+      maintenance = new IndexMaintenance([.. MaintenanceJobs(reconstruction)], storageLogger, root);
+      ownedStores.Add(maintenance);
+      maintenance.Start();
       lastHousekeepingTicks = DateTime.UtcNow.Ticks;
       var period = options.Ingestion.FlushInterval;
       timer.Change(period, period);
@@ -247,6 +270,42 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
     configure?.Invoke(options);
     return new AnalyticsEngine(options);
   }
+
+  IEnumerable<(string Name, Action<CancellationToken> Run)> MaintenanceJobs(JointRollupReconstruction reconstruction)
+  {
+    if (dimensionIndexes.IsBuilding)
+      yield return ("dimension indexes", dimensionIndexes.Build);
+    if (reconstruction != null)
+      yield return ("joint rollup history", token =>
+      {
+        reconstruction.Run(token);
+        retentionClock.ReleaseRawEvents();
+      });
+    if (rollupIndexes.IsBuilding)
+      yield return ("rollup indexes", rollupIndexes.Build);
+  }
+
+  /// <summary>
+  /// Waits until the indexes are built or repaired and the rebuilt history of new indexed
+  /// rollups is available.
+  /// </summary>
+  /// <remarks>
+  /// The engine does this work in the background after it opens, while it ingests events and
+  /// answers queries: until then queries read raw events or primary rollups instead, with the
+  /// same results, and say so in <see cref="QueryPlan.Notices"/>. Call this before measuring
+  /// query performance, or to report readiness. It completes at once when there is no such work.
+  /// </remarks>
+  /// <exception cref="AnalyticsStorageException">An index could not be built; queries keep answering without it until the engine opens again, which resumes the build.</exception>
+  /// <exception cref="OperationCanceledException">The engine was disposed first, or <paramref name="cancellationToken"/> was canceled.</exception>
+  public Task WaitForIndexesAsync(CancellationToken cancellationToken = default)
+  {
+    ObjectDisposedException.ThrowIf(IsDisposed, this);
+    return maintenance.Completion.WaitAsync(cancellationToken);
+  }
+
+  /// <inheritdoc cref="WaitForIndexesAsync"/>
+  public void WaitForIndexes(CancellationToken cancellationToken = default) =>
+      WaitForIndexesAsync(cancellationToken).GetAwaiter().GetResult();
 
   internal AnalyticsOptions Options => options;
 
@@ -715,8 +774,12 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
   long EraseFlushedVisitor(ulong hash, string site, CancellationToken cancellationToken)
   {
     using var suspension = dimensionIndexes.Suspend();
-    try { return EraseFlushedVisitorCore(hash, site, cancellationToken); }
-    catch { dimensionIndexes.Invalidate(); throw; }
+    // A background index build waits, and reads the raw events again after the erasure.
+    lock (dimensionIndexes.Gate)
+    {
+      try { return EraseFlushedVisitorCore(hash, site, cancellationToken); }
+      catch { dimensionIndexes.Invalidate(); throw; }
+    }
   }
 
   long EraseFlushedVisitorCore(ulong hash, string site, CancellationToken cancellationToken)
@@ -896,6 +959,7 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
       PartitionsDropped = Interlocked.Read(ref counters.PartitionsDropped),
       QueueLength = workers.Sum(x => (long)x.QueueLength),
       OpenPartitions = openPartitions,
+      IndexMaintenance = maintenance.Current,
       Partitions = includePartitions ? DescribePartitions() : []
     };
   }
@@ -1013,10 +1077,18 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
         DisposeStorage();
       return;
     }
+    // Logs what shutdown waits for, and how long: queued events and the final flush, the
+    // running index job, and the background merges of every store.
+    using var shutdown = new StageLog(logger, "Shutdown", dataRoot,
+        $"queued events={workers.Sum(x => (long)x.QueueLength)}; index maintenance={maintenance.Current ?? "none"}");
     timer?.Dispose();
     try
     {
+      var processed = Interlocked.Read(ref counters.EventsProcessed);
+      var flushes = Interlocked.Read(ref counters.Flushes);
+      using var drain = new StageLog(logger, "Ingestion shutdown", dataRoot);
       await Task.WhenAll(workers.Select(x => x.DisposeAsync().AsTask())).ConfigureAwait(false);
+      drain.Complete($"events processed={Interlocked.Read(ref counters.EventsProcessed) - processed}; flushes={Interlocked.Read(ref counters.Flushes) - flushes}");
     }
     finally
     {
@@ -1032,6 +1104,7 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
         }
       }
     }
+    shutdown.Complete(null);
   }
 
   void DisposeStorage()

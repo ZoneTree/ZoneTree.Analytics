@@ -89,6 +89,8 @@ sealed class SampleBenchmark(string contentRoot, TimeZoneInfo timeZone, ILogger 
       compacting = true;
       progress(new("compacting", events.Length, events.Length, statistics.EventsProcessed,
           stopwatch.Elapsed.TotalMilliseconds, statistics.EventsProcessed / Math.Max(0.000001, stopwatch.Elapsed.TotalSeconds)));
+      // Reports measure queries that use the indexes.
+      await engine.WaitForIndexesAsync(applicationStopping);
       await engine.CompactAsync(applicationStopping);
       if (engine.GetStatistics(includePartitions: false).Errors > 0)
         throw new InvalidOperationException("The benchmark dataset could not be finalized successfully.");

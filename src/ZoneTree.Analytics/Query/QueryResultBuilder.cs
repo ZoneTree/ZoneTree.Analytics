@@ -126,7 +126,7 @@ static class QueryResultBuilder
         page.ToList(),
         totalRows,
         totalsRow,
-        new QueryPlan(context.Steps, [.. context.Warnings], context.RollupSuggestions.AsReadOnly()));
+        new QueryPlan(context.Steps, [.. context.Warnings], context.RollupSuggestions.AsReadOnly(), [.. context.Notices]));
     return (result, bucketIndexes);
   }
 

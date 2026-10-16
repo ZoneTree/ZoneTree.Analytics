@@ -8,3 +8,6 @@ foreach (var step in result.Plan.Steps)
 
 foreach (var warning in result.Plan.Warnings)
     Console.WriteLine($"Warning: {warning}");
+
+foreach (var notice in result.Plan.Notices)
+    Console.WriteLine($"Notice: {notice}");

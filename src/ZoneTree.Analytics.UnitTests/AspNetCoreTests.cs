@@ -494,7 +494,7 @@ public sealed class AspNetCoreTests : DirectoryTest
     // any part of the success body reaches the client.
     var metrics = new SummaryMetrics(1, 1, 1, double.NaN, null, 1, null, null);
     var response = new SummaryResponse(DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, metrics,
-        new PlanResponse(true, [], [], []));
+        new PlanResponse(true, [], [], [], []));
     await ReportingApi.Run(context, (_, _, _) => Task.FromResult(response), ReportingJsonContext.Default.SummaryResponse);
     body.Position = 0;
     using var document = await JsonDocument.ParseAsync(body);

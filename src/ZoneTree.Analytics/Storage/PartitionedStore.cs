@@ -727,6 +727,8 @@ sealed class PartitionedStore<TKey, TValue> : IDisposable
         partition.State = PartitionState.Closing;
       Monitor.PulseAll(sync);
     }
+    // Closing a tree waits for its background merges: shutdown logs how long each store takes.
+    using var log = all.Count == 0 ? null : new StageLog(logger, "Partition store shutdown", RootDirectory, $"open partitions={all.Count}");
     var failures = new List<Exception>();
     foreach (var partition in all)
     {
@@ -741,6 +743,8 @@ sealed class PartitionedStore<TKey, TValue> : IDisposable
     {
       failures.Add(exception);
     }
+    if (failures.Count == 0)
+      log?.Complete($"closed partitions={all.Count}");
     Disposal.ThrowFailures(failures);
   }
 }
@@ -772,6 +776,18 @@ sealed class PartitionLease<TKey, TValue> : IDisposable
   public IZoneTree<TKey, TValue> Tree { get; }
 
   public IMaintainer Maintainer { get; }
+
+  /// <summary>
+  /// Moves the partition's writes to disk segments and waits; writes may continue meanwhile.
+  /// The default write-ahead log writes in the background and can lose the most recent writes
+  /// when the process dies, which an analytics engine accepts. This is for the rare writes whose
+  /// loss would not be small, such as deleting the rows of an earlier activation.
+  /// </summary>
+  public void Persist()
+  {
+    Maintainer.EvictToDisk();
+    Maintainer.WaitForBackgroundThreads();
+  }
 
   public void Dispose()
   {

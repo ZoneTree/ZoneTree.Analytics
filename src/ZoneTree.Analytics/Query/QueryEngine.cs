@@ -1,3 +1,4 @@
+using System.Globalization;
 using ZoneTree.Analytics.Ingestion;
 using ZoneTree.Analytics.Internal;
 using ZoneTree.Analytics.Sketches;
@@ -47,6 +48,8 @@ sealed class QueryEngine
 
   readonly EnrichmentPipeline enricher;
 
+  readonly RetentionClock retention;
+
   readonly RawSessionReader sessionReader;
 
   readonly QueryPreparation preparation;
@@ -58,7 +61,8 @@ sealed class QueryEngine
       RawEventStore rawEvents,
       RollupDefinition[] definitions,
       RollupActivations activations,
-      EnrichmentPipeline enricher)
+      EnrichmentPipeline enricher,
+      RetentionClock retention)
   {
     this.options = options;
     this.storageCalendar = storageCalendar;
@@ -66,8 +70,9 @@ sealed class QueryEngine
     this.rawEvents = rawEvents;
     this.activations = activations;
     this.enricher = enricher;
+    this.retention = retention;
     sessionReader = new(rawEvents, enricher.Schema, options);
-    preparation = new(options, storageCalendar, definitions, activations, enricher);
+    preparation = new(options, storageCalendar, definitions, activations, enricher, retention);
   }
 
   #region Entry points
@@ -151,6 +156,14 @@ sealed class QueryEngine
         context.CancellationToken, context.Interval);
     source.Plan = plan.Segments;
     SuggestRollup(context, source, selection);
+    if (source.Definition != null && selection != QuerySource.RawEvents && activations.IsRebuilding(source.Definition.Id) &&
+        plan.Segments.Any(x => x.Source == PlanSource.RawEvents))
+    {
+      var since = new DateTime(activations.DefinitionSince(source.Definition.Id), DateTimeKind.Utc);
+      context.Notices.Add(
+          $"The rollup history of [{string.Join(", ", source.Definition.Dimensions)}] is being rebuilt in the background; " +
+          $"ranges of '{source.Event}' before {since.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)} UTC were read from raw events.");
+    }
     foreach (var segment in plan.Segments.Where(x => x.Source == PlanSource.RawEvents))
       AddWarning(context, context.Cutoffs.RawEventsWarning(segment.From));
     foreach (var granularity in CoarseToFine)
@@ -291,9 +304,13 @@ sealed class QueryEngine
     var indexDimension = rollups.Indexes?.Scan(granularity, context.Site, source.Event, definition.Id, fromBucket, toBucket,
         source.Filters, Visit, context.CancellationToken);
     if (indexDimension != null)
+    {
       context.Steps[^1] = context.Steps[^1] with { IndexDimension = indexDimension };
-    else
-      rollups.Scan(granularity, context.Site, source.Event, definition.Id, fromBucket, toBucket, Visit);
+      return;
+    }
+    if (rollups.Indexes?.Unbuilt(granularity, definition.Id, source.Filters) is { } unbuilt)
+      context.Notices.Add($"The rollup index on '{unbuilt}' is being built in the background; primary rollups were read instead.");
+    rollups.Scan(granularity, context.Site, source.Event, definition.Id, fromBucket, toBucket, Visit);
   }
 
   /// <summary>
@@ -360,10 +377,12 @@ sealed class QueryEngine
     var maxDegree = options.Queries.MaxDegreeOfParallelism;
     var shardCount = trackSessions ? maxDegree : 0;
 
+    Func<string, bool> allowed = dimension =>
+        !trackSessions || enricher.Schema.IsSessionLevel(dimension) || dimension == StandardDimensions.EntryPage;
     var index = context.UseDimensionIndexes ? rawEvents.Indexes?.Select(
-        context.Site, segment.From, segment.To, context.Filters,
-        dimension => !trackSessions || enricher.Schema.IsSessionLevel(dimension) || dimension == StandardDimensions.EntryPage,
-        context.CancellationToken) : null;
+        context.Site, segment.From, segment.To, context.Filters, allowed, context.CancellationToken) : null;
+    if (index == null && context.UseDimensionIndexes && rawEvents.Indexes?.Unbuilt(context.Filters, allowed) is { } unbuilt)
+      context.Notices.Add(DimensionIndexStore.UnbuiltNotice(unbuilt));
     var slices = rawEvents.ScanIndexed(
         index, context.Site, segment.From, segment.To, maxDegree,
         () => new RawSlice(eventSources.Length, shardCount, context.GroupBy.Length),
@@ -586,7 +605,7 @@ sealed class QueryEngine
     var now = DateTime.UtcNow.Ticks;
     var (from, to) = range.Resolve(preparation.CalendarFor(timeZone), now);
     site = enricher.NormalizeSite(site);
-    var cutoffs = RetentionCutoffs.Compute(options.Retention, storageCalendar, now);
+    var cutoffs = retention.At(now);
     var tiers = AvailableRollups(storageCalendar, TimeInterval.None, cutoffs);
     var plan = QueryRangePlanner.Build(storageCalendar, from, to, tiers, rawEvents != null, cancellationToken);
     var names = new SortedSet<string>(StringComparer.Ordinal);

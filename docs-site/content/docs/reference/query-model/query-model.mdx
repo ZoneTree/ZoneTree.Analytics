@@ -170,13 +170,15 @@ Use them in grouping, filters, and conditional metrics. They are computed rather
 | --- | --- |
 | AnalyticsResult | From, To, TimeZone, Rows, TotalRows, Totals, Comparison, Plan |
 | AnalyticsRow | Bucket, Dimensions, Values, Previous, metric and dimension indexers |
-| QueryPlan | Steps, Warnings, RollupSuggestions, IsComplete, source-use flags |
+| QueryPlan | Steps, Warnings, Notices, RollupSuggestions, IsComplete, source-use flags |
 | QueryPlanStep | Event, Source, From, To, IndexDimension |
 | FunnelResult | From, To, Steps, ConversionRate, Plan |
 
 `TotalRows` is the count before global pagination. Totals precede pagination, and distinct counts merge state rather than adding row values. `Change(metric)` returns relative change, or null when no matching comparison exists or the previous value is zero.
 
 Plan sources are DayRollups, HourRollups, MinuteRollups, RawEvents, and DimensionIndex. A covering rollup index keeps its tier source and sets `IndexDimension`. Suggestions identify missing ordinary rollup definitions; they do not make historical coverage complete.
+
+`Notices` describes temporary source fallbacks during background index work and does not affect `IsComplete`. `Warnings` describes coverage and interpretation concerns. See [secondary indexes](../../performance/secondary-indexes/secondary-indexes.mdx#plan-backfill-work) for background work and recovery behavior.
 
 ## Standard web vocabulary
 

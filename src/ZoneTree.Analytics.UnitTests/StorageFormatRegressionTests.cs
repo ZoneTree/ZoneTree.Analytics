@@ -213,12 +213,17 @@ public sealed class StorageFormatRegressionTests : DirectoryTest
     });
   }
 
+  JointBackfillCheckpoint Journal(string configuration, long coverage) =>
+      new(directory, configuration, () => new() { Coverage = coverage });
+
   [Test]
   public void JointBackfillJournalRoundTripsEveryField()
   {
-    var checkpoint = new JointBackfillCheckpoint(directory, "configuration", 5);
+    var checkpoint = Journal("configuration", 5);
     var state = checkpoint.State;
     state.Copying = true;
+    state.Fence = 42;
+    state.Partitions = ["2026-10-14", "2026-10-15"];
     state.Site = "shop";
     state.Partition = "2026-10-15";
     state.Key = [1, 2, 3];
@@ -238,7 +243,7 @@ public sealed class StorageFormatRegressionTests : DirectoryTest
     state.Redo.Add(new JointBackfillReplacement { Granularity = Granularity.Day, Partition = "2026-10-14", Key = [4], Value = [5, 6] });
     checkpoint.Save();
 
-    var reopened = new JointBackfillCheckpoint(directory, "configuration", 99);
+    var reopened = Journal("configuration", 99);
     var loaded = reopened.State;
     var session = loaded.Active[9];
     Assert.Multiple(() =>
@@ -246,6 +251,7 @@ public sealed class StorageFormatRegressionTests : DirectoryTest
       Assert.That(reopened.Resuming, Is.True);
       Assert.That((loaded.Copying, loaded.Coverage, loaded.Site, loaded.SiteCompleted, loaded.Partition), Is.EqualTo((true, 5L, "shop", false, "2026-10-15")));
       Assert.That(loaded.Key, Is.EqualTo(new byte[] { 1, 2, 3 }));
+      Assert.That((loaded.Fence, loaded.Partitions), Is.EqualTo((42L, new[] { "2026-10-14", "2026-10-15" })));
       Assert.That((loaded.Events, loaded.Sessions, loaded.Updates, loaded.Flushes, loaded.Sites), Is.EqualTo((10L, 11L, 12L, 13L, 2)));
       Assert.That((session.Start, session.Last, session.PageViews, session.Interactions, session.Visitor, session.Allowed), Is.EqualTo((100L, 200L, 3, 4, 77UL, true)));
       Assert.That(session.Dimensions, Is.EqualTo(state.Active[9].Dimensions));
@@ -256,10 +262,10 @@ public sealed class StorageFormatRegressionTests : DirectoryTest
       Assert.That(loaded.Redo.Single().Partition, Is.EqualTo("2026-10-14"));
       Assert.That(loaded.Redo.Single().Key, Is.EqualTo(new byte[] { 4 }));
       Assert.That(loaded.Redo.Single().Value, Is.EqualTo(new byte[] { 5, 6 }));
-      Assert.That(new JointBackfillCheckpoint(directory, "other", 5).Resuming, Is.False);
+      Assert.That(Journal("other", 5).Resuming, Is.False);
     });
     reopened.Complete();
-    Assert.That(new JointBackfillCheckpoint(directory, "configuration", 5).Resuming, Is.False);
+    Assert.That(Journal("configuration", 5).Resuming, Is.False);
   }
 
   [Test]
@@ -270,13 +276,13 @@ public sealed class StorageFormatRegressionTests : DirectoryTest
     const int rows = 7_500;
     var value = new byte[16_386];
     new Random(1).NextBytes(value);
-    var checkpoint = new JointBackfillCheckpoint(directory, "configuration", 0);
+    var checkpoint = Journal("configuration", 0);
     for (var i = 0; i < rows; ++i)
       checkpoint.State.Redo.Add(new JointBackfillReplacement { Granularity = Granularity.Hour, Partition = "2026-10-15", Key = BitConverter.GetBytes(i), Value = value });
     checkpoint.Save();
     var journal = Directory.GetFiles(Path.Combine(directory, "backfill", "joint-rollups")).Sum(path => new FileInfo(path).Length);
     Assert.That(journal, Is.LessThan(rows * (value.Length + 64L)), "the journal stores bytes, not text");
-    var redo = new JointBackfillCheckpoint(directory, "configuration", 0).State.Redo;
+    var redo = Journal("configuration", 0).State.Redo;
     Assert.That(redo, Has.Count.EqualTo(rows));
     Assert.That(redo[^1].Key, Is.EqualTo(BitConverter.GetBytes(rows - 1)));
     Assert.That(redo[^1].Value, Is.EqualTo(value));
@@ -295,14 +301,14 @@ public sealed class StorageFormatRegressionTests : DirectoryTest
     var journal = Path.Combine(directory, "backfill", "joint-rollups");
     Directory.CreateDirectory(journal);
     File.WriteAllBytes(Path.Combine(journal, "journal-b.bin"), [.. header, .. body]);
-    var error = Assert.Throws<AnalyticsConfigurationException>(() => _ = new JointBackfillCheckpoint(directory, "configuration", 0));
+    var error = Assert.Throws<AnalyticsConfigurationException>(() => _ = Journal("configuration", 0));
     Assert.That(error.Message, Does.Contain("older release"));
   }
 
   [Test]
   public void ATornJointBackfillJournalFallsBackToThePreviousCheckpoint()
   {
-    var checkpoint = new JointBackfillCheckpoint(directory, "configuration", 0);
+    var checkpoint = Journal("configuration", 0);
     checkpoint.State.Events = 1;
     checkpoint.Save();
     checkpoint.State.Events = 2;
@@ -313,6 +319,6 @@ public sealed class StorageFormatRegressionTests : DirectoryTest
         .OrderByDescending(path => BitConverter.ToInt64(File.ReadAllBytes(path), 8)).First();
     var bytes = File.ReadAllBytes(newest);
     File.WriteAllBytes(newest, bytes[..(bytes.Length - 1)]);
-    Assert.That(new JointBackfillCheckpoint(directory, "configuration", 0).State.Events, Is.EqualTo(1));
+    Assert.That(Journal("configuration", 0).State.Events, Is.EqualTo(1));
   }
 }

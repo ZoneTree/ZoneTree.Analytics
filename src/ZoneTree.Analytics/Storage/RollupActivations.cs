@@ -21,7 +21,11 @@ sealed class RollupActivations
 
   const string GranularityPrefix = "granularity:";
 
-  readonly Dictionary<string, long> definitions = new(StringComparer.Ordinal);
+  // Replaced, never modified, once queries read it: a reconstruction publishes coverage while
+  // queries run.
+  volatile Dictionary<string, long> definitions = new(StringComparer.Ordinal);
+
+  volatile HashSet<string> rebuilding = new(StringComparer.Ordinal);
 
   readonly Dictionary<string, long> aggregates = new(StringComparer.Ordinal);
 
@@ -81,7 +85,7 @@ sealed class RollupActivations
   /// definition holds: its dimensions and its event restriction. Changing either starts a new
   /// activation.
   /// </summary>
-  static string DefinitionKey(RollupDefinition definition)
+  public static string DefinitionKey(RollupDefinition definition)
   {
     var key = DefinitionPrefix + definition.Id;
     if (definition.Events == null)
@@ -109,6 +113,16 @@ sealed class RollupActivations
   public long DefinitionSince(string id) =>
       definitions.TryGetValue(id, out var since) ? since : long.MaxValue;
 
+  /// <summary>
+  /// Marks definitions whose history is being rebuilt in the background, until
+  /// <see cref="Backfilled"/> publishes it.
+  /// </summary>
+  public void Rebuilding(IEnumerable<string> ids) =>
+      rebuilding = new HashSet<string>(rebuilding.Concat(ids), StringComparer.Ordinal);
+
+  /// <summary>Whether the history of a definition is being rebuilt; queries read raw events for it meanwhile.</summary>
+  public bool IsRebuilding(string id) => rebuilding.Contains(id);
+
   /// <summary>Publishes historical coverage only after an indexed joint rollup finishes backfilling.</summary>
   public void Backfilled(MetaStore meta, IEnumerable<RollupDefinition> completed, long since)
   {
@@ -118,7 +132,10 @@ sealed class RollupActivations
       foreach (var definition in values)
         entries[DefinitionKey(definition)] = since.ToString(CultureInfo.InvariantCulture);
     });
-    foreach (var definition in values) definitions[definition.Id] = since;
+    var updated = new Dictionary<string, long>(definitions, StringComparer.Ordinal);
+    foreach (var definition in values) updated[definition.Id] = since;
+    definitions = updated;
+    rebuilding = new HashSet<string>(rebuilding.Except(values.Select(definition => definition.Id)), StringComparer.Ordinal);
   }
 
   /// <summary>Since when a tier has been continuously enabled.</summary>

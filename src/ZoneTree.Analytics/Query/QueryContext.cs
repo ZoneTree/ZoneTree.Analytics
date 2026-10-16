@@ -42,6 +42,8 @@ sealed class QueryContext
 
   public readonly HashSet<string> Warnings = new(StringComparer.Ordinal);
 
+  public readonly HashSet<string> Notices = new(StringComparer.Ordinal);
+
   public readonly List<RollupSuggestion> RollupSuggestions = [];
 
   public SegmentSets SegmentSets;
