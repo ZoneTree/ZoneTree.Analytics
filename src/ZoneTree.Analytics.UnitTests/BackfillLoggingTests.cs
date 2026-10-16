@@ -72,8 +72,9 @@ public sealed class BackfillLoggingTests : DirectoryTest
       Assert.That(Number(copies, "index rows written"), Is.EqualTo(4));
       Assert.That(copies, Does.Contain("historical backfill=True"));
       AssertChecks(provider, "rebuild required");
-      var total = Number(Completed(provider, "Rollup index initialization"), "duration");
-      Assert.That(total, Is.GreaterThanOrEqualTo(Number(joint, "duration") + Number(copies, "duration") - 0.1));
+      // Opening only decides the work: the builds run in the background.
+      Assert.That(Completed(provider, "Rollup index initialization"), Does.Contain("decision=rebuild in background"));
+      Assert.That(Completed(provider, "Dimension index initialization"), Does.Contain("decision=rebuild in background"));
       TestContext.Out.WriteLine(string.Join(Environment.NewLine, provider.Messages.Select(log => log.Message).Where(message => message.Contains("backfill", StringComparison.Ordinal))));
     }
     provider.Messages.Clear();
@@ -128,7 +129,7 @@ public sealed class BackfillLoggingTests : DirectoryTest
         .AddZoneTreeAnalytics(options => { options.DataDirectory = directory; TestEngine.UseTestDefaults(options); Indexes(options); })
         .BuildServiceProvider())
     {
-      _ = services.GetRequiredService<AnalyticsEngine>();
+      services.GetRequiredService<AnalyticsEngine>().WaitForIndexesAsync().GetAwaiter().GetResult();
       Assert.That(provider.Messages.Any(log => log.Category == "ZoneTree.Analytics" && log.Message.StartsWith("Rollup index backfill started;", StringComparison.Ordinal)), Is.True);
     }
     provider.Messages.Clear();
@@ -143,18 +144,40 @@ public sealed class BackfillLoggingTests : DirectoryTest
   }
 
   [Test]
+  public void ShutdownLogsWhatItWaitsForAndHowLong()
+  {
+    var logger = new IndexCrashRecoveryTests.RecoveryLogger();
+    var engine = TestEngine.Create(directory, options => { Configure(options); options.Sessions.Enabled = true; options.Storage.Logger = logger; });
+    for (var i = 0; i < 3; i++)
+      Assert.That(engine.Track(new AnalyticsEvent("pageview") { VisitorId = "v" + i, Timestamp = Utc(DateTime.UtcNow.AddMinutes(-i)) }), Is.True);
+    engine.Dispose();
+    var messages = logger.Messages.ToArray();
+    string Completed(string stage) => messages.Single(message => message.StartsWith(stage + " completed;", StringComparison.Ordinal));
+    Assert.Multiple(() =>
+    {
+      Assert.That(messages.Single(message => message.StartsWith("Shutdown started;", StringComparison.Ordinal)), Does.Contain("index maintenance=none"));
+      Assert.That(Completed("Ingestion shutdown"), Does.Contain("events processed=3;").And.Contain("flushes=1"));
+      Assert.That(messages.Where(message => message.StartsWith("Partition store shutdown completed;", StringComparison.Ordinal)),
+          Has.Some.Contains("closed partitions=1").And.Some.Contains(Path.Combine("rollups", "day")));
+      Assert.That(Completed("Session store shutdown"), Does.Contain("duration="));
+      Assert.That(Number(Completed("Shutdown"), "duration"), Is.GreaterThanOrEqualTo(Number(Completed("Ingestion shutdown"), "duration")));
+      Assert.That(Array.FindLastIndex(messages, message => message.StartsWith("Shutdown completed;", StringComparison.Ordinal)), Is.EqualTo(messages.Length - 1));
+    });
+  }
+
+  [Test]
   public void FailedStageReportsElapsedTimeAndThrowingLogProviderDoesNotMaskFailure()
   {
     using var provider = new LogProvider();
     using var factory = LoggerFactory.Create(logging => logging.AddProvider(provider));
     var logger = new LoggerAdapter(factory.CreateLogger("Failure"));
-    using (var stage = new StartupLog(logger, "Dimension index backfill", directory)) { }
+    using (var stage = new StageLog(logger, "Dimension index backfill", directory)) { }
     Assert.That(provider.Messages.Last().Message, Does.StartWith("Dimension index backfill failed;").And.Contain("duration="));
     Assert.That(provider.Messages.Any(log => log.Message.StartsWith("Dimension index backfill completed;", StringComparison.Ordinal)), Is.False);
     provider.Throw = true;
     Assert.That(() =>
     {
-      using var stage = new StartupLog(logger, "Joint rollup backfill", directory);
+      using var stage = new StageLog(logger, "Joint rollup backfill", directory);
       throw new IOException("original storage failure");
     }, Throws.TypeOf<IOException>().With.Message.EqualTo("original storage failure"));
   }

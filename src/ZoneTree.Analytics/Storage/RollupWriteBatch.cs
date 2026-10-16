@@ -40,14 +40,35 @@ sealed class RollupWriteBatch(Dictionary<RollupBufferKey, RollupAccumulator> row
   }
 }
 
-/// <summary>One additive contribution and whether its replacement has been written.</summary>
-sealed class RollupWrite(Memory<byte> key, RollupValue delta)
+/// <summary>How a write changes its row.</summary>
+enum RollupWriteKind
+{
+  /// <summary>Merges an additive delta of ingestion into the row.</summary>
+  Delta,
+
+  /// <summary>Replaces the rebuilt part of the row with the absolute value of a reconstruction.</summary>
+  Rebuild,
+
+  /// <summary>Merges the rebuilt part into the row, and copies the row to its indexes.</summary>
+  Fold
+}
+
+/// <summary>One change of a row and whether its replacement has been written.</summary>
+/// <param name="key">The rollup key.</param>
+/// <param name="delta">The delta, or the rebuilt part a <see cref="RollupWriteKind.Rebuild"/> writes; null for a fold.</param>
+/// <param name="kind">How the write changes the row.</param>
+sealed class RollupWrite(Memory<byte> key, RollupValue delta, RollupWriteKind kind = RollupWriteKind.Delta)
 {
   public readonly Memory<byte> Key = key;
 
   public readonly RollupValue Delta = delta;
 
+  public readonly RollupWriteKind Kind = kind;
+
   public RollupValue Replacement;
+
+  // A fold of a row without a rebuilt part only copies the row.
+  public bool Unchanged;
 
   public bool Completed;
 }
@@ -60,6 +81,11 @@ sealed class RollupWrite(Memory<byte> key, RollupValue delta)
 /// further delta. This also lets another worker finish the pending write without applying it
 /// twice.
 /// </summary>
+/// <remarks>
+/// Background index builds and history reconstructions write through the same stripes, so they
+/// read the current value of a row and never overwrite a concurrent flush. Only ingestion records
+/// the days it writes for index recovery: background writes advance their own checkpoints.
+/// </remarks>
 sealed class RollupWriter(IZoneTree<Memory<byte>, RollupValue> tree, Action<Memory<byte>, RollupValue> copy = null,
     Action<Memory<byte>> beforeWrite = null)
 {
@@ -102,7 +128,19 @@ sealed class RollupWriter(IZoneTree<Memory<byte>, RollupValue> tree, Action<Memo
       if (row.Completed)
         return;
       tree.TryGet(row.Key, out var existing);
-      row.Replacement = RollupValue.Merge(existing, row.Delta);
+      row.Replacement = row.Kind switch
+      {
+        RollupWriteKind.Delta => RollupValue.Merge(existing, row.Delta),
+        RollupWriteKind.Rebuild => RollupValue.WithRebuilt(existing, row.Delta),
+        _ => existing?.Folded()
+      };
+      if (row.Replacement == null)
+      {
+        // A fold of a row that no longer exists.
+        row.Completed = true;
+        return;
+      }
+      row.Unchanged = ReferenceEquals(row.Replacement, existing);
       stripe.Pending = row;
       CompletePending(stripe);
     }
@@ -115,10 +153,14 @@ sealed class RollupWriter(IZoneTree<Memory<byte>, RollupValue> tree, Action<Memo
       return;
     // Every writer of this row uses the same stripe. An upsert retry cannot overwrite another
     // worker's contribution, and repeating it cannot add the delta a second time. The index
-    // copy runs under the same lock, so the copies of a row are written in order.
-    beforeWrite?.Invoke(pending.Key);
-    tree.Upsert(pending.Key, pending.Replacement);
-    copy?.Invoke(pending.Key, pending.Replacement);
+    // copy runs under the same lock, so the copies of a row are written in order. A rebuilt part
+    // is invisible to readers: it reaches the indexes when it is folded in.
+    if (pending.Kind == RollupWriteKind.Delta)
+      beforeWrite?.Invoke(pending.Key);
+    if (!pending.Unchanged)
+      tree.Upsert(pending.Key, pending.Replacement);
+    if (pending.Kind != RollupWriteKind.Rebuild)
+      copy?.Invoke(pending.Key, pending.Replacement);
     pending.Completed = true;
     stripe.Pending = null;
   }

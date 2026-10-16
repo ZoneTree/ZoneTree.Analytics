@@ -270,7 +270,7 @@ public sealed class RollupValueLayoutTests
   {
     var bytes = Serializer.Serialize(HeavyRow(10)).ToArray();
     var unknownBit = bytes.ToArray();
-    unknownBit[0] |= 0x10;
+    unknownBit[0] |= 0x20;
     var notPresent = bytes.ToArray();
     notPresent[0] &= 0xFE;
     Assert.Multiple(() =>
@@ -313,6 +313,45 @@ public sealed class RollupValueLayoutTests
     // The largest valid delta still decodes.
     byte[] largest = [1 | 2, 0, 0, .. Section([14, 1, 1, 0xFF, 0xFF, 0xFF, 0xFF, 0x0F])];
     Assert.That(Serializer.Deserialize(largest).Visitors.Estimate(), Is.EqualTo(1));
+  }
+
+  [Test]
+  public void ARebuiltPartStaysApartFromFlushesUntilItIsFoldedIn()
+  {
+    var live = HeavyRow(10);
+    var rebuilt = HeavyRow(30);
+    var stored = Serializer.Deserialize(Serializer.Serialize(RollupValue.WithRebuilt(live, rebuilt)));
+    // A flush merges its delta into the row and keeps the rebuilt part as it is.
+    var flushed = Serializer.Deserialize(Serializer.Serialize(RollupValue.Merge(stored, HeavyRow(5))));
+    var folded = flushed.Folded();
+    var onlyRebuilt = Serializer.Deserialize(Serializer.Serialize(RollupValue.WithRebuilt(null, rebuilt)));
+    Assert.Multiple(() =>
+    {
+      Assert.That((stored.Count, stored.Rebuilt.Count), Is.EqualTo((10L, 30L)));
+      Assert.That((flushed.Count, flushed.Rebuilt.Count), Is.EqualTo((15L, 30L)));
+      Assert.That(flushed.Rebuilt.Visitors.Estimate(), Is.EqualTo(rebuilt.Visitors.Estimate()));
+      Assert.That((folded.Count, folded.Rebuilt), Is.EqualTo((45L, (RollupValue)null)));
+      // Folding adds the rebuilt part as if a flush had merged it.
+      Assert.That(Serializer.Serialize(folded).ToArray(), Is.EqualTo(Serializer.Serialize(RollupValue.Merge(RollupValue.Merge(live, HeavyRow(5)), rebuilt)).ToArray()));
+      Assert.That(stored.IsRebuiltOnly, Is.False);
+      Assert.That(onlyRebuilt.IsRebuiltOnly, Is.True);
+      Assert.That(onlyRebuilt.Folded().Count, Is.EqualTo(30));
+      Assert.That(folded.Folded(), Is.SameAs(folded), "a row without a rebuilt part folds to itself");
+    });
+  }
+
+  [Test]
+  public void ARebuiltPartCannotHaveARebuiltPartOfItsOwn()
+  {
+    const byte live = 1, rebuiltBit = 16;
+    byte[] empty = [live, 0, 0];
+    byte[] nested = [live | rebuiltBit, 0, 0, .. Section(empty)];
+    Assert.Multiple(() =>
+    {
+      Assert.That(Serializer.Deserialize(nested.ToArray()).Rebuilt.Count, Is.Zero);
+      Assert.Throws<FormatException>(() => Serializer.Deserialize((byte[])[live | rebuiltBit, 0, 0, .. Section(nested)]), "a nested rebuilt part");
+      Assert.Throws<FormatException>(() => Serializer.Deserialize((byte[])[live | rebuiltBit, 0, 0, .. Section(0)]), "a deleted rebuilt part");
+    });
   }
 
   [Test]

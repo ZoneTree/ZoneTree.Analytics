@@ -139,10 +139,13 @@ A general query returns metric-keyed objects. Here is an example response for a 
 | totalRows | Result-row count before global pagination |
 | previous | Comparison object, when one is available |
 | plan.complete / warnings | Historical coverage and interpretation concerns |
+| plan.notices | Temporary source fallback during background index work |
 
 Numeric rates such as bounce rate and conversion rate are fractions: `0.25` means 25%. Built-in session durations are seconds. Custom numeric values retain their producer's unit, such as `duration_ms` or `revenue_usd`.
 
-Plans include source steps, warnings, completeness, and rollup suggestions. Use them when historical coverage matters.
+Plans include source steps, warnings, notices, completeness, and rollup suggestions. Use them when historical coverage matters.
+
+Notices do not affect `plan.complete`; warnings still describe coverage and interpretation concerns.
 
 HTTP plans expose `steps[].source` and optional `steps[].indexDimension`. The .NET-only convenience flags such as `UsedRollupIndexes` are not additional fields in the JSON contract.
 

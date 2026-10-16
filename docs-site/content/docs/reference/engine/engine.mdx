@@ -61,9 +61,14 @@ Storage-reading asynchronous forms run the work on a thread-pool thread. They do
 | Compact / CompactAsync | Flush and merge open stores toward disk |
 | ApplyRetention / ApplyRetentionAsync | Run physical retention maintenance |
 | EraseVisitor / EraseVisitorAsync | Remove an explicit visitor's retained raw events, index copies, and session |
+| WaitForIndexes / WaitForIndexesAsync | Wait for index builds, repairs, and reconstruction of indexed rollup history |
 | Dispose / DisposeAsync | Stop ingestion, drain accepted work, flush, and release ownership |
 
 Erasure returns deleted raw-event count and does not subtract already aggregated rollup history. Compaction is useful after bulk imports but is separate from ordinary periodic flushing.
+
+Index work runs in the background after the engine opens. Queries use the available sources meanwhile; `Plan.Notices` explains temporary fallbacks. See [secondary indexes](../../performance/secondary-indexes/secondary-indexes.mdx#plan-backfill-work) for query and recovery behavior.
+
+`WaitForIndexesAsync` completes immediately when there is no work. It raises `AnalyticsStorageException` if an index cannot be built in this engine instance, after the remaining jobs have run. Reopening resumes the failed build. Canceling the caller's token cancels only the wait; disposing the engine cancels unfinished background work.
 
 ## Statistics
 
@@ -72,15 +77,17 @@ Erasure returns deleted raw-event count and does not subtract already aggregated
 | Group | Fields |
 | --- | --- |
 | Ingestion | EventsAccepted, EventsProcessed, EventsDropped, EventsRejected, EventsFiltered |
-| Health | QueueLength, Errors, Flushes |
+| Health | QueueLength, Errors, Flushes, IndexMaintenance |
 | Web activity | SessionsStarted, BotsExcluded, BotsTracked |
 | Storage | OpenPartitions, PartitionsDropped, Partitions |
 
 Partition record counts are approximate and may be null for partitions not opened since startup. Counters start again with a new engine instance.
 
+`IndexMaintenance` names the current job: `"dimension indexes"`, `"joint rollup history"`, or `"rollup indexes"`. Null means no job is running; use `WaitForIndexesAsync` to distinguish successful completion from a failed build.
+
 ## Errors and cancellation
 
-`AnalyticsException` is the base for engine-specific errors. `AnalyticsConfigurationException` reports incompatible options or dataset configuration. `AnalyticsQueryException` reports unanswerable or bounded queries; `AnalyticsQueryTimeoutException` is its timeout subclass. `AnalyticsStorageException` reports a flush whose rollup rows could not be written; its inner exception is the storage failure, and the rows are retried by later flushes.
+`AnalyticsException` is the base for engine-specific errors. `AnalyticsConfigurationException` reports incompatible options or dataset configuration. `AnalyticsQueryException` reports unanswerable or bounded queries; `AnalyticsQueryTimeoutException` is its timeout subclass. `AnalyticsStorageException` reports data that could not be written to storage: a flush whose rollup rows are retried by later flushes, or, from `WaitForIndexesAsync`, an index build that requires reopening to resume. Its inner exception carries the underlying storage failure when available.
 
 Invalid arguments use standard argument exceptions. Caller cancellation uses the cancellation token; configured query timeout additionally protects expensive report execution.
 
@@ -131,8 +138,6 @@ raw events, rollups and cached sessions inconsistent. The metadata store uses fi
 than ZoneTree and is not exposed.
 
 For shared indexes, restrict iterators using the returned logical `KeyPrefix`. Each accessor exposes a logical namespace within the shared physical store.
-
-See the [storage format reference](../storage-format/storage-format.mdx) for directory layouts, exact key and payload encodings, metadata generations, and recovery behavior.
 
 ## Related pages
 

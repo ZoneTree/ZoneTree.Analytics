@@ -8,7 +8,7 @@ namespace ZoneTree.Analytics.Query;
 /// <summary>Validates a query and resolves the sources, dimensions and aggregates it needs.</summary>
 sealed class QueryPreparation(
     AnalyticsOptions options, ReportingCalendar storageCalendar, RollupDefinition[] definitions,
-    RollupActivations activations, EnrichmentPipeline enricher)
+    RollupActivations activations, EnrichmentPipeline enricher, RetentionClock retention)
 {
   public ReportingCalendar CalendarFor(TimeZoneInfo timeZone)
   {
@@ -105,7 +105,7 @@ sealed class QueryPreparation(
       Precision = options.Rollups.HyperLogLogPrecision,
       CancellationToken = cancellationToken,
       NowTicks = now,
-      Cutoffs = RetentionCutoffs.Compute(options.Retention, storageCalendar, now),
+      Cutoffs = retention.At(now),
       UseDimensionIndexes = query.Source == QuerySource.Auto
     };
 

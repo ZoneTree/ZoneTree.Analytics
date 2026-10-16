@@ -31,9 +31,15 @@ Metadata, event history, aggregates, sessions, and logs belong to the dataset. C
 
 ## Account for startup
 
-Startup checks configuration and index coverage. Clean reuse can be quick; adding indexes to a large retained dataset can require substantial backfill work.
+Startup checks configuration and index coverage. Adding indexes to a large retained dataset can require substantial backfill work, which runs in the background: reports stay available meanwhile, and use the new indexes once it completes.
 
-Use initialization logs to explain startup duration and set readiness budgets accordingly. The dashboard prepares retained sample datasets before serving their reports.
+Use initialization logs to follow the backfill. To delay readiness until background index work finishes, await:
+
+<import-codeblock src="./wait-for-indexes.cs"/>
+
+The wait includes index builds, repairs, and reconstruction of indexed rollup history. It raises `AnalyticsStorageException` if an index cannot be built in this engine instance; queries continue using the available sources, and reopening the engine resumes the build. Canceling the token stops waiting without stopping background work.
+
+The dashboard prepares retained sample datasets before serving their reports.
 
 ## Close cleanly
 

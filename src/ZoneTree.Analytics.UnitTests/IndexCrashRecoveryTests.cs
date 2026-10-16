@@ -14,6 +14,12 @@ public sealed class IndexCrashRecoveryTests : DirectoryTest
 
   internal static void Configure(AnalyticsOptions options, string scenario, bool indexed)
   {
+    // A killed process loses the most recent writes of the default asynchronous write-ahead
+    // log, which the engine accepts. These tests check what the checkpoints resume, so every
+    // write reaches its log before it returns.
+    foreach (var store in new[] { options.Storage.RawEvents, options.Storage.Rollups, options.Storage.Sessions,
+        options.Storage.DimensionIndexes.Store, options.Storage.RollupIndexes.Store })
+      store.WriteAheadLogMode = ZoneTree.Options.WriteAheadLogMode.Sync;
     options.Ingestion.WorkerCount = 1;
     options.Queries.MaxDegreeOfParallelism = 1;
     options.Sessions.Enabled = scenario.StartsWith("joint", StringComparison.Ordinal);
@@ -309,7 +315,7 @@ public sealed class IndexCrashProbe
     {
       if (stage.Length > 0 && message.StartsWith(stage, StringComparison.Ordinal) &&
           (!(scenario is "joint-final" or "joint-expire") || !message.Contains("sessions=0;", StringComparison.Ordinal)) &&
-          message.Contains(scenario == "joint-redo" ? "checkpoint prepared;" : "checkpoint saved;", StringComparison.Ordinal)) Block();
+          message.Contains(scenario switch { "joint-redo" => "checkpoint prepared;", "repair" => "partition repaired;", _ => "checkpoint saved;" }, StringComparison.Ordinal)) Block();
     });
     using var engine = TestEngine.Create(directory, options =>
     {
@@ -331,8 +337,9 @@ public sealed class IndexCrashProbe
       Assert.That(iterator.Next(), Is.True);
       var value = iterator.CurrentValue;
       lease.ZoneTree.ForceDelete(iterator.CurrentKey);
+      // The orphan of an event stored earlier, whose raw record an interrupted deletion removed.
       lease.ZoneTree.Upsert(DimensionIndexKeyCodec.Key(index.KeyPrefix.Span, "default", "GitHub",
-          IndexCrashRecoveryTests.Start.AddDays(10).AddMinutes(3).Ticks, long.MaxValue), value);
+          IndexCrashRecoveryTests.Start.AddDays(10).AddMinutes(3).Ticks, 1), value);
       lease.Maintainer.EvictToDisk();
       lease.Maintainer.WaitForBackgroundThreads();
     }

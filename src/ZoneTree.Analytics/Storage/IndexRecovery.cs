@@ -5,8 +5,9 @@ namespace ZoneTree.Analytics.Storage;
 
 /// <summary>
 /// Durable write intents, recorded once per affected UTC day before either tree is changed.
-/// The intent remains until both trees have drained their WALs. Recovery replaces absolute
-/// copies only in those days, including deletions and out-of-order events.
+/// The intent remains until an orderly shutdown, or until a repair of the day completes and no
+/// write of the running engine has recorded it. Recovery replaces absolute copies only in
+/// those days, including deletions and out-of-order events.
 /// </summary>
 sealed class IndexRecovery(MetaStore meta, string prefix)
 {
@@ -33,6 +34,20 @@ sealed class IndexRecovery(MetaStore meta, string prefix)
     foreach (var key in entries.Keys.Where(key => key.StartsWith(prefix, StringComparison.Ordinal)).ToArray())
       entries.Remove(key);
   }
+
+  /// <summary>
+  /// Removes the intents of repaired days, except the days this run has written to since it
+  /// started: their writes may still need a repair after a crash.
+  /// </summary>
+  public void ClearRepaired(IEnumerable<long> days)
+  {
+    lock (sync)
+      meta.Update(entries =>
+      {
+        foreach (var day in days.Where(day => !tracked.ContainsKey(day)))
+          entries.Remove(prefix + day.ToString(CultureInfo.InvariantCulture));
+      });
+  }
 }
 
 /// <summary>Seeks past untouched time ranges rather than scanning old event history.</summary>
@@ -51,43 +66,48 @@ static class IndexRecoveryScan
     return false;
   }
 
-  public static void Visit<TValue>(IZoneTree<Memory<byte>, TValue> tree, long[] days,
-      KeyHeadLength headLength, Action<Memory<byte>, TValue> visit, Memory<byte> after = default)
+  /// <summary>
+  /// Visits the records after <paramref name="after"/> in the given days, or all records when
+  /// <paramref name="days"/> is null. Stops after <paramref name="limit"/> records and returns
+  /// the last one visited, to continue from; returns an empty key when the tree has no more.
+  /// </summary>
+  public static Memory<byte> Visit<TValue>(IZoneTree<Memory<byte>, TValue> tree, long[] days,
+      KeyHeadLength headLength, Action<Memory<byte>, TValue> visit, Memory<byte> after = default, int limit = int.MaxValue)
   {
     using var iterator = tree.CreateIterator(new IteratorOptions
     {
       IteratorType = IteratorType.NoRefresh, DiskSegmentPrefetchSize = 32, ContributeToTheBlockCache = true
     });
     if (after.IsEmpty) iterator.SeekFirst(); else iterator.Seek(after);
+    var visited = 0;
     while (iterator.Next())
     {
       var key = iterator.CurrentKey;
       if (!after.IsEmpty && key.Span.SequenceCompareTo(after.Span) <= 0) continue;
-      if (days == null) { visit(key, iterator.CurrentValue); continue; }
-      var head = key.Span[..headLength(key.Span)];
-      var ticks = KeyCodec.ReadBucket(key.Span, head.Length);
-      var day = ticks / TimeSpan.TicksPerDay * TimeSpan.TicksPerDay;
-      var index = Array.BinarySearch(days, day);
-      if (index >= 0) { visit(key, iterator.CurrentValue); continue; }
-      index = ~index;
-      iterator.Seek(index < days.Length
-          ? KeyCodec.SeekKey(head, days[index]) : KeyCodec.AfterPrefix(head));
+      if (days != null)
+      {
+        var head = key.Span[..headLength(key.Span)];
+        var ticks = KeyCodec.ReadBucket(key.Span, head.Length);
+        var day = ticks / TimeSpan.TicksPerDay * TimeSpan.TicksPerDay;
+        var index = Array.BinarySearch(days, day);
+        if (index < 0)
+        {
+          index = ~index;
+          iterator.Seek(index < days.Length
+              ? KeyCodec.SeekKey(head, days[index]) : KeyCodec.AfterPrefix(head));
+          continue;
+        }
+      }
+      visit(key, iterator.CurrentValue);
+      if (++visited == limit) return key.ToArray();
     }
-  }
-
-  public static void Persist<TValue>(IEnumerable<PartitionedStore<Memory<byte>, TValue>> stores)
-  {
-    foreach (var store in stores)
-    {
-      store.Compact();
-      store.CloseIdle(TimeSpan.Zero, keepLatestOpen: false);
-    }
+    return default;
   }
 }
 
 /// <summary>
-/// Copy operations are idempotent. A cursor advances only after destination copies reach
-/// disk; replaying the unfinished chunk cannot add events or aggregate deltas twice.
+/// Copy operations are idempotent, and a write is durable once it returns: a cursor advances
+/// after its copies are written, and resuming repeats at most the copies after it.
 /// </summary>
 sealed class IndexBackfillCheckpoint(MetaStore meta, string prefix, string configuration)
 {

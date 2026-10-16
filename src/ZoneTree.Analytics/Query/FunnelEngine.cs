@@ -17,13 +17,17 @@ sealed class FunnelEngine
 
   readonly EnrichmentPipeline enricher;
 
+  readonly RetentionClock retention;
+
   public FunnelEngine(
-      AnalyticsOptions options, ReportingCalendar storageCalendar, RawEventStore rawEvents, EnrichmentPipeline enricher)
+      AnalyticsOptions options, ReportingCalendar storageCalendar, RawEventStore rawEvents, EnrichmentPipeline enricher,
+      RetentionClock retention)
   {
     this.options = options;
     this.storageCalendar = storageCalendar;
     this.rawEvents = rawEvents;
     this.enricher = enricher;
+    this.retention = retention;
   }
 
   /// <summary>
@@ -66,7 +70,7 @@ sealed class FunnelEngine
     var site = enricher.NormalizeSite(funnel.Site);
     var filters = funnel.Filters.Where(x => x != null).ToArray();
     var warnings = new List<string>();
-    if (RetentionCutoffs.Compute(options.Retention, storageCalendar, now).RawEventsWarning(from) is { } warning)
+    if (retention.At(now).RawEventsWarning(from) is { } warning)
       warnings.Add(warning);
 
     var segments = funnel.Segments.Where(x => x != null).ToArray();
@@ -77,12 +81,13 @@ sealed class FunnelEngine
 
     var progress = Scan(site, from, to, steps, filters, segmentSets, calendar, funnel.Window, cancellationToken, out var index);
     var results = Summarize(steps, progress);
+    var unbuilt = index == null ? rawEvents.Indexes?.Unbuilt(filters, _ => true) : null;
     var plan = new QueryPlan(
         steps.Select(x => x.Event).Distinct().Select(x => new QueryPlanStep(
             x, index == null ? PlanSource.RawEvents : PlanSource.DimensionIndex,
             new DateTimeOffset(from, TimeSpan.Zero), new DateTimeOffset(to, TimeSpan.Zero))
             { IndexDimension = index?.Index.Dimension }).ToList(),
-        warnings);
+        warnings, notices: unbuilt == null ? null : [DimensionIndexStore.UnbuiltNotice(unbuilt)]);
     return new FunnelResult(
         results,
         TimeZoneInfo.ConvertTime(new DateTimeOffset(from, TimeSpan.Zero), calendar.TimeZone),

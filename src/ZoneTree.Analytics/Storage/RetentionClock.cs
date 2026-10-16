@@ -19,6 +19,8 @@ sealed class RetentionClock
 
   volatile Snapshot current = new(RetentionCutoffs.None);
 
+  long rawEventsHold = long.MaxValue;
+
   sealed record Snapshot(RetentionCutoffs Cutoffs);
 
   public RetentionClock(RetentionOptions retention, ReportingCalendar calendar)
@@ -35,9 +37,34 @@ sealed class RetentionClock
   /// </summary>
   public void Refresh(long nowUtcTicks)
   {
-    var cutoffs = RetentionCutoffs.Compute(retention, calendar, nowUtcTicks);
+    var cutoffs = At(nowUtcTicks);
     if (cutoffs != current.Cutoffs)
       current = new Snapshot(cutoffs);
+  }
+
+  /// <summary>The cutoffs at a point in time, including a raw event hold.</summary>
+  public RetentionCutoffs At(long nowUtcTicks)
+  {
+    var cutoffs = RetentionCutoffs.Compute(retention, calendar, nowUtcTicks);
+    var hold = Interlocked.Read(ref rawEventsHold);
+    return cutoffs.RawEvents > hold ? cutoffs with { RawEvents = hold } : cutoffs;
+  }
+
+  /// <summary>
+  /// Keeps the raw events from a point in time on, beyond their retention, until
+  /// <see cref="ReleaseRawEvents"/>: a history reconstruction reads them.
+  /// </summary>
+  public void HoldRawEvents(long fromUtcTicks)
+  {
+    Interlocked.Exchange(ref rawEventsHold, fromUtcTicks);
+    Refresh(DateTime.UtcNow.Ticks);
+  }
+
+  /// <summary>Lets raw event retention move on again.</summary>
+  public void ReleaseRawEvents()
+  {
+    Interlocked.Exchange(ref rawEventsHold, long.MaxValue);
+    Refresh(DateTime.UtcNow.Ticks);
   }
 
   public bool IsRawEventExpired(ReadOnlySpan<byte> key) =>

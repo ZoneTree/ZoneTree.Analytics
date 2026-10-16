@@ -233,7 +233,7 @@ Use `analytics.GetStatistics()` and host logging to monitor the engine. See [dep
 | [Product analytics][product] | [Secondary indexes][indexes] |
 | [Service telemetry][telemetry] | [HTTP API reference][http-api] |
 | [Sites and tenants][tenants] | [Extensibility][extensibility] |
-| [Deployment and lifecycle][deployment] | [Storage format][storage-format] |
+| [Deployment and lifecycle][deployment] | |
 
 ## Build and contribute
 
@@ -292,7 +292,6 @@ Released under the [MIT license](https://github.com/ZoneTree/ZoneTree.Analytics/
 [accuracy]: https://analytics.zonetree.dev/docs/concepts/time-and-accuracy/
 [architecture]: https://analytics.zonetree.dev/docs/concepts/architecture/
 [configuration]: https://analytics.zonetree.dev/docs/reference/configuration/
-[storage-format]: https://analytics.zonetree.dev/docs/reference/storage-format/
 [web-reports]: https://analytics.zonetree.dev/docs/guides/web-reports/
 [rollups]: https://analytics.zonetree.dev/docs/performance/rollups/
 [product]: https://analytics.zonetree.dev/docs/guides/product-analytics/

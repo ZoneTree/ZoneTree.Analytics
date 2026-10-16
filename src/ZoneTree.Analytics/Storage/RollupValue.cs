@@ -343,6 +343,13 @@ public sealed class RollupValue
 
   readonly RollupSection<DistinctEntries> distinct;
 
+  // Contributions of a history reconstruction that runs while ingestion writes the same row,
+  // kept apart until they are folded in. Null for every other row.
+  readonly RollupValue rebuilt;
+
+  /// <summary>A row without data, holding only a rebuilt part.</summary>
+  static readonly RollupValue Empty = new(0, null, [], [], null, null);
+
   /// <summary>Creates a stored row. Arrays and sketches are retained without copying.</summary>
   public RollupValue(
       long count,
@@ -358,7 +365,8 @@ public sealed class RollupValue
           valueNames,
           values,
           details == null ? null : new(DetailEntries.Of(details)),
-          distinctNames is { Length: > 0 } ? new(DistinctEntries.Of(distinctNames, distinct ?? [])) : null)
+          distinctNames is { Length: > 0 } ? new(DistinctEntries.Of(distinctNames, distinct ?? [])) : null,
+          (RollupValue)null)
   {
   }
 
@@ -368,7 +376,8 @@ public sealed class RollupValue
       string[] valueNames,
       ValueStats[] values,
       RollupSection<DetailEntries> details,
-      RollupSection<DistinctEntries> distinct)
+      RollupSection<DistinctEntries> distinct,
+      RollupValue rebuilt)
   {
     Count = count;
     ValueNames = valueNames ?? [];
@@ -376,7 +385,34 @@ public sealed class RollupValue
     this.visitors = visitors;
     this.details = details;
     this.distinct = distinct;
+    this.rebuilt = rebuilt;
   }
+
+  /// <summary>
+  /// The contributions a history reconstruction has made to this row so far; null when it has none.
+  /// Readers ignore them until <see cref="Folded"/> merges them into the row.
+  /// </summary>
+  /// <remarks>
+  /// Ingestion merges its deltas into the row and keeps this part as it is, and a reconstruction
+  /// replaces this part and keeps the rest: each can write its absolute value again after a
+  /// failure without undoing the other's writes.
+  /// </remarks>
+  internal RollupValue Rebuilt => rebuilt;
+
+  /// <summary>Whether the row holds nothing but a rebuilt part.</summary>
+  internal bool IsRebuiltOnly => rebuilt != null && Count == 0 && ValueNames.Length == 0 &&
+      visitors == null && details == null && distinct == null;
+
+  /// <summary>The row with its rebuilt part replaced; a missing row gets one without data.</summary>
+  internal static RollupValue WithRebuilt(RollupValue row, RollupValue part)
+  {
+    row ??= Empty;
+    return new(row.Count, row.visitors, row.ValueNames, row.Values, row.details, row.distinct, part);
+  }
+
+  /// <summary>The row with its rebuilt part merged in; the row itself when it has none.</summary>
+  internal RollupValue Folded() =>
+      rebuilt == null ? this : Merge(new RollupValue(Count, visitors, ValueNames, Values, details, distinct, null), rebuilt);
 
   /// <summary>The visitor sketch, or null when the row has no visitors.</summary>
   public HyperLogLog Visitors => visitors?.Value;
@@ -422,7 +458,8 @@ public sealed class RollupValue
   /// <summary>Merges two rows without modifying either row, its arrays or sketches.</summary>
   /// <remarks>
   /// A section, detail or distinct sketch only one row has is shared, so its stored bytes are
-  /// written back as they are.
+  /// written back as they are. The result keeps the rebuilt part of <paramref name="existing"/>;
+  /// a delta has none.
   /// </remarks>
   public static RollupValue Merge(RollupValue existing, RollupValue delta)
   {
@@ -457,7 +494,7 @@ public sealed class RollupValue
     var distinct = delta.DistinctSection == null ? existing.distinct :
         existing.DistinctSection == null ? delta.distinct :
         new RollupSection<DistinctEntries>(MergeDistinct(existing, delta));
-    return new RollupValue(existing.Count + delta.Count, visitors, names, values, details, distinct);
+    return new RollupValue(existing.Count + delta.Count, visitors, names, values, details, distinct, existing.rebuilt);
   }
 
   /// <summary>
@@ -1001,15 +1038,17 @@ sealed class RollupAccumulator
 /// </summary>
 /// <remarks>
 /// <code>
-/// header(1: 0 = deleted, otherwise Present | HasVisitors | HasDetails | HasDistinct)
+/// header(1: 0 = deleted, otherwise Present | HasVisitors | HasDetails | HasDistinct | HasRebuilt)
 /// count(varint)
 /// nameCount(varint) [name(string) sum(double) count(varint) [min(double) max(double) [mean(double) stddev(double)]]]*
 /// [length(varint) visitor sketch]                                                    when HasVisitors
 /// [length(varint) detailCount(varint) [length(varint) detail]*]                      when HasDetails; length 0 for none
 /// [length(varint) distinctCount(varint) [dimension(string) length(varint) sketch]*]  when HasDistinct
+/// [length(varint) rebuilt part]                                                      when HasRebuilt
 /// </code>
 /// Min and max are written when count is not zero, moments when count exceeds one. Sections,
 /// details and distinct sketches are length-prefixed and decoded only when read, one at a time.
+/// The rebuilt part is a value in this layout without a rebuilt part of its own.
 /// A reader rejects header bits it does not know and trailing bytes.
 /// </remarks>
 sealed class RollupValueSerializer : ISerializer<RollupValue>
@@ -1024,7 +1063,11 @@ sealed class RollupValueSerializer : ISerializer<RollupValue>
 
   const byte HasDistinct = 8;
 
-  const byte KnownBits = Present | HasVisitors | HasDetails | HasDistinct;
+  const byte HasRebuilt = 16;
+
+  const byte Sections = HasVisitors | HasDetails | HasDistinct | HasRebuilt;
+
+  const byte KnownBits = Present | Sections;
 
   delegate T SectionReader<T>(ref ByteReader reader);
 
@@ -1157,17 +1200,18 @@ sealed class RollupValueSerializer : ISerializer<RollupValue>
     }
   }
 
-  static RollupValue Read(ReadOnlyMemory<byte> bytes)
+  /// <summary>Reads a value; <paramref name="rebuiltPart"/> reads the rebuilt part of a value.</summary>
+  static RollupValue Read(ReadOnlyMemory<byte> bytes, bool rebuiltPart = false)
   {
     var reader = new ByteReader(bytes.Span);
     var header = reader.ReadByte();
-    if (header == Deleted)
+    if (header == Deleted && !rebuiltPart)
     {
       if (reader.Remaining != 0)
         throw new FormatException("A deleted rollup value has trailing bytes.");
       return null;
     }
-    if ((header & ~KnownBits) != 0 || (header & Present) == 0)
+    if ((header & ~KnownBits) != 0 || (header & Present) == 0 || (rebuiltPart && (header & HasRebuilt) != 0))
       throw new FormatException("The rollup value has an unknown layout.");
     var count = reader.ReadVarInt64();
     // Every value takes at least a name length, its sum and its count.
@@ -1193,7 +1237,7 @@ sealed class RollupValueSerializer : ISerializer<RollupValue>
       }
       values[i] = new ValueStats(sum, valueCount, min, max, mean, deviation);
     }
-    if ((header & (HasVisitors | HasDetails | HasDistinct)) == 0)
+    if ((header & Sections) == 0)
     {
       if (reader.Remaining != 0)
         throw new FormatException("The rollup value has trailing bytes.");
@@ -1202,9 +1246,10 @@ sealed class RollupValueSerializer : ISerializer<RollupValue>
     // The sections follow the scalar values. They keep their stored bytes for as long as the row
     // lives, and ZoneTree reads values from decompressed disk blocks of megabytes: a slice of a
     // block would keep the whole block alive in caches and in merged rows, so the sections of a
-    // value that does not own its buffer are copied into one buffer of their own.
+    // value that does not own its buffer are copied into one buffer of their own. A rebuilt part
+    // lies in the buffer of its value.
     var start = bytes.Length - reader.Remaining;
-    var sections = OwnsBuffer(bytes) ? bytes[start..] : bytes[start..].ToArray();
+    var sections = rebuiltPart || OwnsBuffer(bytes) ? bytes[start..] : bytes[start..].ToArray();
     var sectionReader = new ByteReader(sections.Span);
     RollupSection<HyperLogLog> visitors = null;
     RollupSection<DetailEntries> details = null;
@@ -1222,9 +1267,12 @@ sealed class RollupValueSerializer : ISerializer<RollupValue>
     }
     if ((header & HasDistinct) != 0)
       distinct = new(ReadLengthPrefixed(ref sectionReader, sections, allowEmpty: false), DecodeDistinct);
+    RollupValue rebuilt = null;
+    if ((header & HasRebuilt) != 0)
+      rebuilt = Read(ReadLengthPrefixed(ref sectionReader, sections, allowEmpty: false), rebuiltPart: true);
     if (sectionReader.Remaining != 0)
       throw new FormatException("The rollup value has trailing bytes.");
-    return new RollupValue(count, visitors, names, values, details, distinct);
+    return new RollupValue(count, visitors, names, values, details, distinct, rebuilt);
   }
 
   /// <summary>
@@ -1247,6 +1295,8 @@ sealed class RollupValueSerializer : ISerializer<RollupValue>
   {
     if (entry == null)
       return new byte[] { Deleted };
+    // Encoded first: it uses the same thread-local writers.
+    var rebuilt = entry.Rebuilt == null ? default : Serialize(entry.Rebuilt);
     var writer = ByteWriter.Reuse(ref threadWriter, 256);
     var visitors = entry.VisitorSection;
     var details = entry.DetailSection;
@@ -1258,6 +1308,8 @@ sealed class RollupValueSerializer : ISerializer<RollupValue>
       header |= HasDetails;
     if (distinct != null)
       header |= HasDistinct;
+    if (entry.Rebuilt != null)
+      header |= HasRebuilt;
     writer.WriteByte(header);
     writer.WriteVarInt64(entry.Count);
     writer.WriteVarUInt64((ulong)entry.ValueNames.Length);
@@ -1305,6 +1357,11 @@ sealed class RollupValueSerializer : ISerializer<RollupValue>
           WriteSection(section, entries.Sketches[i], ref threadEntryWriter, static (entry, sketch) => sketch.Write(entry));
         }
       });
+    }
+    if (entry.Rebuilt != null)
+    {
+      writer.WriteVarUInt64((ulong)rebuilt.Length);
+      writer.WriteBytes(rebuilt.Span);
     }
     return writer.ToArray();
   }

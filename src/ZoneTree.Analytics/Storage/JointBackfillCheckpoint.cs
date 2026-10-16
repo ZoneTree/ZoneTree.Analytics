@@ -10,6 +10,10 @@ sealed class JointBackfillState
   public string Configuration { get; set; }
   public bool Copying { get; set; }
   public long Coverage { get; set; }
+  /// <summary>The last raw event sequence the reconstruction reads; ingestion writes later events itself.</summary>
+  public long Fence { get; set; }
+  /// <summary>The raw partitions when the reconstruction began, which hold every event it reads.</summary>
+  public string[] Partitions { get; set; } = [];
   public string Site { get; set; }
   public bool SiteCompleted { get; set; }
   public string Partition { get; set; }
@@ -32,8 +36,9 @@ sealed class JointBackfillReplacement
 }
 
 /// <summary>
-/// The cursor, active sessions and absolute replacements are committed together. A crash
-/// during the writes replays replacements instead of applying additive contributions twice.
+/// The cursor, active sessions and absolute rebuilt parts are committed together. A crash
+/// during the writes replays the rebuilt parts instead of applying additive contributions twice;
+/// a rebuilt part is apart from what ingestion writes, so replaying it never undoes a flush.
 /// </summary>
 /// <remarks>
 /// The journal is binary: a flush of replacements holds serialized rollup rows, whose dense
@@ -57,15 +62,26 @@ sealed class JointBackfillCheckpoint
   public JointBackfillState State { get; }
   public bool Resuming { get; }
 
-  public JointBackfillCheckpoint(string root, string configuration, long coverage)
+  /// <summary>Opens the journal: resumes its checkpoint of the configuration, or begins a new one.</summary>
+  /// <param name="root">The data directory.</param>
+  /// <param name="configuration">The signature of the reconstruction.</param>
+  /// <param name="begin">The state of a new reconstruction.</param>
+  /// <param name="resume">False to begin a new reconstruction even when a checkpoint of the configuration remains.</param>
+  public JointBackfillCheckpoint(string root, string configuration, Func<JointBackfillState> begin, bool resume = true)
   {
     var directory = Path.Combine(root, "backfill", "joint-rollups");
     Directory.CreateDirectory(directory);
     paths = [Path.Combine(directory, "journal-a.bin"), Path.Combine(directory, "journal-b.bin")];
     var loaded = Load();
-    Resuming = loaded?.Configuration == configuration;
-    State = Resuming ? loaded : new() { Configuration = configuration, Coverage = coverage };
-    if (!Resuming) Save();
+    Resuming = resume && loaded?.Configuration == configuration;
+    if (Resuming)
+      State = loaded;
+    else
+    {
+      State = begin();
+      State.Configuration = configuration;
+      Save();
+    }
   }
 
   public void Save()
@@ -91,6 +107,9 @@ sealed class JointBackfillCheckpoint
     ++generation;
   }
 
+  /// <summary>
+  /// Writes the rebuilt parts of the checkpoint, then commits that they are written.
+  /// </summary>
   public void Replay(RollupStore rollups)
   {
     if (State.Redo.Count == 0) return;
@@ -99,10 +118,10 @@ sealed class JointBackfillCheckpoint
     {
       using var lease = rollups.GetStore(group.Key.Granularity).Acquire(group.Key.Partition);
       if (lease == null) continue;
+      var writer = rollups.WriterOf(group.Key.Granularity, lease.Tree);
       foreach (var row in group)
-        lease.Tree.Upsert(row.Key, serializer.Deserialize(row.Value));
+        writer.Write(new RollupWrite(row.Key, serializer.Deserialize(row.Value), RollupWriteKind.Rebuild));
     }
-    IndexRecoveryScan.Persist(rollups.PrimaryStores);
     State.Redo.Clear();
     Save();
   }
@@ -159,6 +178,10 @@ sealed class JointBackfillCheckpoint
     writer.Write(state.Configuration);
     writer.Write(state.Copying);
     writer.Write(state.Coverage);
+    writer.Write(state.Fence);
+    writer.Write(state.Partitions.Length);
+    foreach (var partition in state.Partitions)
+      writer.Write(partition);
     WriteString(writer, state.Site);
     writer.Write(state.SiteCompleted);
     WriteString(writer, state.Partition);
@@ -213,6 +236,8 @@ sealed class JointBackfillCheckpoint
       Configuration = reader.ReadString(),
       Copying = reader.ReadBoolean(),
       Coverage = reader.ReadInt64(),
+      Fence = reader.ReadInt64(),
+      Partitions = ReadStrings(reader),
       Site = ReadString(reader),
       SiteCompleted = reader.ReadBoolean(),
       Partition = ReadString(reader),
@@ -275,6 +300,14 @@ sealed class JointBackfillCheckpoint
   }
 
   static string ReadString(BinaryReader reader) => reader.ReadBoolean() ? reader.ReadString() : null;
+
+  static string[] ReadStrings(BinaryReader reader)
+  {
+    var values = new string[reader.ReadInt32()];
+    for (var i = 0; i < values.Length; ++i)
+      values[i] = reader.ReadString();
+    return values;
+  }
 
   static void WriteBytes(BinaryWriter writer, byte[] value)
   {

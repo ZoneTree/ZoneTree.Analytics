@@ -239,11 +239,12 @@ public sealed record RollupSuggestion(string Event, RollupDefinition Definition)
 public sealed class QueryPlan
 {
   internal QueryPlan(IReadOnlyList<QueryPlanStep> steps, IReadOnlyList<string> warnings,
-      IReadOnlyList<RollupSuggestion> rollupSuggestions = null)
+      IReadOnlyList<RollupSuggestion> rollupSuggestions = null, IReadOnlyList<string> notices = null)
   {
     Steps = steps;
     Warnings = warnings;
     RollupSuggestions = rollupSuggestions ?? Array.Empty<RollupSuggestion>();
+    Notices = notices ?? Array.Empty<string>();
   }
 
   /// <summary>The plan steps.</summary>
@@ -257,6 +258,13 @@ public sealed class QueryPlan
   /// raw event retention.
   /// </summary>
   public IReadOnlyList<string> Warnings { get; }
+
+  /// <summary>
+  /// Background work that made the query read slower sources without changing its result, for
+  /// example an index that is still being built after the engine opened. Notices do not affect
+  /// <see cref="IsComplete"/>; <see cref="AnalyticsEngine.WaitForIndexesAsync"/> waits for that work.
+  /// </summary>
+  public IReadOnlyList<string> Notices { get; }
 
   /// <summary>True when the result covers the whole range exactly.</summary>
   public bool IsComplete => Warnings.Count == 0;
