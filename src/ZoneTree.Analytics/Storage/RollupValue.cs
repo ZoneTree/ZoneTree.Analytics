@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using ZoneTree.Analytics.Internal;
 using ZoneTree.Analytics.Sketches;
 using ZoneTree.Serializers;
@@ -214,16 +215,120 @@ public sealed class ValueDetail
 }
 
 /// <summary>
+/// A part of a stored row that is kept as its stored bytes until it is read. Concurrent
+/// readers share one decoded instance.
+/// </summary>
+sealed class RollupSection<T> where T : class
+{
+  readonly Func<ReadOnlyMemory<byte>, T> decode;
+
+  T value;
+
+  /// <summary>A section created from a value.</summary>
+  public RollupSection(T value) => this.value = value;
+
+  /// <summary>A stored section, decoded on first read.</summary>
+  public RollupSection(ReadOnlyMemory<byte> bytes, Func<ReadOnlyMemory<byte>, T> decode)
+  {
+    Bytes = bytes;
+    this.decode = decode;
+  }
+
+  /// <summary>The stored encoding; empty for a section created from a value.</summary>
+  public ReadOnlyMemory<byte> Bytes { get; }
+
+  public bool IsStored => !Bytes.IsEmpty;
+
+  public T Value
+  {
+    get
+    {
+      var current = Volatile.Read(ref value);
+      if (current != null)
+        return current;
+      var decoded = decode(Bytes);
+      return Interlocked.CompareExchange(ref value, decoded, null) ?? decoded;
+    }
+  }
+}
+
+/// <summary>
+/// The value details of a row, aligned with its value names: one entry per value, null for a
+/// value without details. Each entry stays in its stored bytes until it is read.
+/// </summary>
+sealed class DetailEntries(RollupSection<ValueDetail>[] entries)
+{
+  public readonly RollupSection<ValueDetail>[] Entries = entries;
+
+  ValueDetail[] all;
+
+  public bool HasAny => Array.Exists(Entries, x => x != null);
+
+  /// <summary>The detail of a value, decoding only that detail.</summary>
+  public ValueDetail At(int index) => Entries[index]?.Value;
+
+  /// <summary>Every detail, decoded once.</summary>
+  public ValueDetail[] All
+  {
+    get
+    {
+      var current = Volatile.Read(ref all);
+      if (current != null)
+        return current;
+      var decoded = Array.ConvertAll(Entries, x => x?.Value);
+      return Interlocked.CompareExchange(ref all, decoded, null) ?? decoded;
+    }
+  }
+
+  /// <summary>The entries of details created in memory; a detail without data has none.</summary>
+  public static DetailEntries Of(ValueDetail[] details) => new(Array.ConvertAll(details,
+      x => x != null && (x.HasFirstLast || x.Quantiles != null) ? new RollupSection<ValueDetail>(x) : null));
+}
+
+/// <summary>
+/// The distinct-value sketches of a row, by dimension in ordinal order. Each sketch stays in its
+/// stored bytes until it is read.
+/// </summary>
+sealed class DistinctEntries(string[] names, RollupSection<HyperLogLog>[] sketches)
+{
+  public readonly string[] Names = names;
+
+  public readonly RollupSection<HyperLogLog>[] Sketches = sketches;
+
+  HyperLogLog[] all;
+
+  /// <summary>Every sketch, decoded once.</summary>
+  public HyperLogLog[] All
+  {
+    get
+    {
+      var current = Volatile.Read(ref all);
+      if (current != null)
+        return current;
+      var decoded = Array.ConvertAll(Sketches, x => x.Value);
+      return Interlocked.CompareExchange(ref all, decoded, null) ?? decoded;
+    }
+  }
+
+  /// <summary>The entries of sketches created in memory.</summary>
+  public static DistinctEntries Of(string[] names, HyperLogLog[] sketches) =>
+      new(names, Array.ConvertAll(sketches, x => new RollupSection<HyperLogLog>(x)));
+}
+
+/// <summary>
 /// A stored rollup row. Treat instances, their arrays and sketches as immutable:
 /// merges create new instances, so values held by ZoneTree segments are never modified.
 /// </summary>
+/// <remarks>
+/// The count and the scalar statistics are decoded with the row. The visitor sketch, each value
+/// detail and each distinct sketch stay in their stored bytes until they are read: most queries
+/// need few of them, and merges or index copies that leave them unchanged write the stored bytes
+/// back without decoding them.
+/// </remarks>
 public sealed class RollupValue
 {
   /// <summary>The number of events or session deltas represented by this row.</summary>
   public readonly long Count;
-
-  /// <summary>The visitor sketch, or null when the row has no visitors.</summary>
-  public readonly HyperLogLog Visitors;
 
   /// <summary>The measured value names, in ordinal order.</summary>
   public readonly string[] ValueNames;
@@ -231,11 +336,12 @@ public sealed class RollupValue
   /// <summary>The measured statistics, aligned with <see cref="ValueNames"/>.</summary>
   public readonly ValueStats[] Values;
 
-  // The opt-in parts, null for the rows of values without them: queries read many rows, so the
-  // row itself stays small.
-  readonly OptInParts optIn;
+  // The sections, null for rows without them: queries read many rows, so the row stays small.
+  readonly RollupSection<HyperLogLog> visitors;
 
-  sealed record OptInParts(ValueDetail[] Details, string[] DistinctNames, HyperLogLog[] Distinct);
+  readonly RollupSection<DetailEntries> details;
+
+  readonly RollupSection<DistinctEntries> distinct;
 
   /// <summary>Creates a stored row. Arrays and sketches are retained without copying.</summary>
   public RollupValue(
@@ -246,79 +352,112 @@ public sealed class RollupValue
       ValueDetail[] details = null,
       string[] distinctNames = null,
       HyperLogLog[] distinct = null)
+      : this(
+          count,
+          visitors == null ? null : new(visitors),
+          valueNames,
+          values,
+          details == null ? null : new(DetailEntries.Of(details)),
+          distinctNames is { Length: > 0 } ? new(DistinctEntries.Of(distinctNames, distinct ?? [])) : null)
+  {
+  }
+
+  internal RollupValue(
+      long count,
+      RollupSection<HyperLogLog> visitors,
+      string[] valueNames,
+      ValueStats[] values,
+      RollupSection<DetailEntries> details,
+      RollupSection<DistinctEntries> distinct)
   {
     Count = count;
-    Visitors = visitors;
     ValueNames = valueNames ?? [];
     Values = values ?? [];
-    if (details != null || distinctNames is { Length: > 0 })
-      optIn = new OptInParts(details, distinctNames ?? [], distinct ?? []);
+    this.visitors = visitors;
+    this.details = details;
+    this.distinct = distinct;
   }
+
+  /// <summary>The visitor sketch, or null when the row has no visitors.</summary>
+  public HyperLogLog Visitors => visitors?.Value;
+
+  /// <summary>Whether the row has a visitor sketch with visitors, without decoding it.</summary>
+  public bool HasVisitors => visitors != null && (visitors.IsStored || !visitors.Value.IsEmpty);
 
   /// <summary>
   /// Opt-in aggregates per value, aligned with <see cref="ValueNames"/>; null when no value has any.
+  /// Decodes every detail; <see cref="DetailAt"/> decodes one.
   /// </summary>
-  public ValueDetail[] Details => optIn?.Details;
+  public ValueDetail[] Details => details?.Value.All;
 
   /// <summary>
   /// The dimensions whose distinct values are counted, in ordinal order.
   /// </summary>
-  public string[] DistinctNames => optIn?.DistinctNames ?? [];
+  public string[] DistinctNames => distinct?.Value.Names ?? [];
 
   /// <summary>
-  /// Distinct value sketches, aligned with <see cref="DistinctNames"/>.
+  /// Distinct value sketches, aligned with <see cref="DistinctNames"/>. Decodes every sketch;
+  /// <see cref="DistinctAt"/> decodes one.
   /// </summary>
-  public HyperLogLog[] Distinct => optIn?.Distinct ?? [];
+  public HyperLogLog[] Distinct => distinct?.Value.All ?? [];
 
   /// <summary>The opt-in detail at a value index, or null when no details were collected.</summary>
-  public ValueDetail DetailAt(int index) => Details?[index];
+  public ValueDetail DetailAt(int index) => details?.Value.At(index);
+
+  /// <summary>The distinct value sketch at an index of <see cref="DistinctNames"/>.</summary>
+  public HyperLogLog DistinctAt(int index) => distinct.Value.Sketches[index].Value;
+
+  internal RollupSection<HyperLogLog> VisitorSection => HasVisitors ? visitors : null;
+
+  internal RollupSection<DetailEntries> DetailSection =>
+      details != null && (details.IsStored || details.Value.HasAny) ? details : null;
+
+  internal RollupSection<DistinctEntries> DistinctSection =>
+      distinct != null && (distinct.IsStored || distinct.Value.Names.Length > 0) ? distinct : null;
+
+  internal RollupSection<ValueDetail> DetailEntryAt(int index) => details?.Value.Entries[index];
+
+  internal RollupSection<HyperLogLog> DistinctEntryAt(int index) => distinct.Value.Sketches[index];
 
   /// <summary>Merges two rows without modifying either row, its arrays or sketches.</summary>
+  /// <remarks>
+  /// A section, detail or distinct sketch only one row has is shared, so its stored bytes are
+  /// written back as they are.
+  /// </remarks>
   public static RollupValue Merge(RollupValue existing, RollupValue delta)
   {
     if (existing == null)
       return delta;
     if (delta == null)
       return existing;
-    var visitors = Union(existing.Visitors, delta.Visitors);
+    var visitors = !delta.HasVisitors ? existing.visitors :
+        !existing.HasVisitors ? delta.visitors :
+        new RollupSection<HyperLogLog>(Union(existing.Visitors, delta.Visitors));
 
     string[] names;
     ValueStats[] values;
-    ValueDetail[] details;
+    RollupSection<DetailEntries> details;
     if (delta.ValueNames.Length == 0)
     {
       names = existing.ValueNames;
       values = existing.Values;
-      details = existing.Details;
+      details = existing.details;
     }
     else if (existing.ValueNames.Length == 0)
     {
       names = delta.ValueNames;
       values = delta.Values;
-      details = delta.Details;
+      details = delta.details;
     }
     else
     {
       MergeValues(existing, delta, out names, out values, out details);
     }
 
-    string[] distinctNames;
-    HyperLogLog[] distinct;
-    if (delta.DistinctNames.Length == 0)
-    {
-      distinctNames = existing.DistinctNames;
-      distinct = existing.Distinct;
-    }
-    else if (existing.DistinctNames.Length == 0)
-    {
-      distinctNames = delta.DistinctNames;
-      distinct = delta.Distinct;
-    }
-    else
-    {
-      MergeDistinct(existing, delta, out distinctNames, out distinct);
-    }
-    return new RollupValue(existing.Count + delta.Count, visitors, names, values, details, distinctNames, distinct);
+    var distinct = delta.DistinctSection == null ? existing.distinct :
+        existing.DistinctSection == null ? delta.distinct :
+        new RollupSection<DistinctEntries>(MergeDistinct(existing, delta));
+    return new RollupValue(existing.Count + delta.Count, visitors, names, values, details, distinct);
   }
 
   /// <summary>
@@ -335,13 +474,27 @@ public sealed class RollupValue
     return union;
   }
 
+  /// <summary>The entry of two merged details: one row's entry as it is, or the merged details.</summary>
+  static RollupSection<ValueDetail> MergeEntries(RollupSection<ValueDetail> a, RollupSection<ValueDetail> b) =>
+      a == null ? b : b == null ? a : new(ValueDetail.Combine(a.Value, b.Value));
+
   static void MergeValues(
-      RollupValue a, RollupValue b, out string[] names, out ValueStats[] values, out ValueDetail[] details)
+      RollupValue a, RollupValue b, out string[] names, out ValueStats[] values, out RollupSection<DetailEntries> details)
   {
+    // Rows of the same values keep the details of the only row that has them.
+    if (a.ValueNames.AsSpan().SequenceEqual(b.ValueNames) && (a.details == null || b.details == null))
+    {
+      names = a.ValueNames;
+      values = new ValueStats[names.Length];
+      for (var k = 0; k < values.Length; ++k)
+        values[k] = ValueStats.Combine(a.Values[k], b.Values[k]);
+      details = a.details ?? b.details;
+      return;
+    }
     var capacity = a.ValueNames.Length + b.ValueNames.Length;
     var resultNames = new List<string>(capacity);
     var resultValues = new List<ValueStats>(capacity);
-    var resultDetails = a.Details != null || b.Details != null ? new List<ValueDetail>(capacity) : null;
+    var resultDetails = a.details != null || b.details != null ? new List<RollupSection<ValueDetail>>(capacity) : null;
     int i = 0, j = 0;
     while (i < a.ValueNames.Length || j < b.ValueNames.Length)
     {
@@ -352,58 +505,62 @@ public sealed class RollupValue
       {
         resultNames.Add(a.ValueNames[i]);
         resultValues.Add(a.Values[i]);
-        resultDetails?.Add(a.DetailAt(i));
+        resultDetails?.Add(a.DetailEntryAt(i));
         ++i;
       }
       else if (cmp > 0)
       {
         resultNames.Add(b.ValueNames[j]);
         resultValues.Add(b.Values[j]);
-        resultDetails?.Add(b.DetailAt(j));
+        resultDetails?.Add(b.DetailEntryAt(j));
         ++j;
       }
       else
       {
         resultNames.Add(a.ValueNames[i]);
         resultValues.Add(ValueStats.Combine(a.Values[i], b.Values[j]));
-        resultDetails?.Add(ValueDetail.Combine(a.DetailAt(i), b.DetailAt(j)));
+        resultDetails?.Add(MergeEntries(a.DetailEntryAt(i), b.DetailEntryAt(j)));
         ++i;
         ++j;
       }
     }
     names = [.. resultNames];
     values = [.. resultValues];
-    details = resultDetails?.ToArray();
+    details = resultDetails == null ? null : new(new DetailEntries([.. resultDetails]));
   }
 
-  static void MergeDistinct(RollupValue a, RollupValue b, out string[] names, out HyperLogLog[] sketches)
+  static DistinctEntries MergeDistinct(RollupValue a, RollupValue b)
   {
-    var resultNames = new List<string>(a.DistinctNames.Length + b.DistinctNames.Length);
-    var resultSketches = new List<HyperLogLog>(resultNames.Capacity);
+    var aNames = a.DistinctNames;
+    var bNames = b.DistinctNames;
+    var resultNames = new List<string>(aNames.Length + bNames.Length);
+    var resultSketches = new List<RollupSection<HyperLogLog>>(resultNames.Capacity);
     int i = 0, j = 0;
-    while (i < a.DistinctNames.Length || j < b.DistinctNames.Length)
+    while (i < aNames.Length || j < bNames.Length)
     {
-      var cmp = i == a.DistinctNames.Length ? 1 :
-          j == b.DistinctNames.Length ? -1 :
-          string.CompareOrdinal(a.DistinctNames[i], b.DistinctNames[j]);
+      var cmp = i == aNames.Length ? 1 :
+          j == bNames.Length ? -1 :
+          string.CompareOrdinal(aNames[i], bNames[j]);
       if (cmp < 0)
       {
-        resultNames.Add(a.DistinctNames[i]);
-        resultSketches.Add(a.Distinct[i++]);
+        resultNames.Add(aNames[i]);
+        resultSketches.Add(a.DistinctEntryAt(i++));
       }
       else if (cmp > 0)
       {
-        resultNames.Add(b.DistinctNames[j]);
-        resultSketches.Add(b.Distinct[j++]);
+        resultNames.Add(bNames[j]);
+        resultSketches.Add(b.DistinctEntryAt(j++));
       }
       else
       {
-        resultNames.Add(a.DistinctNames[i]);
-        resultSketches.Add(Union(a.Distinct[i++], b.Distinct[j++]));
+        resultNames.Add(aNames[i]);
+        var stored = a.DistinctEntryAt(i++);
+        var union = Union(stored.Value, b.DistinctAt(j++));
+        // A union that adds nothing keeps the stored entry and its bytes.
+        resultSketches.Add(ReferenceEquals(union, stored.Value) ? stored : new(union));
       }
     }
-    names = [.. resultNames];
-    sketches = [.. resultSketches];
+    return new DistinctEntries([.. resultNames], [.. resultSketches]);
   }
 }
 
@@ -641,7 +798,7 @@ sealed class RollupAccumulator
     }
     var distinctNames = value.DistinctNames;
     for (var i = 0; i < distinctNames.Length; ++i)
-      MergeDistinct(distinctNames[i], value.Distinct[i]);
+      MergeDistinct(distinctNames[i], value.DistinctAt(i));
   }
 
   /// <summary>Merges only the sketches and details a query reads, preserving scalar row presence.</summary>
@@ -653,7 +810,7 @@ sealed class RollupAccumulator
     if (requirements.Visitors)
       MergeVisitors(value.Visitors);
     else
-      hasSkippedVisitors |= value.Visitors != null && !value.Visitors.IsEmpty;
+      hasSkippedVisitors |= value.HasVisitors;
     MergeValues(value);
     if (requirements.ValueDetails != null)
     {
@@ -668,7 +825,7 @@ sealed class RollupAccumulator
     {
       var index = Array.IndexOf(value.DistinctNames, dimension);
       if (index >= 0)
-        MergeDistinct(dimension, value.Distinct[index]);
+        MergeDistinct(dimension, value.DistinctAt(index));
     }
   }
 
@@ -829,12 +986,15 @@ sealed class RollupAccumulator
 /// <remarks>
 /// <code>
 /// header(1: 0 = deleted, otherwise Present | HasVisitors | HasDetails | HasDistinct)
-/// count(varint) [visitor sketch]
+/// count(varint)
 /// nameCount(varint) [name(string) sum(double) count(varint) [min(double) max(double) [mean(double) stddev(double)]]]*
-/// [detail per value]            when HasDetails, see ValueDetail.Write; flags 0 for none
-/// [distinctCount(varint) [dimension(string) sketch]*]   when HasDistinct
+/// [length(varint) visitor sketch]                                                    when HasVisitors
+/// [length(varint) detailCount(varint) [length(varint) detail]*]                      when HasDetails; length 0 for none
+/// [length(varint) distinctCount(varint) [dimension(string) length(varint) sketch]*]  when HasDistinct
 /// </code>
-/// Min and max are written when count is not zero, moments when count exceeds one.
+/// Min and max are written when count is not zero, moments when count exceeds one. Sections,
+/// details and distinct sketches are length-prefixed and decoded only when read, one at a time.
+/// A reader rejects header bits it does not know and trailing bytes.
 /// </remarks>
 sealed class RollupValueSerializer : ISerializer<RollupValue>
 {
@@ -848,18 +1008,151 @@ sealed class RollupValueSerializer : ISerializer<RollupValue>
 
   const byte HasDistinct = 8;
 
+  const byte KnownBits = Present | HasVisitors | HasDetails | HasDistinct;
+
+  delegate T SectionReader<T>(ref ByteReader reader);
+
+  static readonly Func<ReadOnlyMemory<byte>, HyperLogLog> DecodeVisitors =
+      bytes => Decode(bytes, static (ref ByteReader reader) => HyperLogLog.Read(ref reader));
+
+  static readonly Func<ReadOnlyMemory<byte>, ValueDetail> DecodeDetail = bytes => Decode(bytes, static (ref ByteReader reader) =>
+  {
+    var detail = ValueDetail.Read(ref reader);
+    // A value without details has no entry: a stored detail always holds data.
+    if (!detail.HasFirstLast && detail.Quantiles == null)
+      throw new FormatException("A stored value detail is empty.");
+    return detail;
+  });
+
+  static readonly Func<ReadOnlyMemory<byte>, DetailEntries> DecodeDetails = ReadDetails;
+
+  static readonly Func<ReadOnlyMemory<byte>, DistinctEntries> DecodeDistinct = ReadDistinct;
+
   [ThreadStatic]
   static ByteWriter threadWriter;
 
+  [ThreadStatic]
+  static ByteWriter threadSectionWriter;
+
+  [ThreadStatic]
+  static ByteWriter threadEntryWriter;
+
+  /// <summary>
+  /// Reads the entries of the detail section: their lengths only, each detail is decoded when read.
+  /// </summary>
+  static DetailEntries ReadDetails(ReadOnlyMemory<byte> bytes)
+  {
+    try
+    {
+      var reader = new ByteReader(bytes.Span);
+      // A value without details takes one byte, its zero length.
+      var entries = new RollupSection<ValueDetail>[CheckedCount(ref reader, 1)];
+      for (var i = 0; i < entries.Length; ++i)
+      {
+        var entry = ReadEntry(ref reader, bytes, allowEmpty: true);
+        if (!entry.IsEmpty)
+          entries[i] = new(entry, DecodeDetail);
+      }
+      RequireEnd(reader);
+      return new DetailEntries(entries);
+    }
+    catch (Exception exception) when (IsMalformed(exception))
+    {
+      throw new FormatException("The rollup value details are malformed.", exception);
+    }
+  }
+
+  /// <summary>
+  /// Reads the names and the entries of the distinct section; each sketch is decoded when read.
+  /// </summary>
+  static DistinctEntries ReadDistinct(ReadOnlyMemory<byte> bytes)
+  {
+    try
+    {
+      var reader = new ByteReader(bytes.Span);
+      // Every entry takes at least a name length, its length and a sparse sketch's precision, format and count.
+      var count = CheckedCount(ref reader, 5);
+      var names = new string[count];
+      var sketches = new RollupSection<HyperLogLog>[count];
+      for (var i = 0; i < count; ++i)
+      {
+        names[i] = reader.ReadString() ?? throw new FormatException("A distinct dimension has no name.");
+        sketches[i] = new(ReadEntry(ref reader, bytes, allowEmpty: false), DecodeVisitors);
+      }
+      RequireEnd(reader);
+      return new DistinctEntries(names, sketches);
+    }
+    catch (Exception exception) when (IsMalformed(exception))
+    {
+      throw new FormatException("The rollup value distinct sketches are malformed.", exception);
+    }
+  }
+
+  /// <summary>Reads the length of an entry and returns its bytes without decoding them.</summary>
+  static ReadOnlyMemory<byte> ReadEntry(ref ByteReader reader, ReadOnlyMemory<byte> bytes, bool allowEmpty)
+  {
+    var length = reader.ReadVarUInt64();
+    if ((length == 0 && !allowEmpty) || length > (ulong)reader.Remaining)
+      throw new FormatException("A rollup value entry is empty or truncated.");
+    var start = bytes.Length - reader.Remaining;
+    reader.ReadBytes((int)length);
+    return bytes.Slice(start, (int)length);
+  }
+
+  static void RequireEnd(ByteReader reader)
+  {
+    if (reader.Remaining != 0)
+      throw new FormatException("A rollup value section has trailing bytes.");
+  }
+
+  /// <summary>The exceptions that malformed bytes raise while they are read.</summary>
+  static bool IsMalformed(Exception exception) =>
+      exception is IndexOutOfRangeException or ArgumentOutOfRangeException or OverflowException;
+
+  /// <summary>Decodes a whole section; malformed bytes raise <see cref="FormatException"/>.</summary>
+  static T Decode<T>(ReadOnlyMemory<byte> bytes, SectionReader<T> read)
+  {
+    try
+    {
+      var reader = new ByteReader(bytes.Span);
+      var result = read(ref reader);
+      if (reader.Remaining != 0)
+        throw new FormatException("A rollup value section has trailing bytes.");
+      return result;
+    }
+    catch (Exception exception) when (exception is IndexOutOfRangeException or ArgumentOutOfRangeException or OverflowException)
+    {
+      throw new FormatException("A rollup value section is malformed.", exception);
+    }
+  }
+
   public RollupValue Deserialize(Memory<byte> bytes)
+  {
+    try
+    {
+      return Read(bytes);
+    }
+    catch (Exception exception) when (exception is IndexOutOfRangeException or ArgumentOutOfRangeException or OverflowException)
+    {
+      throw new FormatException("The rollup value is malformed or truncated.", exception);
+    }
+  }
+
+  static RollupValue Read(ReadOnlyMemory<byte> bytes)
   {
     var reader = new ByteReader(bytes.Span);
     var header = reader.ReadByte();
     if (header == Deleted)
+    {
+      if (reader.Remaining != 0)
+        throw new FormatException("A deleted rollup value has trailing bytes.");
       return null;
+    }
+    if ((header & ~KnownBits) != 0 || (header & Present) == 0)
+      throw new FormatException("The rollup value has an unknown layout.");
     var count = reader.ReadVarInt64();
-    var visitors = (header & HasVisitors) != 0 ? HyperLogLog.Read(ref reader) : null;
-    var nameCount = (int)reader.ReadVarUInt64();
+    // Every value takes at least a name length, its sum and its count.
+    var nameCount = CheckedCount(ref reader, 10);
     var names = new string[nameCount];
     var values = new ValueStats[nameCount];
     for (var i = 0; i < nameCount; ++i)
@@ -881,30 +1174,65 @@ sealed class RollupValueSerializer : ISerializer<RollupValue>
       }
       values[i] = new ValueStats(sum, valueCount, min, max, mean, deviation);
     }
-    ValueDetail[] details = null;
+    if ((header & (HasVisitors | HasDetails | HasDistinct)) == 0)
+    {
+      if (reader.Remaining != 0)
+        throw new FormatException("The rollup value has trailing bytes.");
+      return new RollupValue(count, null, names, values, null, null);
+    }
+    // The sections follow the scalar values. They keep their stored bytes for as long as the row
+    // lives, and ZoneTree reads values from decompressed disk blocks of megabytes: a slice of a
+    // block would keep the whole block alive in caches and in merged rows, so the sections of a
+    // value that does not own its buffer are copied into one buffer of their own.
+    var start = bytes.Length - reader.Remaining;
+    var sections = OwnsBuffer(bytes) ? bytes[start..] : bytes[start..].ToArray();
+    var sectionReader = new ByteReader(sections.Span);
+    RollupSection<HyperLogLog> visitors = null;
+    RollupSection<DetailEntries> details = null;
+    RollupSection<DistinctEntries> distinct = null;
+    if ((header & HasVisitors) != 0)
+      visitors = new(ReadSection(ref sectionReader, sections), DecodeVisitors);
     if ((header & HasDetails) != 0)
     {
-      details = new ValueDetail[nameCount];
-      for (var i = 0; i < nameCount; ++i)
-      {
-        var detail = ValueDetail.Read(ref reader);
-        details[i] = detail.HasFirstLast || detail.Quantiles != null ? detail : null;
-      }
+      var section = ReadSection(ref sectionReader, sections);
+      // Details align with the values: their count is checked now, the details decoded when read.
+      var detailReader = new ByteReader(section.Span);
+      if (detailReader.ReadVarUInt64() != (ulong)nameCount)
+        throw new FormatException("The rollup value details do not match its values.");
+      details = new(section, DecodeDetails);
     }
-    string[] distinctNames = null;
-    HyperLogLog[] distinct = null;
     if ((header & HasDistinct) != 0)
-    {
-      var distinctCount = (int)reader.ReadVarUInt64();
-      distinctNames = new string[distinctCount];
-      distinct = new HyperLogLog[distinctCount];
-      for (var i = 0; i < distinctCount; ++i)
-      {
-        distinctNames[i] = reader.ReadString();
-        distinct[i] = HyperLogLog.Read(ref reader);
-      }
-    }
-    return new RollupValue(count, visitors, names, values, details, distinctNames, distinct);
+      distinct = new(ReadSection(ref sectionReader, sections), DecodeDistinct);
+    if (sectionReader.Remaining != 0)
+      throw new FormatException("The rollup value has trailing bytes.");
+    return new RollupValue(count, visitors, names, values, details, distinct);
+  }
+
+  /// <summary>
+  /// Reads a count of entries that take at least <paramref name="minimumEntryBytes"/> each. A
+  /// count the remaining bytes cannot hold is corrupt, not an allocation to try.
+  /// </summary>
+  static int CheckedCount(ref ByteReader reader, int minimumEntryBytes)
+  {
+    var count = reader.ReadVarUInt64();
+    if (count > (ulong)(reader.Remaining / minimumEntryBytes))
+      throw new FormatException("A rollup value count exceeds its bytes.");
+    return (int)count;
+  }
+
+  /// <summary>Whether the bytes are a whole array, which holds nothing but this value.</summary>
+  static bool OwnsBuffer(ReadOnlyMemory<byte> bytes) =>
+      MemoryMarshal.TryGetArray(bytes, out var segment) && segment.Offset == 0 && segment.Count == segment.Array.Length;
+
+  /// <summary>Reads the length of a section and returns its bytes without decoding them.</summary>
+  static ReadOnlyMemory<byte> ReadSection(ref ByteReader reader, ReadOnlyMemory<byte> bytes)
+  {
+    var length = reader.ReadVarUInt64();
+    if (length == 0 || length > (ulong)reader.Remaining)
+      throw new FormatException("A rollup value section is empty or truncated.");
+    var start = bytes.Length - reader.Remaining;
+    reader.ReadBytes((int)length);
+    return bytes.Slice(start, (int)length);
   }
 
   public Memory<byte> Serialize(in RollupValue entry)
@@ -912,20 +1240,18 @@ sealed class RollupValueSerializer : ISerializer<RollupValue>
     if (entry == null)
       return new byte[] { Deleted };
     var writer = ByteWriter.Reuse(ref threadWriter, 256);
-    var hasVisitors = entry.Visitors != null && !entry.Visitors.IsEmpty;
-    var hasDetails = entry.Details != null && Array.Exists(entry.Details, x => x != null);
-    var hasDistinct = entry.DistinctNames.Length > 0;
+    var visitors = entry.VisitorSection;
+    var details = entry.DetailSection;
+    var distinct = entry.DistinctSection;
     var header = Present;
-    if (hasVisitors)
+    if (visitors != null)
       header |= HasVisitors;
-    if (hasDetails)
+    if (details != null)
       header |= HasDetails;
-    if (hasDistinct)
+    if (distinct != null)
       header |= HasDistinct;
     writer.WriteByte(header);
     writer.WriteVarInt64(entry.Count);
-    if (hasVisitors)
-      entry.Visitors.Write(writer);
     writer.WriteVarUInt64((ulong)entry.ValueNames.Length);
     for (var i = 0; i < entry.ValueNames.Length; ++i)
     {
@@ -944,25 +1270,54 @@ sealed class RollupValueSerializer : ISerializer<RollupValue>
         }
       }
     }
-    if (hasDetails)
+    if (visitors != null)
+      WriteSection(writer, visitors, ref threadSectionWriter, static (section, sketch) => sketch.Write(section));
+    if (details != null)
     {
-      foreach (var detail in entry.Details)
+      WriteSection(writer, details, ref threadSectionWriter, static (section, entries) =>
       {
-        if (detail == null)
-          writer.WriteByte(0);
-        else
-          detail.Write(writer);
-      }
+        section.WriteVarUInt64((ulong)entries.Entries.Length);
+        foreach (var detail in entries.Entries)
+        {
+          if (detail == null)
+            section.WriteVarUInt64(0);
+          else
+            WriteSection(section, detail, ref threadEntryWriter, static (entry, value) => value.Write(entry));
+        }
+      });
     }
-    if (hasDistinct)
+    if (distinct != null)
     {
-      writer.WriteVarUInt64((ulong)entry.DistinctNames.Length);
-      for (var i = 0; i < entry.DistinctNames.Length; ++i)
+      WriteSection(writer, distinct, ref threadSectionWriter, static (section, entries) =>
       {
-        writer.WriteString(entry.DistinctNames[i]);
-        entry.Distinct[i].Write(writer);
-      }
+        section.WriteVarUInt64((ulong)entries.Names.Length);
+        for (var i = 0; i < entries.Names.Length; ++i)
+        {
+          section.WriteString(entries.Names[i]);
+          WriteSection(section, entries.Sketches[i], ref threadEntryWriter, static (entry, sketch) => sketch.Write(entry));
+        }
+      });
     }
     return writer.ToArray();
   }
+
+  /// <summary>
+  /// Writes a length-prefixed section or entry: its stored bytes as they are, or its value
+  /// encoded into <paramref name="scratch"/>.
+  /// </summary>
+  static void WriteSection<T>(ByteWriter writer, RollupSection<T> section, ref ByteWriter scratch, Action<ByteWriter, T> encode)
+      where T : class
+  {
+    if (section.IsStored)
+    {
+      writer.WriteVarUInt64((ulong)section.Bytes.Length);
+      writer.WriteBytes(section.Bytes.Span);
+      return;
+    }
+    var encoded = ByteWriter.Reuse(ref scratch, 256);
+    encode(encoded, section.Value);
+    writer.WriteVarUInt64((ulong)encoded.Written.Length);
+    writer.WriteBytes(encoded.Written);
+  }
 }
+

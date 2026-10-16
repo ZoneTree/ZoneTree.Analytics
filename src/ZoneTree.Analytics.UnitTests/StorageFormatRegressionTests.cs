@@ -35,6 +35,23 @@ public sealed class StorageFormatRegressionTests : DirectoryTest
     Range = Range(from, to), Source = QuerySource.RawEvents, Metrics = { Metric.PageViews }
   }).Totals[Metric.PageViews];
 
+  [TestCase(StorageFormats.DatasetKey, "1", "older release")]
+  [TestCase(StorageFormats.DatasetKey, "3", "newer release")]
+  [TestCase(StorageFormats.DatasetKey, "two", "unknown storage format")]
+  [TestCase(StorageFormats.DimensionIndexKey, "1", "older release")]
+  [TestCase(StorageFormats.DimensionIndexKey, "3", "newer release")]
+  [TestCase(StorageFormats.RollupIndexKey, "1", "older release")]
+  [TestCase(StorageFormats.RollupIndexKey, "two", "unknown storage format")]
+  public void DirectoriesOfOtherStorageFormatsAreRefused(string key, string stored, string explanation)
+  {
+    using (TestEngine.Create(directory)) { }
+    var meta = new MetaStore(Path.Combine(directory, "meta"));
+    Assert.That(meta.Get(key), Is.Not.Null, "every format is persisted, even for unused indexes");
+    meta.Set(key, stored);
+    var error = Assert.Throws<AnalyticsConfigurationException>(() => TestEngine.Create(directory).Dispose());
+    Assert.That(error.Message, Does.Contain(explanation));
+  }
+
   [Test]
   public void RolloverNeverHidesRecordsWrittenAfterItsClock()
   {
@@ -263,6 +280,23 @@ public sealed class StorageFormatRegressionTests : DirectoryTest
     Assert.That(redo, Has.Count.EqualTo(rows));
     Assert.That(redo[^1].Key, Is.EqualTo(BitConverter.GetBytes(rows - 1)));
     Assert.That(redo[^1].Value, Is.EqualTo(value));
+  }
+
+  [Test]
+  public void AJointBackfillJournalOfAnOlderReleaseIsRefused()
+  {
+    // A valid journal file whose body starts with an older version.
+    var body = BitConverter.GetBytes(1);
+    var header = new byte[56];
+    "ZTAJRNL1"u8.CopyTo(header);
+    BitConverter.GetBytes(1L).CopyTo(header, 8);
+    BitConverter.GetBytes((long)body.Length).CopyTo(header, 16);
+    System.Security.Cryptography.SHA256.HashData(body).CopyTo(header, 24);
+    var journal = Path.Combine(directory, "backfill", "joint-rollups");
+    Directory.CreateDirectory(journal);
+    File.WriteAllBytes(Path.Combine(journal, "journal-b.bin"), [.. header, .. body]);
+    var error = Assert.Throws<AnalyticsConfigurationException>(() => _ = new JointBackfillCheckpoint(directory, "configuration", 0));
+    Assert.That(error.Message, Does.Contain("older release"));
   }
 
   [Test]

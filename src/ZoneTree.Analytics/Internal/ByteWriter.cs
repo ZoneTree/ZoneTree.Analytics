@@ -33,6 +33,9 @@ sealed class ByteWriter
 
   public byte[] ToArray() => buffer.AsSpan(0, length).ToArray();
 
+  /// <summary>The bytes written since the last reset.</summary>
+  public ReadOnlySpan<byte> Written => buffer.AsSpan(0, length);
+
   void Ensure(int additional)
   {
     var required = length + additional;
@@ -139,6 +142,9 @@ ref struct ByteReader
   }
 
   public readonly int Remaining => span.Length - position;
+
+  /// <summary>The bytes not read yet.</summary>
+  public readonly ReadOnlySpan<byte> Rest => span[position..];
 
   public byte ReadByte() => span[position++];
 

@@ -13,7 +13,6 @@ sealed record RollupIndex(string Dimension, string DefinitionId, Granularity Gra
 sealed class RollupIndexStore : IDisposable
 {
   const string CleanKey = "rollup-index.clean";
-  const string Format = "2";
   readonly string root;
   readonly AnalyticsOptions options;
   readonly RollupStore rollups;
@@ -51,17 +50,22 @@ sealed class RollupIndexStore : IDisposable
   {
     using var startup = new StartupLog(logger, "Rollup index initialization", root);
     using var check = new StartupLog(logger, "Rollup index backfill check", root);
-    if (meta.Get("rollup-index.format") is { } format && format != Format)
-      throw new AnalyticsConfigurationException("Rollup indexes use a new shared storage format. Start with a fresh analytics data directory.");
+    var format = meta.Get(StorageFormats.RollupIndexKey);
+    if (format != null)
+      StorageFormats.Require(format, StorageFormats.RollupIndex, "The rollup indexes of the analytics data directory");
     var configured = options.Storage.RollupIndexes.Definitions.SelectMany(definition => RollupStore.Granularities
         .Where(granularity => rollups.IsEnabled(granularity))
         .Select(granularity => Registration(definition.Dimension, definition.Definition.Id, granularity)))
         .Order(StringComparer.Ordinal).ToArray();
     manifest = string.Join('\n', configured);
     var reasons = new List<string>();
-    if (meta.Get(CleanKey) != "true") reasons.Add("missing or unclean checkpoint");
-    if (meta.Get("rollup-index.config") != manifest) reasons.Add("configuration changed");
-    if (meta.Get("rollup-index.format") != Format) reasons.Add("format changed");
+    // Indexes that were never initialized have no checkpoint, manifest or format to compare.
+    if (format == null) reasons.Add("new indexes");
+    else
+    {
+      if (meta.Get(CleanKey) != "true") reasons.Add("missing or unclean checkpoint");
+      if (meta.Get("rollup-index.config") != manifest) reasons.Add("configuration changed");
+    }
     if (!factory.RollupsDurable || !factory.RollupIndexesDurable) reasons.Add("write-ahead logging disabled");
     var partitions = 0;
     foreach (var granularity in RollupStore.Granularities.Where(granularity =>
@@ -297,7 +301,7 @@ sealed class RollupIndexStore : IDisposable
     meta.Update(entries =>
     {
       entries[CleanKey] = factory.RollupsDurable && factory.RollupIndexesDurable ? "true" : "false";
-      entries["rollup-index.format"] = Format;
+      entries[StorageFormats.RollupIndexKey] = StorageFormats.Text(StorageFormats.RollupIndex);
       entries["rollup-index.config"] = manifest;
       foreach (var (granularity, store) in stores) entries[PartitionsKey(granularity)] = string.Join(',', store.ListPartitions());
       foreach (var journal in recovery.Values) journal.Clear(entries);
