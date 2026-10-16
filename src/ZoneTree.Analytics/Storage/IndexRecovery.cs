@@ -38,8 +38,6 @@ sealed class IndexRecovery(MetaStore meta, string prefix)
 /// <summary>Seeks past untouched time ranges rather than scanning old event history.</summary>
 static class IndexRecoveryScan
 {
-  public delegate int HeadLength(ReadOnlySpan<byte> key);
-
   public static bool MissingRetainedPartitions(string[] expected, IReadOnlyList<string> actual, long cutoff)
   {
     var all = expected.Union(actual).Order(StringComparer.Ordinal).ToArray();
@@ -54,7 +52,7 @@ static class IndexRecoveryScan
   }
 
   public static void Visit<TValue>(IZoneTree<Memory<byte>, TValue> tree, long[] days,
-      HeadLength headLength, Action<Memory<byte>, TValue> visit, Memory<byte> after = default)
+      KeyHeadLength headLength, Action<Memory<byte>, TValue> visit, Memory<byte> after = default)
   {
     using var iterator = tree.CreateIterator(new IteratorOptions
     {
@@ -73,7 +71,7 @@ static class IndexRecoveryScan
       if (index >= 0) { visit(key, iterator.CurrentValue); continue; }
       index = ~index;
       iterator.Seek(index < days.Length
-          ? KeyCodec.SeekKey(head, days[index]) : DimensionIndexKeyCodec.AfterPrefix(head));
+          ? KeyCodec.SeekKey(head, days[index]) : KeyCodec.AfterPrefix(head));
     }
   }
 

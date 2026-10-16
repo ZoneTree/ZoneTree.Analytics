@@ -100,8 +100,8 @@ public sealed class RetentionTests : DirectoryTest
     const long cutoff = 1_000;
     ExpiredKeyPredicate rawExpired = key => KeyCodec.ReadRawTicks(key) < cutoff;
     ExpiredKeyPredicate rollupExpired = key => KeyCodec.ReadRollupBucket(key) < cutoff;
-    bool Raw(Memory<byte> first, Memory<byte> last) => ExpiredRecords.IsRangeExpired(first.Span, last.Span, 1, rawExpired);
-    bool Rollups(Memory<byte> first, Memory<byte> last) => ExpiredRecords.IsRangeExpired(first.Span, last.Span, 3, rollupExpired);
+    bool Raw(Memory<byte> first, Memory<byte> last) => ExpiredRecords.IsRangeExpired(first.Span, last.Span, KeyCodec.RawEventHead, rawExpired);
+    bool Rollups(Memory<byte> first, Memory<byte> last) => ExpiredRecords.IsRangeExpired(first.Span, last.Span, KeyCodec.RollupHead, rollupExpired);
     Assert.Multiple(() =>
     {
       // One site, older than the cutoff up to the last key: every event between is older too.
@@ -176,7 +176,7 @@ public sealed class RetentionTests : DirectoryTest
     foreach (var name in raw.ListPartitions())
     {
       using var lease = raw.Acquire(name);
-      Assert.That(ExpiredRecords.DeleteFirstOfExpiredHeads(lease.Tree, 1, clock.IsRawEventExpired), Is.Zero);
+      Assert.That(ExpiredRecords.DeleteFirstOfExpiredHeads(lease.Tree, KeyCodec.RawEventHead, clock.IsRawEventExpired), Is.Zero);
     }
   }
 

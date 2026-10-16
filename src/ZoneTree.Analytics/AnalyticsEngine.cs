@@ -176,12 +176,16 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
       ownedStores.Add(rollupIndexes);
       rollupIndexes.Initialize(rawEvents, activations, calendar, enricher.Schema);
       rollups.Indexes = rollupIndexes;
+      // Registered after the stores it writes to, so it stops before they close.
+      var rollupWriters = new RollupWriterPool(rollups, options.Ingestion.RollupWriterCount, logger);
+      ownedStores.Add(rollupWriters);
 
       var services = new IngestionServices
       {
         Options = options,
         Enricher = enricher,
         Rollups = rollups,
+        RollupWriters = rollupWriters,
         RawEvents = rawEvents,
         DimensionIndexes = dimensionIndexes.Indexes.Count == 0 ? null : dimensionIndexes,
         Sessions = sessions,
@@ -795,7 +799,7 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
       if (!rollups.IsEnabled(granularity) || cutoffs.Of(granularity) == long.MinValue)
         continue;
       // Daily partitions are named after local days of the reporting time zone.
-      var cutoff = granularity == Granularity.Day ? cutoffs.DayRollupsLocalDay : cutoffs.Of(granularity);
+      var cutoff = cutoffs.RollupCutoff(granularity);
       dropped += rollups.GetStore(granularity).DropPartitionsEndingBefore(cutoff);
     }
     RemoveExpiredRecords(cutoffs);
@@ -816,20 +820,20 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
     if (rawEvents != null && cutoffs.RawEvents != long.MinValue && cutoffs.RawEvents != removedUpTo.RawEvents)
     {
       rawEvents.Store.RemoveExpired(
-          cutoffs.RawEvents, tree => ExpiredRecords.DeleteFirstOfExpiredHeads(tree, 1, retentionClock.IsRawEventExpired));
+          cutoffs.RawEvents, tree => ExpiredRecords.DeleteFirstOfExpiredHeads(tree, KeyCodec.RawEventHead, retentionClock.IsRawEventExpired));
       foreach (var store in dimensionIndexes.AllStores)
         store.RemoveExpired(cutoffs.RawEvents,
-            tree => DimensionIndexKeyCodec.DeleteFirstExpired(tree, retentionClock.IsRawEventExpired));
+            tree => ExpiredRecords.DeleteFirstOfExpiredHeads(tree, DimensionIndexKeyCodec.HeadLength, retentionClock.IsRawEventExpired));
       removedUpTo = removedUpTo with { RawEvents = cutoffs.RawEvents };
     }
     foreach (var granularity in RollupStore.Granularities)
     {
-      var cutoff = granularity == Granularity.Day ? cutoffs.DayRollupsLocalDay : cutoffs.Of(granularity);
-      var removed = granularity == Granularity.Day ? removedUpTo.DayRollupsLocalDay : removedUpTo.Of(granularity);
+      var cutoff = cutoffs.RollupCutoff(granularity);
+      var removed = removedUpTo.RollupCutoff(granularity);
       if (!rollups.IsEnabled(granularity) || cutoff == long.MinValue || cutoff == removed)
         continue;
       rollups.GetStore(granularity).RemoveExpired(
-          cutoff, tree => ExpiredRecords.DeleteFirstOfExpiredHeads(tree, 3, key => retentionClock.IsRollupExpired(granularity, key)));
+          cutoff, tree => ExpiredRecords.DeleteFirstOfExpiredHeads(tree, KeyCodec.RollupHead, key => retentionClock.IsRollupExpired(granularity, key)));
       removedUpTo = granularity switch
       {
         Granularity.Minute => removedUpTo with { MinuteRollups = cutoff },

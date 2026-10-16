@@ -40,8 +40,7 @@ sealed class StoreFactory
 
   public long RawRetentionCutoff => retention.Current.RawEvents;
 
-  public long RollupRetentionCutoff(Granularity granularity) => granularity == Granularity.Day
-      ? retention.Current.DayRollupsLocalDay : retention.Current.Of(granularity);
+  public long RollupRetentionCutoff(Granularity granularity) => retention.Current.RollupCutoff(granularity);
 
   public StoreFactory(StorageOptions storage, string dataRoot, ILogger logger, RetentionClock retention)
   {
@@ -163,7 +162,7 @@ sealed class StoreFactory
         .SetComparer(new ByteArrayLexicographicComparerAscending())
         .SetIsDeletedDelegate((in Memory<byte> key, in Memory<byte> value) => value.Length == 0 || expired(key.Span))
         .SetIsRangeDeletedDelegate((in Memory<byte> first, in Memory<byte> _, in Memory<byte> last, in Memory<byte> _) =>
-            DimensionIndexKeyCodec.IsRangeExpired(first.Span, last.Span, expired))
+            ExpiredRecords.IsRangeExpired(first.Span, last.Span, DimensionIndexKeyCodec.HeadLength, expired))
         .SetMarkValueDeletedDelegate((ref Memory<byte> value) => value = Memory<byte>.Empty);
   }
 
@@ -184,7 +183,7 @@ sealed class StoreFactory
         .SetValueSerializer(new RollupValueSerializer())
         .SetIsDeletedDelegate((in Memory<byte> key, in RollupValue value) => value == null || expired(key.Span))
         .SetIsRangeDeletedDelegate((in Memory<byte> first, in RollupValue _, in Memory<byte> last, in RollupValue _) =>
-            RollupIndexKeyCodec.IsRangeExpired(first.Span, last.Span, expired))
+            ExpiredRecords.IsRangeExpired(first.Span, last.Span, RollupIndexKeyCodec.HeadLength, expired))
         .SetMarkValueDeletedDelegate((ref RollupValue value) => value = null);
   }
 
@@ -206,7 +205,7 @@ sealed class StoreFactory
         .SetIsDeletedDelegate((in Memory<byte> key, in Memory<byte> value) =>
             value.Length == 0 || isExpired(key.Span))
         .SetIsRangeDeletedDelegate((in Memory<byte> first, in Memory<byte> _, in Memory<byte> last, in Memory<byte> _) =>
-            ExpiredRecords.IsRangeExpired(first.Span, last.Span, 1, isExpired))
+            ExpiredRecords.IsRangeExpired(first.Span, last.Span, KeyCodec.RawEventHead, isExpired))
         .SetMarkValueDeletedDelegate((ref Memory<byte> value) => value = Memory<byte>.Empty);
   }
 
@@ -225,7 +224,7 @@ sealed class StoreFactory
         .SetIsDeletedDelegate((in Memory<byte> key, in RollupValue value) =>
             value == null || isExpired(key.Span))
         .SetIsRangeDeletedDelegate((in Memory<byte> first, in RollupValue _, in Memory<byte> last, in RollupValue _) =>
-            ExpiredRecords.IsRangeExpired(first.Span, last.Span, 3, isExpired))
+            ExpiredRecords.IsRangeExpired(first.Span, last.Span, KeyCodec.RollupHead, isExpired))
         .SetMarkValueDeletedDelegate((ref RollupValue value) => value = null);
   }
 

@@ -66,11 +66,18 @@ readonly record struct RetentionCutoffs(
   };
 
   /// <summary>
+  /// The cutoff in the time coordinate rollup keys of a granularity hold: UTC for minute and
+  /// hour buckets, the local day for day buckets.
+  /// </summary>
+  public long RollupCutoff(Granularity granularity) =>
+      granularity == Granularity.Day ? DayRollupsLocalDay : Of(granularity);
+
+  /// <summary>
   /// True when a rollup row is within the retention of its granularity. Minute and hour rows
   /// are compared by event time, day rows by their local day bucket.
   /// </summary>
   public bool KeepsRollup(Granularity granularity, long utcTicks, long bucket) =>
-      granularity == Granularity.Day ? bucket >= DayRollupsLocalDay : utcTicks >= Of(granularity);
+      (granularity == Granularity.Day ? bucket : utcTicks) >= RollupCutoff(granularity);
 
   /// <summary>
   /// A query plan warning when a raw event read starting at <paramref name="fromUtcTicks"/>

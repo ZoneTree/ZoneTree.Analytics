@@ -5,6 +5,12 @@ using ZoneTree.Analytics.Internal;
 namespace ZoneTree.Analytics.Storage;
 
 /// <summary>
+/// The length of the head of a key: its leading bytes, after which the keys of one head are
+/// ordered by time.
+/// </summary>
+delegate int KeyHeadLength(ReadOnlySpan<byte> key);
+
+/// <summary>
 /// Order-preserving binary key layouts.
 /// </summary>
 /// <remarks>
@@ -150,6 +156,13 @@ static class KeyCodec
       (long)BinaryPrimitives.ReadUInt64BigEndian(key.Slice(HeadLength(key, 3), 8));
 
   /// <summary>
+  /// The dimension-set identifier of a rollup key: its third segment, read without decoding
+  /// the rest of the key.
+  /// </summary>
+  public static string ReadDimensionSetId(ReadOnlySpan<byte> key) =>
+      ReadSegment(key, HeadLength(key, 2), out _);
+
+  /// <summary>
   /// The length of the leading segments of a key up to and including its
   /// <paramref name="segments"/>-th terminator: the site of a raw key (1), or the site, event and
   /// dimension set of a rollup key (3). Rows of one head are ordered by time.
@@ -161,6 +174,12 @@ static class KeyCodec
       length += key[length..].IndexOf(Terminator) + 1;
     return length;
   }
+
+  /// <summary>The head of a raw key: its site.</summary>
+  public static int RawEventHead(ReadOnlySpan<byte> key) => HeadLength(key, 1);
+
+  /// <summary>The head of a rollup key: its site, event and dimension set.</summary>
+  public static int RollupHead(ReadOnlySpan<byte> key) => HeadLength(key, 3);
 
   /// <summary>
   /// Reads the segment that starts at <paramref name="offset"/> and ends at the next terminator.
@@ -187,5 +206,20 @@ static class KeyCodec
     prefixWithSegment.CopyTo(result);
     result[^1] = 1;
     return result;
+  }
+
+  /// <summary>
+  /// Returns the smallest key greater than every key that starts with the given prefix.
+  /// </summary>
+  public static Memory<byte> AfterPrefix(ReadOnlySpan<byte> prefix)
+  {
+    for (var i = prefix.Length - 1; i >= 0; --i)
+    {
+      if (prefix[i] == byte.MaxValue) continue;
+      var next = prefix[..(i + 1)].ToArray();
+      ++next[i];
+      return next;
+    }
+    throw new InvalidOperationException("A key prefix must have a successor.");
   }
 }

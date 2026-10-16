@@ -359,6 +359,8 @@ public sealed class FlushRecoveryTests : DirectoryTest
       options.Sessions.Enabled = false;
       options.Ingestion.MaxBufferedRollupRows = 1;
       options.Ingestion.QueueCapacity = 8;
+      // One writer opens one partition per flush attempt, so two opens are two attempts.
+      options.Ingestion.RollupWriterCount = 1;
       // A long delay makes it clear that shutdown wakes the retry wait immediately.
       options.Storage.Rollups.ConfigureMaintainer = _ =>
       {
@@ -414,6 +416,7 @@ public sealed class FlushRecoveryTests : DirectoryTest
   sealed class WorkerHarness : IAsyncDisposable
   {
     readonly RollupStore rollups;
+    readonly RollupWriterPool rollupWriters;
     readonly IZoneTree<ulong, SessionState> sessions;
     readonly IMaintainer maintainer;
     bool disposed;
@@ -444,10 +447,11 @@ public sealed class FlushRecoveryTests : DirectoryTest
       var definitions = options.Rollups.Definitions.ToArray();
       rollups = new RollupStore(Path.Combine(directory, "rollups"), options.Rollups.Granularities,
           options.Storage.Partitioning, definitions, factory, logger);
+      rollupWriters = new RollupWriterPool(rollups, options.Ingestion.RollupWriterCount, logger);
       Worker = new IngestionWorker(new IngestionServices
       {
         Options = options, Calendar = calendar, Enricher = enricher, Sessions = SessionFault,
-        Rollups = rollups, Definitions = definitions, Logger = logger, Counters = Counters
+        Rollups = rollups, RollupWriters = rollupWriters, Definitions = definitions, Logger = logger, Counters = Counters
       });
       Worker.Start();
     }
@@ -476,6 +480,7 @@ public sealed class FlushRecoveryTests : DirectoryTest
       }
       finally
       {
+        rollupWriters.Dispose();
         rollups.Dispose();
         maintainer?.Dispose();
         sessions?.Dispose();

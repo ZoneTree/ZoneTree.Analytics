@@ -34,7 +34,7 @@ static class DashboardAnalyticsOptions
       int workers, ILogger logger = null)
   {
     var options = Create(directory, PerformanceSite, timeZone, logger);
-    options.Ingestion.WorkerCount = workers;
+    SetWorkers(options, workers);
     options.Rollups.ValueAggregates["load_time"] = ValueAggregates.Percentiles;
     return options;
   }
@@ -43,7 +43,7 @@ static class DashboardAnalyticsOptions
       int workers, bool percentiles, ILogger logger = null)
   {
     var options = Create(directory, BenchmarkSite, timeZone, logger);
-    options.Ingestion.WorkerCount = workers;
+    SetWorkers(options, workers);
     options.Ingestion.QueueFullBehavior = QueueFullBehavior.Wait;
     if (percentiles) options.Rollups.ValueAggregates["load_time"] = ValueAggregates.Percentiles;
     return options;
@@ -53,6 +53,14 @@ static class DashboardAnalyticsOptions
   public static AnalyticsOptions CreateBenchmarkReport(string directory, string timeZoneId,
       bool percentiles, ILogger logger = null) =>
       CreateBenchmark(directory, TimeZoneInfo.FindSystemTimeZoneById(timeZoneId), 1, percentiles, logger);
+
+  // Generated ingestion runs as many rollup writers as workers, so the rows that every worker
+  // buffers are merged and written in parallel at the same scale.
+  static void SetWorkers(AnalyticsOptions options, int workers)
+  {
+    options.Ingestion.WorkerCount = workers;
+    options.Ingestion.RollupWriterCount = workers;
+  }
 
   static AnalyticsOptions Create(string directory, string site, TimeZoneInfo timeZone, ILogger logger)
   {
