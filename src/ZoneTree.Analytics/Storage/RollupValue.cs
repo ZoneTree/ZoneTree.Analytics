@@ -239,17 +239,7 @@ sealed class RollupSection<T> where T : class
 
   public bool IsStored => !Bytes.IsEmpty;
 
-  public T Value
-  {
-    get
-    {
-      var current = Volatile.Read(ref value);
-      if (current != null)
-        return current;
-      var decoded = decode(Bytes);
-      return Interlocked.CompareExchange(ref value, decoded, null) ?? decoded;
-    }
-  }
+  public T Value => Once.Get(ref value, this, static x => x.decode(x.Bytes));
 }
 
 /// <summary>
@@ -268,17 +258,7 @@ sealed class DetailEntries(RollupSection<ValueDetail>[] entries)
   public ValueDetail At(int index) => Entries[index]?.Value;
 
   /// <summary>Every detail, decoded once.</summary>
-  public ValueDetail[] All
-  {
-    get
-    {
-      var current = Volatile.Read(ref all);
-      if (current != null)
-        return current;
-      var decoded = Array.ConvertAll(Entries, x => x?.Value);
-      return Interlocked.CompareExchange(ref all, decoded, null) ?? decoded;
-    }
-  }
+  public ValueDetail[] All => Once.Get(ref all, Entries, static x => Array.ConvertAll(x, entry => entry?.Value));
 
   /// <summary>The entries of details created in memory; a detail without data has none.</summary>
   public static DetailEntries Of(ValueDetail[] details) => new(Array.ConvertAll(details,
@@ -298,17 +278,7 @@ sealed class DistinctEntries(string[] names, RollupSection<HyperLogLog>[] sketch
   HyperLogLog[] all;
 
   /// <summary>Every sketch, decoded once.</summary>
-  public HyperLogLog[] All
-  {
-    get
-    {
-      var current = Volatile.Read(ref all);
-      if (current != null)
-        return current;
-      var decoded = Array.ConvertAll(Sketches, x => x.Value);
-      return Interlocked.CompareExchange(ref all, decoded, null) ?? decoded;
-    }
-  }
+  public HyperLogLog[] All => Once.Get(ref all, Sketches, static x => Array.ConvertAll(x, sketch => sketch.Value));
 
   /// <summary>The entries of sketches created in memory.</summary>
   public static DistinctEntries Of(string[] names, HyperLogLog[] sketches) =>

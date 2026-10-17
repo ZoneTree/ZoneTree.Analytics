@@ -52,7 +52,7 @@ sealed class BenchmarkReportStore : IAsyncDisposable
       if (current == null) throw new BenchmarkDataUnavailableException();
       var path = Path.Combine(root, current.Directory);
       ValidateOwned(path);
-      engine ??= new AnalyticsEngine(DashboardAnalyticsOptions.CreateBenchmarkReport(path, current.TimeZone, current.Result.Percentiles, logger));
+      engine ??= new AnalyticsEngine(DashboardAnalyticsOptions.CreateBenchmarkReport(path, current.TimeZone, current.Result.Percentiles, current.Result.Indexes, logger));
       if (readers++ == 0) drained = new(TaskCreationOptions.RunContinuationsAsynchronously);
       return new(engine, () => { lock (sync) { if (--readers == 0) drained.TrySetResult(); } });
     }

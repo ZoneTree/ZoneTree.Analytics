@@ -369,6 +369,23 @@ public sealed class BackgroundIndexingTests : DirectoryTest
   }
 
   [Test]
+  public void RemovedIndexesForgetTheirRepairIntents()
+  {
+    using (var indexed = TestEngine.Create(directory, DimensionIndex))
+    {
+      View(indexed, "a", Start, "/docs", "GitHub");
+      indexed.Flush();
+    }
+    // A crash left an intent; the dimension index is removed before the next open.
+    var meta = new MetaStore(Path.Combine(directory, "meta"));
+    meta.Set("dimension-index.dirty." + Start.Ticks.ToString(System.Globalization.CultureInfo.InvariantCulture), "true");
+    using (var removed = TestEngine.Create(directory))
+      Assert.That(removed.GetStatistics().IndexMaintenance, Is.Null);
+    // Before: a repair without indexes never ran, so the intent stayed for good.
+    Assert.That(new MetaStore(Path.Combine(directory, "meta")).ListByPrefix("dimension-index.dirty."), Is.Empty);
+  }
+
+  [Test]
   public void QueriesSeeTheRawEventsRetentionHolds()
   {
     var options = TestEngine.Options(directory, options => options.Retention.RawEvents = TimeSpan.FromDays(2));

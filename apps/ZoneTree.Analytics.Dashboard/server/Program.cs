@@ -39,9 +39,10 @@ builder.Services.AddZoneTreeAnalytics(options => DashboardAnalyticsOptions.Confi
     builder.Configuration["Analytics:DataDirectory"] ?? DashboardAnalyticsOptions.DefaultDataDirectory, timeZone));
 
 var app = builder.Build();
+// Open the engine now: data it cannot load fails startup instead of every request.
+var engine = app.Services.GetRequiredService<AnalyticsEngine>();
 if (builder.Configuration.GetValue<bool>("Analytics:SeedDemo"))
 {
-  var engine = app.Services.GetRequiredService<AnalyticsEngine>();
   if (engine.GetEventNames(DateRange.LastDays(60)).Count == 0)
     await SampleTraffic.SeedAsync(engine);
 }

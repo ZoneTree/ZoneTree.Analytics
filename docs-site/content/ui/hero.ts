@@ -72,7 +72,7 @@ export function defineAnalyticsHero() {
           </div>
           <div class="hero-proof">
             <a :href="benchmarkHref"><strong>5M<span> events</span></strong><small>Measured dataset</small></a>
-            <a :href="benchmarkHref"><strong>84<span> ms</span></strong><small>Six annual reports · median</small></a>
+            <a :href="benchmarkHref"><strong>33<span> ms</span></strong><small>Six annual reports · median</small></a>
           </div>
           <a class="hero-benchmark-link" :href="benchmarkHref">Explore the benchmark <Icon name="tabler:arrow-up-right"/></a>
         </div>

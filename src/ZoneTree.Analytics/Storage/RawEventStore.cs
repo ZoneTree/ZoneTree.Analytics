@@ -63,7 +63,8 @@ sealed class RawEventStore : IDisposable
   /// </summary>
   public delegate void SliceVisitor<in TState>(TState state, long ticks, ReadOnlySpan<byte> value);
 
-  readonly record struct Slice(IZoneTree<Memory<byte>, Memory<byte>> Tree, long From, long To);
+  /// <summary>A time range of one partition tree, scanned on its own.</summary>
+  internal readonly record struct Slice(IZoneTree<Memory<byte>, Memory<byte>> Tree, long From, long To);
 
   /// <summary>
   /// Scans the events of a site with timestamps in [fromTicks, toTicks).
@@ -119,7 +120,7 @@ sealed class RawEventStore : IDisposable
   /// <summary>
   /// Splits partition ranges into about <paramref name="targetCount"/> slices of similar duration.
   /// </summary>
-  static List<Slice> Split(List<Slice> ranges, int targetCount)
+  internal static List<Slice> Split(List<Slice> ranges, int targetCount)
   {
     long total = 0;
     foreach (var range in ranges)

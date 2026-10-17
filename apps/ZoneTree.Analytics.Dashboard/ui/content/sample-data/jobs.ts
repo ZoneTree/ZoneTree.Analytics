@@ -13,6 +13,7 @@ export interface SampleBenchmarkResult {
   days: number
   workers: number
   percentiles: boolean
+  indexes: boolean
   preparationMs: number
   submissionMs: number
   ingestionMs: number
@@ -47,6 +48,7 @@ export interface SampleBenchmarkStatus {
   workers: number
   days: number
   percentiles: boolean
+  indexes: boolean
   error: string | null
   result: SampleBenchmarkResult | null
   ingested: number

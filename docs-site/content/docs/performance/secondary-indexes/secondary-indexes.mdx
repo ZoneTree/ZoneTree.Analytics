@@ -18,7 +18,7 @@ Use secondary indexes when important filtered reports need a more selective orde
 
 Both are optional and disabled in the core defaults. Each adds storage and ingestion work, so choose from actual report patterns.
 
-The [5M-event query benchmark](../query-benchmarks/query-benchmarks.mdx#what-the-plans-show) shows these paths in use: country and device breakdowns for GitHub traffic returned in about **13 ms median** with source-leading covering indexes.
+The [5M-event query benchmark](../query-benchmarks/query-benchmarks.mdx#what-the-plans-show) shows these paths in use: country and device breakdowns for GitHub traffic returned in about **6 ms median** with source-leading covering indexes.
 
 ## Index an event dimension
 

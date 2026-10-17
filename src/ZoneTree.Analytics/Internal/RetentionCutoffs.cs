@@ -73,6 +73,16 @@ readonly record struct RetentionCutoffs(
       granularity == Granularity.Day ? DayRollupsLocalDay : Of(granularity);
 
   /// <summary>
+  /// These cutoffs with the cutoff of a rollup granularity taken from <paramref name="source"/>.
+  /// </summary>
+  public RetentionCutoffs WithRollup(Granularity granularity, RetentionCutoffs source) => granularity switch
+  {
+    Granularity.Minute => this with { MinuteRollups = source.MinuteRollups },
+    Granularity.Hour => this with { HourRollups = source.HourRollups },
+    _ => this with { DayRollups = source.DayRollups, DayRollupsLocalDay = source.DayRollupsLocalDay }
+  };
+
+  /// <summary>
   /// True when a rollup row is within the retention of its granularity. Minute and hour rows
   /// are compared by event time, day rows by their local day bucket.
   /// </summary>

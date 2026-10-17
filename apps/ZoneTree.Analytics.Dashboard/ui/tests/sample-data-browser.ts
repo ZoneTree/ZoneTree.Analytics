@@ -14,6 +14,7 @@ export async function checkSampleDataTools(page: Page, base: string) {
     days: 7,
     workers: 2,
     percentiles: false,
+    indexes: true,
     preparationMs: 100,
     submissionMs: 200,
     ingestionMs: 500,
@@ -48,6 +49,7 @@ export async function checkSampleDataTools(page: Page, base: string) {
       workers: 1,
       days: 30,
       percentiles: false,
+      indexes: true,
       error: null,
       result,
       ingested: 0,
@@ -93,6 +95,7 @@ export async function checkSampleDataTools(page: Page, base: string) {
           workers: 2,
           days: 7,
           percentiles: true,
+          indexes: false,
         },
       }
     } else if (endpoint === 'cancel') {
@@ -132,6 +135,13 @@ export async function checkSampleDataTools(page: Page, base: string) {
     .getByText('Include load-time percentile aggregation', { exact: true })
     .click()
   assert.equal(
+    await page.getByLabel('Maintain dimension and rollup indexes').isChecked(),
+    true,
+  )
+  await page
+    .getByText('Maintain dimension and rollup indexes', { exact: true })
+    .click()
+  assert.equal(
     await page
       .getByLabel('Include load-time percentile aggregation')
       .isChecked(),
@@ -140,7 +150,7 @@ export async function checkSampleDataTools(page: Page, base: string) {
   await page.getByRole('button', { name: 'Run benchmark', exact: true }).click()
   await page.getByText('Preparing 0 / 17 events', { exact: true }).waitFor()
   assert.deepEqual(submissions, [
-    { events: 17, days: 7, workers: 2, percentiles: true },
+    { events: 17, days: 7, workers: 2, percentiles: true, indexes: false },
   ])
   assert.equal(
     await page
@@ -196,7 +206,7 @@ export async function checkSampleDataTools(page: Page, base: string) {
     benchmark: {
       ...status.benchmark,
       state: 'completed',
-      result: { ...result, percentiles: true },
+      result: { ...result, percentiles: true, indexes: false },
     },
   }
   await page.getByText('Benchmark completed', { exact: true }).waitFor()
@@ -213,9 +223,12 @@ export async function checkSampleDataTools(page: Page, base: string) {
     true,
   )
   await page
-    .getByText('17 events · 7 days · 2 workers · Percentiles on', {
-      exact: true,
-    })
+    .getByText(
+      '17 events · 7 days · 2 workers · Percentiles on · Indexes off',
+      {
+        exact: true,
+      },
+    )
     .waitFor()
   assert.equal(
     await page
@@ -255,6 +268,6 @@ export async function checkSampleDataTools(page: Page, base: string) {
     fullPage: true,
   })
   console.log(
-    'Sample tools checks passed: benchmark inputs, percentile toggle, stages, shared busy state, cancellation, previous results and mobile layout (mock responses).',
+    'Sample tools checks passed: benchmark inputs, percentile and index toggles, stages, shared busy state, cancellation, previous results and mobile layout (mock responses).',
   )
 }

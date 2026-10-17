@@ -52,6 +52,21 @@ public sealed class StorageFormatRegressionTests : DirectoryTest
     Assert.That(error.Message, Does.Contain(explanation));
   }
 
+  [TestCase(true)]
+  [TestCase(false)]
+  public void DataWithoutMetadataIsRefused(bool olderMetadataFile)
+  {
+    using (var engine = TestEngine.Create(directory))
+      View(engine, First);
+    var meta = Path.Combine(directory, "meta");
+    foreach (var path in Directory.GetFiles(meta))
+      File.Delete(path);
+    if (olderMetadataFile)
+      File.WriteAllText(Path.Combine(meta, "meta-a.json"), "zonetree-analytics-meta 1 00\n{}");
+    var error = Assert.Throws<AnalyticsConfigurationException>(() => TestEngine.Create(directory).Dispose());
+    Assert.That(error.Message, Does.Contain("holds data but no valid metadata"));
+  }
+
   [Test]
   public void RolloverNeverHidesRecordsWrittenAfterItsClock()
   {

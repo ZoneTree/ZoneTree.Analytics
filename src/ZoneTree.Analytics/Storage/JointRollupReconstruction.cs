@@ -162,7 +162,6 @@ sealed class JointRollupReconstruction
     var record = new RawEvent();
     var dimensions = new Dictionary<string, string>(StringComparer.Ordinal);
     var changes = new List<ValueChange>();
-    var pageDimensions = new PageDimensions();
     var collector = new RawSessionReader(rawEvents, schema, options);
     var timeout = options.Sessions.Timeout.Ticks;
     var resumed = state.Events;
@@ -205,8 +204,7 @@ sealed class JointRollupReconstruction
         return;
       changes.Clear();
       changes.Add(new(value, 1, true));
-      buffer.Contribute(site, StandardEvents.PageView, ticks,
-          pageDimensions.Of(session.Dimensions, page, hostname), 0, 0, changes, DimensionScope.PageView);
+      buffer.ContributePageMark(site, ticks, session.Dimensions, page, hostname, changes);
     }
     // One chronological stream per site keeps only sessions within an inactivity window.
     // Original session IDs/starts preserve attribution; events are never re-ingested or re-enriched.

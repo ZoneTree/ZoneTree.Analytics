@@ -117,8 +117,6 @@ sealed class IngestionWorker : IAsyncDisposable
   // keeps nothing.
   readonly SessionDimensions sessionDimensions;
 
-  readonly PageDimensions pageDimensions = new();
-
   readonly long sessionTimeoutTicks;
 
   readonly long flushIntervalTimestamp;
@@ -468,15 +466,7 @@ sealed class IngestionWorker : IAsyncDisposable
     {
       valueChangesForSession.Clear();
       valueChangesForSession.Add(new ValueChange(StandardValues.Exits, -1, IsDelta: true));
-      buffer.Contribute(
-          ev.Site,
-          StandardEvents.PageView,
-          session.LastPageTicks,
-          pageDimensions.Of(dimensionsOfSession, session.LastPage, session.LastHostname),
-          0,
-          0,
-          valueChangesForSession,
-          DimensionScope.PageView);
+      buffer.ContributePageMark(ev.Site, session.LastPageTicks, dimensionsOfSession, session.LastPage, session.LastHostname, valueChangesForSession);
     }
     var isEntrance = isNewSession && session.Events == 1;
     if (ev.HasCustomDimensions)
@@ -486,15 +476,7 @@ sealed class IngestionWorker : IAsyncDisposable
       valueChangesForSession.Add(new ValueChange(StandardValues.Exits, 1, IsDelta: true));
       if (isEntrance)
         valueChangesForSession.Add(new ValueChange(StandardValues.Entrances, 1, IsDelta: true));
-      buffer.Contribute(
-          ev.Site,
-          StandardEvents.PageView,
-          ev.Ticks,
-          pageDimensions.Of(dimensionsOfSession, ev.Page, ev.Hostname),
-          0,
-          0,
-          valueChangesForSession,
-          DimensionScope.PageView);
+      buffer.ContributePageMark(ev.Site, ev.Ticks, dimensionsOfSession, ev.Page, ev.Hostname, valueChangesForSession);
     }
     else
     {

@@ -111,13 +111,7 @@ public sealed class AnalyticsStorage
   public AnalyticsPartitionedStorage<Memory<byte>, RollupValue> GetRollups(Granularity granularity)
   {
     ensureOpen();
-    return rollups[granularity switch
-    {
-      Granularity.Minute => 0,
-      Granularity.Hour => 1,
-      Granularity.Day => 2,
-      _ => throw new ArgumentOutOfRangeException(nameof(granularity))
-    }];
+    return rollups[RollupStore.IndexOf(granularity)];
   }
 }
 

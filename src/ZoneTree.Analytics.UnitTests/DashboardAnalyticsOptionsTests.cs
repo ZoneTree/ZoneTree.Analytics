@@ -12,8 +12,8 @@ public sealed class DashboardAnalyticsOptionsTests : DirectoryTest
     var primary = new AnalyticsOptions();
     DashboardAnalyticsOptions.ConfigurePrimary(primary, "primary", zone);
     var samples = DashboardAnalyticsOptions.CreatePerformanceSamples("samples", zone, 4, NullLogger.Instance);
-    var benchmark = DashboardAnalyticsOptions.CreateBenchmark("benchmark", zone, 20, false, NullLogger.Instance);
-    var reports = DashboardAnalyticsOptions.CreateBenchmarkReport("retained", zone.Id, true, NullLogger.Instance);
+    var benchmark = DashboardAnalyticsOptions.CreateBenchmark("benchmark", zone, 20, false, true, NullLogger.Instance);
+    var reports = DashboardAnalyticsOptions.CreateBenchmarkReport("retained", zone.Id, true, true, NullLogger.Instance);
     foreach (var options in new[] { primary, samples, benchmark, reports })
     {
       Assert.That(options.Retention.RawEvents, Is.EqualTo(TimeSpan.FromDays(365 * 3)));
@@ -72,7 +72,7 @@ public sealed class DashboardAnalyticsOptionsTests : DirectoryTest
     var options = profile switch
     {
       "samples" => DashboardAnalyticsOptions.CreatePerformanceSamples(directory, TimeZoneInfo.Utc, 1, NullLogger.Instance),
-      "benchmark" => DashboardAnalyticsOptions.CreateBenchmark(directory, TimeZoneInfo.Utc, 1, false, NullLogger.Instance),
+      "benchmark" => DashboardAnalyticsOptions.CreateBenchmark(directory, TimeZoneInfo.Utc, 1, false, true, NullLogger.Instance),
       _ => new AnalyticsOptions()
     };
     if (profile == "primary") DashboardAnalyticsOptions.ConfigurePrimary(options, directory, TimeZoneInfo.Utc);

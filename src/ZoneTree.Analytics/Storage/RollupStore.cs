@@ -50,7 +50,8 @@ sealed class RollupStore : IDisposable
     ownedStores.AddRange(PrimaryStores);
   }
 
-  static int IndexOf(Granularity granularity) => granularity switch
+  /// <summary>The position of a granularity in <see cref="Granularities"/>.</summary>
+  public static int IndexOf(Granularity granularity) => granularity switch
   {
     Granularity.Minute => 0,
     Granularity.Hour => 1,

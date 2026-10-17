@@ -17,6 +17,7 @@ export interface SampleBenchmarkPanel {
   days: SRef<number | string>
   workers: SRef<number | string>
   percentiles: SRef<boolean>
+  indexes: SRef<boolean>
   benchmark: ComputedRef<SampleBenchmarkStatus | null>
   run: (event: Event) => Promise<void>
   seconds: (milliseconds: number) => string
@@ -67,6 +68,11 @@ const template = html`<Panel class="form-panel sample-benchmark-panel">
       id="benchmark-percentiles"
       label="Include load-time percentile aggregation"
       :checked="percentiles"
+      :disabled="jobs.busy"/>
+    <FormCheck
+      id="benchmark-indexes"
+      label="Maintain dimension and rollup indexes"
+      :checked="indexes"
       :disabled="jobs.busy"/>
     <div
       class="sample-job-status"
@@ -169,6 +175,7 @@ const template = html`<Panel class="form-panel sample-benchmark-panel">
       {{ dashboard.number(benchmark.result.events) }} events · {{ benchmark.result.days }} days ·
       {{ benchmark.result.workers }} workers · Percentiles
       {{ benchmark.result.percentiles ? 'on' : 'off' }}
+      · Indexes {{ benchmark.result.indexes ? 'on' : 'off' }}
     </p>
     <dl class="sample-ingestion-metrics">
       <div>
@@ -221,12 +228,14 @@ export function defineSampleBenchmarkPanel() {
       const days = sref<number | string>(365)
       const workers = sref<number | string>(20)
       const percentiles = sref(false)
+      const indexes = sref(true)
       return {
         ...head.props,
         count,
         days,
         workers,
         percentiles,
+        indexes,
         benchmark: computed(() => jobs.status()?.benchmark ?? null),
         viewUrl: computed(() => {
           const model = unref(head.props.dashboard)
@@ -267,6 +276,7 @@ export function defineSampleBenchmarkPanel() {
             days: span,
             workers: concurrency,
             percentiles: percentiles(),
+            indexes: indexes(),
           })
         },
       }

@@ -62,8 +62,6 @@ public sealed class RollupKey
 /// </remarks>
 public static class StorageKeyCodec
 {
-  static readonly UTF8Encoding StrictUtf8 = new(false, true);
-
   /// <summary>Encodes a raw event key in the engine's storage format.</summary>
   public static Memory<byte> EncodeRawEvent(RawEventKey key)
   {
@@ -163,7 +161,7 @@ public static class StorageKeyCodec
   {
     try
     {
-      return StrictUtf8.GetString(bytes);
+      return Text.StrictUtf8.GetString(bytes);
     }
     catch (DecoderFallbackException exception)
     {

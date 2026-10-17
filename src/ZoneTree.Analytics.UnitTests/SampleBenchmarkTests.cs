@@ -21,11 +21,11 @@ public sealed class SampleBenchmarkTests : DirectoryTest
     }
   }
 
-  [TestCase(1, false)]
-  [TestCase(4, true)]
-  public void BenchmarkUsesDefaultPerWorkerLimitsAndOptionalPercentiles(int workers, bool percentiles)
+  [TestCase(1, false, true)]
+  [TestCase(4, true, false)]
+  public void BenchmarkUsesDefaultPerWorkerLimitsAndOptionalPercentilesAndIndexes(int workers, bool percentiles, bool indexes)
   {
-    var options = DashboardAnalyticsOptions.CreateBenchmark(directory, TimeZoneInfo.Utc, workers, percentiles);
+    var options = DashboardAnalyticsOptions.CreateBenchmark(directory, TimeZoneInfo.Utc, workers, percentiles, indexes);
     var defaults = new AnalyticsOptions();
     Assert.That(options.Ingestion.WorkerCount, Is.EqualTo(workers));
     Assert.That(options.Ingestion.QueueCapacity, Is.EqualTo(defaults.Ingestion.QueueCapacity));
@@ -33,6 +33,22 @@ public sealed class SampleBenchmarkTests : DirectoryTest
     Assert.That(options.Sessions.MaxCachedSessions, Is.EqualTo(defaults.Sessions.MaxCachedSessions));
     Assert.That(options.Ingestion.QueueFullBehavior, Is.EqualTo(QueueFullBehavior.Wait));
     Assert.That(options.Rollups.ValueAggregates.ContainsKey("load_time"), Is.EqualTo(percentiles));
+    Assert.That(options.Storage.DimensionIndexes.Dimensions, indexes ? Is.Not.Empty : Is.Empty);
+    Assert.That(options.Storage.RollupIndexes.Definitions, indexes ? Is.Not.Empty : Is.Empty);
+  }
+
+  [Test]
+  public async Task ABenchmarkWithoutIndexesRetainsBrowsableReportsWithoutIndexes()
+  {
+    await using var benchmark = new SampleBenchmark(directory, TimeZoneInfo.Utc);
+    var result = await benchmark.RunAsync(new(17, 7, 2, Indexes: false), _ => { },
+        CancellationToken.None, CancellationToken.None);
+    Assert.That(result.Indexes, Is.False);
+    Assert.That(result.Ingested, Is.EqualTo(17));
+    using var lease = benchmark.Reports.Acquire();
+    var report = lease.Engine.Web.GetSummary(new() { Site = BenchmarkReportStore.Site, Range = DateRange.LastDays(8) });
+    Assert.That(report.Summary.PageViews, Is.GreaterThan(0));
+    Assert.That(lease.Engine.RollupIndexes.AllStores, Is.Empty, "reopened reports build no indexes");
   }
 
   [Test]

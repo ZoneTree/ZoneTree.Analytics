@@ -196,10 +196,10 @@ The repository includes a [documented benchmark][benchmarks] over **5 million ge
 
 | Workload | Median | p95 |
 | --- | ---: | ---: |
-| Complete overview: six reports, up to three requests in flight | **84.0 ms** | 87.0 ms |
-| Country breakdown filtered to GitHub traffic | **13.5 ms** | 14.0 ms |
+| Complete overview: six reports, up to three requests in flight | **33.3 ms** | 35.5 ms |
+| Country breakdown filtered to GitHub traffic | **5.7 ms** | 6.5 ms |
 
-Measured over 30 warm loads per scope on an Intel Core Ultra 7 265KF with 64 GiB RAM, Windows x64, and a .NET 10.0.6 Debug host. Times include loopback HTTP response transfer and JSON parsing; chart rendering is excluded. The dataset has low group cardinality, and filtered reports use configured covering rollup indexes. These figures describe that workload, rather than a latency guarantee.
+Measured over 30 warm loads per scope on an Intel Core Ultra 7 265KF with 64 GiB RAM, Windows x64, and a .NET 10.0.6 Release host. Times include loopback HTTP response transfer and JSON parsing; chart rendering is excluded. The dataset has low group cardinality, and filtered reports use configured covering rollup indexes. These figures describe that workload, rather than a latency guarantee.
 
 Matching rollups answer recurring reports from aggregates. Segments, funnels, and unsupported aggregate combinations can require event scans. The [benchmark report][benchmarks] includes configuration, query plans, individual timings, and methodology; the [benchmarking guide][benchmarking] explains how to measure your workload.
 

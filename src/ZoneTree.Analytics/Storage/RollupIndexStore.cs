@@ -12,116 +12,88 @@ sealed record RollupIndex(string Dimension, string DefinitionId, Granularity Gra
 /// <summary>Recoverable, absolute copies of authoritative joint rollup rows.</summary>
 /// <remarks>
 /// Builds and repairs run on the background maintenance thread while flushes write their own
-/// copies. Queries read the primary rollups until the indexes are ready. A build resumes from
-/// its checkpoint after a restart; the days that flushes wrote meanwhile are repaired.
+/// copies. Queries read the primary rollups until the indexes are ready. A build also folds in
+/// the history that a joint rollup reconstruction rebuilt, then publishes it.
 /// </remarks>
-sealed class RollupIndexStore : IDisposable
+sealed class RollupIndexStore : BackgroundIndex
 {
-  const string CleanKey = "rollup-index.clean";
+  const string KeyPrefix = "rollup-index";
 
   /// <summary>The prefix of the build checkpoint, which a new history reconstruction clears.</summary>
-  public const string CheckpointPrefix = "rollup-index.backfill";
+  public const string CheckpointPrefix = KeyPrefix + ".backfill";
 
-  const string UncleanReason = "missing or unclean checkpoint";
   const string FoldingReason = "rebuilt history to fold in";
   const int BackgroundBatch = 4096;
-  readonly string root;
   readonly AnalyticsOptions options;
   readonly RollupStore rollups;
   readonly StoreFactory factory;
-  readonly MetaStore meta;
-  readonly ILogger logger;
   readonly List<RollupIndex> indexes = [];
-  readonly List<IDisposable> resources = [];
   readonly Dictionary<Granularity, PartitionedStore<Memory<byte>, RollupValue>> stores = [];
   Dictionary<(Granularity Granularity, string DefinitionId), RollupIndex[]> copies = [];
   readonly Dictionary<Granularity, long> removed = [];
   readonly Dictionary<Granularity, IndexRecovery> recovery = [];
-  int invalid;
-  long revision;
-  string manifest;
   RollupActivations activations;
-  volatile bool ready;
-  bool rebuild;
-  Dictionary<Granularity, long[]> dirtyDays = [];
-  Dictionary<Granularity, long[]> repairDays = [];
 
   public RollupIndexStore(string root, AnalyticsOptions options, RollupStore rollups, StoreFactory factory, MetaStore meta, ILogger logger)
+      : base(meta, logger, root, "Rollup index", KeyPrefix, "rollup-index.config",
+          StorageFormats.RollupIndexKey, StorageFormats.RollupIndex, "The rollup indexes of the analytics data directory")
   {
-    this.root = root;
     this.options = options;
     this.rollups = rollups;
     this.factory = factory;
-    this.meta = meta;
-    this.logger = logger;
   }
 
   public IReadOnlyList<RollupIndex> Indexes => indexes;
-  public bool IsHealthy => Volatile.Read(ref invalid) == 0;
-
-  /// <summary>Whether the indexes are being built or repaired; queries read the primary rollups meanwhile.</summary>
-  public bool IsBuilding => indexes.Count > 0 && !ready && IsHealthy;
   public IEnumerable<PartitionedStore<Memory<byte>, RollupValue>> AllStores => stores.Values;
 
   static string Registration(string dimension, string definitionId, Granularity granularity) =>
       string.Join(KeyCodec.ValueSeparator, dimension, definitionId, granularity.ToString());
 
-  /// <summary>
-  /// Opens the indexes and decides whether they need a build or a repair, which
-  /// <see cref="Build"/> then runs in the background. A new build drops the old copies first,
-  /// before ingestion writes new ones.
-  /// </summary>
+  /// <summary>Opens the indexes and decides their work.</summary>
   public void Initialize(RollupActivations activations)
   {
     this.activations = activations;
-    using var startup = new StageLog(logger, "Rollup index initialization", root);
-    using var check = new StageLog(logger, "Rollup index backfill check", root);
-    var format = meta.Get(StorageFormats.RollupIndexKey);
-    if (format != null)
-      StorageFormats.Require(format, StorageFormats.RollupIndex, "The rollup indexes of the analytics data directory");
     var configured = options.Storage.RollupIndexes.Definitions.SelectMany(definition => RollupStore.Granularities
         .Where(granularity => rollups.IsEnabled(granularity))
         .Select(granularity => Registration(definition.Dimension, definition.Definition.Id, granularity)))
-        .Order(StringComparer.Ordinal).ToArray();
-    manifest = string.Join('\n', configured);
-    var reasons = new List<string>();
-    // Indexes that were never initialized have no checkpoint, manifest or format to compare.
-    if (format == null) reasons.Add("new indexes");
-    else
-    {
-      if (meta.Get(CleanKey) != "true") reasons.Add(UncleanReason);
-      if (meta.Get("rollup-index.config") != manifest) reasons.Add("configuration changed");
-    }
-    if (!factory.RollupsDurable || !factory.RollupIndexesDurable) reasons.Add("write-ahead logging disabled");
-    // Rows of a completed history reconstruction wait for this build to fold them in.
-    if (JointRollupReconstruction.HasFolding(meta)) reasons.Add(FoldingReason);
+        .Order(StringComparer.Ordinal);
+    // Rows of a completed history reconstruction wait for a build to fold them in.
+    Open(string.Join('\n', configured), JointRollupReconstruction.HasFolding(Meta) ? [FoldingReason] : []);
+  }
+
+  protected override int IndexCount => indexes.Count;
+
+  protected override int StoreCount => stores.Count;
+
+  protected override string DisabledReason => "no configured combinations or enabled tiers";
+
+  protected override bool Durable => factory.RollupsDurable && factory.RollupIndexesDurable;
+
+  protected override IEnumerable<IndexRecovery> Journals => recovery.Values;
+
+  protected override bool NothingToCopy =>
+      rollups.PrimaryStores.All(store => store.ListPartitions().Count == 0) && !JointRollupReconstruction.IsPending(Meta);
+
+  protected override bool Resumes(string reason) => reason is UncleanReason or FoldingReason;
+
+  protected override int OpenStores(List<string> reasons)
+  {
     var partitions = 0;
     foreach (var granularity in RollupStore.Granularities.Where(granularity =>
         rollups.IsEnabled(granularity) && options.Storage.RollupIndexes.Definitions.Count > 0))
     {
       var store = Open(granularity);
       stores.Add(granularity, store);
-      recovery.Add(granularity, new(meta, "rollup-index.dirty." + granularity + "."));
+      recovery.Add(granularity, new(Meta, "rollup-index.dirty." + granularity + "."));
       foreach (var definition in options.Storage.RollupIndexes.Definitions)
         indexes.Add(new(definition.Dimension, definition.Definition.Id, granularity, store));
       var names = store.ListPartitions();
       partitions += names.Count;
-      var expected = (meta.Get(PartitionsKey(granularity)) ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries);
+      var expected = (Meta.Get(PartitionsKey(granularity)) ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries);
       if (IndexRecoveryScan.MissingRetainedPartitions(expected, names, factory.RollupRetentionCutoff(granularity)))
         reasons.Add($"partition manifest changed: {granularity}");
     }
     copies = indexes.GroupBy(index => (index.Granularity, index.DefinitionId)).ToDictionary(group => group.Key, group => group.ToArray());
-    rebuild = reasons.Count > 0 && indexes.Count > 0;
-    var checkpoint = Checkpoint();
-    // Only an interrupted build of the same configuration resumes; any other reason starts over.
-    var resuming = rebuild && checkpoint.Copying && reasons.All(reason => reason is UncleanReason or FoldingReason);
-    dirtyDays = recovery.ToDictionary(pair => pair.Key, pair => pair.Value.Days);
-    // A new build copies every day; one that resumes repairs the days written since it began.
-    repairDays = rebuild && !resuming ? [] : dirtyDays.Where(pair => pair.Value.Length > 0).ToDictionary();
-    var dirtyCount = dirtyDays.Values.Sum(days => days.Length);
-    var decision = indexes.Count == 0 ? "disabled" : rebuild ? "rebuild required" : dirtyCount > 0 ? "repair affected days" : "reuse existing indexes unless historical rollups change";
-    var reason = indexes.Count == 0 ? "no configured combinations or enabled tiers" : rebuild ? string.Join(", ", reasons) : dirtyCount > 0 ? "durable write intents require reconciliation" : "clean checkpoint and matching manifests";
-    check.Complete($"decision={decision}; indexes={indexes.Count}; physical stores={stores.Count}; partitions={partitions}; dirty days={dirtyCount}; resuming={resuming}; reasons={reason}");
     // Disabled tiers must not retain copies. Only the three known tier directories are owned here.
     foreach (var granularity in RollupStore.Granularities.Where(granularity => !stores.ContainsKey(granularity)))
     {
@@ -129,69 +101,26 @@ sealed class RollupIndexStore : IDisposable
       var obsolete = Open(granularity);
       foreach (var partition in obsolete.ListPartitions()) obsolete.Drop(partition);
     }
-    if (rebuild && !resuming)
-    {
-      meta.Set(CleanKey, "false");
-      checkpoint.Begin();
-      foreach (var store in stores.Values)
-        foreach (var partition in store.ListPartitions()) store.Drop(partition);
-      Started(checkpoint);
-      // A new directory has nothing to copy: the build completes at once.
-      if (rollups.PrimaryStores.All(store => store.ListPartitions().Count == 0) && !JointRollupReconstruction.IsPending(meta))
-        Build(CancellationToken.None);
-    }
-    if (!rebuild && repairDays.Count == 0)
-    {
-      ready = true;
-      MarkClean();
-    }
-    startup.Complete($"decision={(ready ? indexes.Count == 0 ? "disabled" : rebuild ? "rebuild completed" : "reuse existing indexes" : rebuild ? "rebuild in background" : "repair in background")}; indexes={indexes.Count}; physical stores={stores.Count}");
+    return partitions;
   }
 
-  IndexBackfillCheckpoint Checkpoint() => new(meta, CheckpointPrefix, manifest);
-
-  /// <summary>
-  /// Stops a build once a copy has failed: the copies after it were skipped, so no checkpoint,
-  /// coverage or published history may claim them.
-  /// </summary>
-  void RequireHealthy()
+  protected override void DropCopies()
   {
-    if (!IsHealthy)
-      throw new AnalyticsStorageException(
-          "The rollup indexes could not be built: a copy failed. Queries read the primary rollups until the engine opens again, which resumes the build.");
+    foreach (var store in stores.Values)
+      foreach (var partition in store.ListPartitions()) store.Drop(partition);
   }
 
-  /// <summary>
-  /// Publishes the history the build folded in, records that the indexes copy the rollups, and
-  /// makes them available to queries.
-  /// </summary>
-  void Complete(IndexBackfillCheckpoint checkpoint)
+  protected override void SavePartitions(Dictionary<string, string> entries)
   {
-    RequireHealthy();
-    JointRollupReconstruction.PublishFolded(meta, activations, options.Rollups.Definitions);
-    meta.Update(entries =>
-    {
-      SaveCoverage(entries);
-      checkpoint.Clear(entries);
-    });
-    foreach (var (granularity, journal) in recovery) journal.ClearRepaired(dirtyDays[granularity]);
-    ready = true;
-    Interlocked.Increment(ref revision);
+    foreach (var (granularity, store) in stores) entries[PartitionsKey(granularity)] = string.Join(',', store.ListPartitions());
   }
 
-  /// <summary>
-  /// Records the configuration and format of a build that has dropped the old copies: an
-  /// interrupted build of them resumes at the next open, while the indexes stay unclean.
-  /// </summary>
-  void Started(IndexBackfillCheckpoint checkpoint)
-  {
-    meta.Update(entries =>
-    {
-      SaveCoverage(entries);
-      entries[CleanKey] = "false";
-    });
-    checkpoint.Cleared();
-  }
+  protected override AnalyticsStorageException BuildFailed(Exception cause) => new(
+      "The rollup indexes could not be built: a copy failed. Queries read the primary rollups until the engine opens again, which resumes the build.", cause);
+
+  /// <summary>Publishes the history the build folded in.</summary>
+  protected override void Completing() =>
+      JointRollupReconstruction.PublishFolded(Meta, activations, options.Rollups.Definitions);
 
   /// <summary>
   /// Runs the build or repair that <see cref="Initialize"/> decided, on the background
@@ -204,17 +133,17 @@ sealed class RollupIndexStore : IDisposable
   /// flushes: the fold merges the row's rebuilt part in, and the row's current value is copied.
   /// Flushes copy the rows they write themselves, so a copy is never older than its row.
   /// </remarks>
-  public void Build(CancellationToken cancellationToken)
+  public override void Build(CancellationToken cancellationToken)
   {
-    if (ready) return;
+    if (IsReady) return;
     // Indexes that failed wait for the next open, which resumes them from their last checkpoint.
     RequireHealthy();
-    using var build = new StageLog(logger, "Rollup index backfill", root);
+    using var build = new StageLog(Logger, "Rollup index backfill", Root);
     var checkpoint = Checkpoint();
-    var historical = JointRollupReconstruction.HasFolding(meta);
+    var historical = JointRollupReconstruction.HasFolding(Meta);
     // Rebuilt rows wait for this fold even when their definition is no longer indexed.
-    var folding = JointRollupReconstruction.FoldingDefinitions(meta, options.Rollups.Definitions);
-    long count = rebuild ? checkpoint.Count : 0;
+    var folding = JointRollupReconstruction.FoldingDefinitions(Meta, options.Rollups.Definitions);
+    long count = Rebuilding ? checkpoint.Count : 0;
     var resumed = count;
     long rows = 0;
     long matched = 0;
@@ -256,7 +185,7 @@ sealed class RollupIndexStore : IDisposable
       checkpoint.Save(source.Id, lastKey, count);
       build.Progress($"checkpoint saved; partition={source.Id}; rollup rows scanned={count}; resumed rows={resumed}", count - resumed, "rows");
     }
-    if (rebuild)
+    if (Rebuilding)
     {
       var resumePartition = checkpoint.Partition;
       var resumeKey = checkpoint.Key;
@@ -266,13 +195,13 @@ sealed class RollupIndexStore : IDisposable
         FoldPartition(source, null, source.Id == resumePartition ? resumeKey : default, save: true);
       }
     }
-    if (repairDays.Count > 0)
+    if (RepairDays.Count > 0)
     {
       // Removes orphaned copies of interrupted writes, then copies the days again. A flush
       // writes the row before its copy, so a copy deleted here is copied again below.
       foreach (var (granularity, store) in stores)
       {
-        if (!repairDays.TryGetValue(granularity, out var days)) continue;
+        if (RepairDaysOf(granularity) is not { } days) continue;
         foreach (var partition in store.ListPartitions())
         {
           using var lease = store.Acquire(partition);
@@ -280,8 +209,11 @@ sealed class RollupIndexStore : IDisposable
           IndexRecoveryScan.Visit(lease.Tree, days, RollupIndexKeyCodec.HeadLength, (key, _) => lease.Tree.ForceDelete(key));
         }
       }
-      foreach (var source in sources.Where(source => repairDays.ContainsKey(source.Granularity)))
-        FoldPartition(source, repairDays[source.Granularity], default, save: false);
+      foreach (var source in sources)
+      {
+        if (RepairDaysOf(source.Granularity) is { } days)
+          FoldPartition(source, days, default, save: false);
+      }
     }
     // Merges the copies into disk segments, as ingestion goes on.
     foreach (var store in AllStores) store.Compact();
@@ -289,15 +221,19 @@ sealed class RollupIndexStore : IDisposable
     build.Complete($"indexes={indexes.Count}; physical stores={stores.Count}; source partitions={sourcePartitions}; rollup rows scanned={count}; resumed rows={resumed}; indexed source rows={matched}; index rows written={rows}; historical backfill={historical}", count - resumed, "rows");
   }
 
+  /// <summary>The days of a tier to repair, or null.</summary>
+  long[] RepairDaysOf(Granularity granularity) =>
+      recovery.TryGetValue(granularity, out var journal) ? RepairDays.GetValueOrDefault(journal) : null;
+
   static string PartitionsKey(Granularity granularity) => "rollup-index.partitions." + granularity;
 
-  string TierDirectory(Granularity granularity) => Path.Combine(root, granularity.ToString().ToLowerInvariant());
+  string TierDirectory(Granularity granularity) => Path.Combine(Root, granularity.ToString().ToLowerInvariant());
 
   PartitionedStore<Memory<byte>, RollupValue> Open(Granularity granularity)
   {
     var store = new PartitionedStore<Memory<byte>, RollupValue>(TierDirectory(granularity), options.Storage.RollupIndexes.RecordsPerPartition,
-        directory => factory.OpenRollupIndex(directory, granularity), logger, factory.CreateRollupIndexMaintainer, factory.WriteAheadLogDirectoryOf);
-    resources.Add(store);
+        directory => factory.OpenRollupIndex(directory, granularity), Logger, factory.CreateRollupIndexMaintainer, factory.WriteAheadLogDirectoryOf);
+    Resources.Add(store);
     return store;
   }
 
@@ -307,10 +243,9 @@ sealed class RollupIndexStore : IDisposable
     try { CopyCore(granularity, key, value); }
     catch (Exception exception)
     {
-      Volatile.Write(ref invalid, 1);
-      Interlocked.Increment(ref revision);
+      Invalidate();
       // Primary rollups remain authoritative and must keep accepting deltas.
-      try { logger.LogError(exception); } catch { }
+      try { Logger.LogError(exception); } catch { }
     }
   }
 
@@ -357,7 +292,7 @@ sealed class RollupIndexStore : IDisposable
   public string Scan(Granularity granularity, string site, string eventName, string definitionId, long from, long to,
       IEnumerable<Filter> filters, Action<long, string, RollupValue> visit, CancellationToken cancellationToken)
   {
-    if (!IsHealthy || !ready || from >= to) return null;
+    if (!IsHealthy || !IsReady || from >= to) return null;
     foreach (var filter in DimensionIndexStore.Mandatory(filters))
     {
       if (!DimensionIndexStore.TryEquality(filter, out var dimension, out var values)) continue;
@@ -365,7 +300,7 @@ sealed class RollupIndexStore : IDisposable
       if (index == null) continue;
       values = values.Distinct(StringComparer.Ordinal).ToArray();
       if (values.Length > 64) continue;
-      var currentRevision = Interlocked.Read(ref revision);
+      var currentRevision = Revision;
       Check(currentRevision);
       foreach (var partition in index.Store.PartitionsInRange(from, to))
       {
@@ -398,7 +333,7 @@ sealed class RollupIndexStore : IDisposable
 
   void Check(long expectedRevision)
   {
-    if (!IsHealthy || expectedRevision != Interlocked.Read(ref revision))
+    if (!IsHealthy || expectedRevision != Revision)
       throw new AnalyticsQueryException("Rollup indexes changed during the query. Retry the query.");
   }
 
@@ -420,29 +355,4 @@ sealed class RollupIndexStore : IDisposable
     }
     return dropped;
   }
-
-  /// <summary>
-  /// Records that the indexes copy the rollups, when they do: after an orderly shutdown no day
-  /// needs a repair. An unfinished build keeps its checkpoint and resumes at the next open.
-  /// </summary>
-  public void MarkClean()
-  {
-    if (!IsHealthy || !ready) return;
-    meta.Update(entries =>
-    {
-      SaveCoverage(entries);
-      foreach (var journal in recovery.Values) journal.Clear(entries);
-      Checkpoint().Clear(entries);
-    });
-  }
-
-  void SaveCoverage(Dictionary<string, string> entries)
-  {
-    entries[CleanKey] = factory.RollupsDurable && factory.RollupIndexesDurable ? "true" : "false";
-    entries[StorageFormats.RollupIndexKey] = StorageFormats.Text(StorageFormats.RollupIndex);
-    entries["rollup-index.config"] = manifest;
-    foreach (var (granularity, store) in stores) entries[PartitionsKey(granularity)] = string.Join(',', store.ListPartitions());
-  }
-
-  public void Dispose() => Disposal.DisposeAll(resources);
 }

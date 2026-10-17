@@ -38,7 +38,7 @@ Paths in this table are relative to `AnalyticsOptions.DataDirectory`. A partitio
 | Path | Contents |
 | --- | --- |
 | `engine.lock` | Exclusive handle held for the engine's lifetime |
-| `meta/meta-a.json` and `meta/meta-b.json` | Alternating generations of dataset metadata |
+| `meta/meta-a.bin` and `meta/meta-b.bin` | Alternating generations of dataset metadata |
 | `events/yyyy-MM-dd/` | Raw event partitions, when `StoreRawEvents` is enabled |
 | `rollups/minute/yyyy-MM-dd/` | Minute aggregate partitions, when enabled |
 | `rollups/hour/yyyy-MM-dd/` | Hour aggregate partitions, when enabled |
@@ -351,9 +351,17 @@ A missing rollup dimension is converted to the `01` sentinel string before encod
 
 ## Metadata file format
 
-Each `meta-a.json` or `meta-b.json` is a UTF-8 header line, a line-feed byte, and an indented JSON object. Despite the extension, the complete file is not a standalone JSON document.
+Each `meta-a.bin` or `meta-b.bin` is a binary header followed by an indented UTF-8 JSON object. The historical joint-rollup journal uses the same header with its own magic:
 
-The header consists of three space-separated tokens: `zonetree-analytics-meta`, a positive decimal generation, and the uppercase hexadecimal SHA-256 digest of **all bytes after the first LF**. The digest covers the JSON bytes exactly as written, including whitespace. It does not cover the header.
+| Order | Field | Encoding |
+| --- | --- | --- |
+| 1 | Magic | The 8 ASCII bytes `ZTAMETA1` (metadata) or `ZTAJRNL1` (journal) |
+| 2 | Generation | `u64le`, positive |
+| 3 | Body length | `u64le` |
+| 4 | Body checksum | 32-byte SHA-256 of the body |
+| 5 | Body | The JSON object (metadata) or the checkpoint (journal) |
+
+The header is written last, so a torn write never validates. The checksum covers the body bytes exactly as written, including whitespace.
 
 The JSON body maps string keys to string values, with keys emitted in ordinal order. Numbers, booleans, manifests, and base64 are represented as strings at this layer. The writer escapes some characters, for example `+` in base64 as `+`, the `1F` separator as `\u001F`, and non-ASCII text, so read the file with a JSON parser rather than by text search.
 
@@ -385,7 +393,7 @@ The JSON body maps string keys to string values, with keys emitted in ordinal or
 
 ### Generations and writes
 
-A metadata update creates the next generation by replacing the older file in place, then flushing the stream to disk. Generation N goes to `meta-a.json` when N is even and `meta-b.json` when N is odd. Startup validates available headers and checksums and selects the valid file with the highest generation. A missing or checksum-invalid generation can therefore leave the other one usable; existing metadata files with no valid generation cause startup to fail rather than create a new identity secret or reset format settings.
+A metadata update creates the next generation by replacing the older file in place, then flushing the stream to disk. Generation N goes to `meta-a.bin` when N is even and `meta-b.bin` when N is odd. Startup validates available headers and checksums and selects the valid file with the highest generation. A missing or checksum-invalid generation can therefore leave the other one usable; existing metadata files with no valid generation cause startup to fail rather than create a new identity secret or reset format settings.
 
 When keys are removed, the store writes two successive generations so the removed entries disappear from both files. This applies to expired salts as well as completed recovery checkpoints. It is removal from the live metadata files, not secure erasure of historical backups or underlying storage media.
 
@@ -420,17 +428,7 @@ Ingestion keeps writing its own copies while a build runs. A dimension-index bui
 
 Copy backfills use metadata keys ending in `.config`, `.phase`, `.partition`, `.key`, and `.count`. Phase is `clear` or `copy`; the cursor key is base64, and the count is decimal text. When a new build has dropped the old copies, the index format, configuration, and empty partition manifest are recorded with the index marked unclean, so an interrupted build resumes. Checkpoints advance after their writes return, every 100,000 input records and at partition boundaries. Absolute upserts make replay of an unfinished chunk idempotent. With the default asynchronous write-ahead log, copy and reconstruction writes can still be queued when the checkpoint advances. A crash can lose them even when their source raw events were already durable, leaving historical aggregates without those contributions. Synchronous logs for the stores involved make checkpoint recovery exact.
 
-Historical reconstruction of joint rollups has a separate binary journal, `backfill/joint-rollups/journal-a.bin` and `journal-b.bin`, written alternately like the metadata files:
-
-| Order | Field | Encoding |
-| --- | --- | --- |
-| 1 | Magic | The 8 ASCII bytes `ZTAJRNL1` |
-| 2 | Generation | `u64le`, positive |
-| 3 | Body length | `u64le` |
-| 4 | Body checksum | 32-byte SHA-256 of the body |
-| 5 | Body | The checkpoint |
-
-The header is written last, so a torn write never validates; startup reads the valid file with the highest generation. The body holds the configuration signature, coverage, the fence, the raw partitions when the reconstruction began, the site/partition/key cursor, progress counters, active reconstructed sessions, and a redo list of absolute rebuilt parts. Redo records include granularity, partition, primary key bytes, and the serialized rebuilt part, stored as bytes rather than text.
+Historical reconstruction of joint rollups has a separate binary journal, `backfill/joint-rollups/journal-a.bin` and `journal-b.bin`, written alternately in the [metadata file format](#metadata-file-format) with the magic `ZTAJRNL1`. Startup reads the valid file with the highest generation. The body holds the configuration signature, coverage, the fence, the raw partitions when the reconstruction began, the site/partition/key cursor, progress counters, active reconstructed sessions, and a redo list of absolute rebuilt parts. Redo records include granularity, partition, primary key bytes, and the serialized rebuilt part, stored as bytes rather than text.
 
 The reconstruction runs while ingestion writes to the same rows. It reads the raw events whose sequence is at most the fence, the raw event sequence when it began; ingestion writes every later event, late ones included, so each event counts once. Its contributions go to the rows' rebuilt parts under the row locks of the flushes. Replaying the absolute rebuilt parts avoids adding the same contributions twice after a crash and never undoes a flush. When the reconstruction begins, it deletes the rows the definitions kept from an earlier activation, before ingestion starts. Raw retention does not pass the coverage start until it completes. Then the journal files are deleted, the definitions are listed in `rollup-index.folding`, and the rollup index build folds the rebuilt parts in before the coverage is published.
 

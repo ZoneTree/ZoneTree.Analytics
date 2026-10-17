@@ -1,5 +1,3 @@
-using System.Collections.Concurrent;
-
 namespace ZoneTree.Analytics.Web;
 
 /// <summary>
@@ -8,28 +6,11 @@ namespace ZoneTree.Analytics.Web;
 /// </summary>
 sealed class BuiltInUserAgentParser : IUserAgentParser
 {
-  const int MaxCacheSize = 10_000;
-
-  const int MaxUserAgentLength = 1024;
-
-  readonly ConcurrentDictionary<string, UserAgentInfo> cache = new(StringComparer.Ordinal);
+  readonly UserAgentCache<UserAgentInfo> cache = new(ParseCore);
 
   public static BuiltInUserAgentParser Instance { get; } = new();
 
-  public UserAgentInfo Parse(string userAgent)
-  {
-    if (string.IsNullOrWhiteSpace(userAgent))
-      return null;
-    if (userAgent.Length > MaxUserAgentLength)
-      userAgent = userAgent[..MaxUserAgentLength];
-    if (cache.TryGetValue(userAgent, out var cached))
-      return cached;
-    var info = ParseCore(userAgent);
-    if (cache.Count >= MaxCacheSize)
-      cache.Clear();
-    cache.TryAdd(userAgent, info);
-    return info;
-  }
+  public UserAgentInfo Parse(string userAgent) => cache.Get(userAgent);
 
   static UserAgentInfo ParseCore(string ua)
   {
