@@ -1,14 +1,13 @@
-using System.Globalization;
 using ZoneTree.Analytics.Storage;
 
 namespace ZoneTree.Analytics.UnitTests;
 
 public sealed class MetaStoreTests : DirectoryTest
 {
-  string[] Files => [Path.Combine(directory, "meta-a.json"), Path.Combine(directory, "meta-b.json")];
+  string[] Files => [Path.Combine(directory, "meta-a.bin"), Path.Combine(directory, "meta-b.bin")];
 
-  static long GenerationOf(string path) =>
-      long.Parse(File.ReadLines(path).First().Split(' ')[1], CultureInfo.InvariantCulture);
+  // The generation follows the 8-byte magic.
+  static long GenerationOf(string path) => BitConverter.ToInt64(File.ReadAllBytes(path), 8);
 
   string NewestFile => Files.Where(File.Exists).OrderByDescending(GenerationOf).First();
 
@@ -54,7 +53,10 @@ public sealed class MetaStoreTests : DirectoryTest
     meta.Set("time-zone", "UTC");
     meta.Set("raw-sequence", "1");
     var newest = NewestFile;
-    File.WriteAllText(newest, File.ReadAllText(newest).Replace("UTC", "CET", StringComparison.Ordinal));
+    var bytes = File.ReadAllBytes(newest);
+    var at = bytes.AsSpan().IndexOf("UTC"u8);
+    "CET"u8.CopyTo(bytes.AsSpan(at));
+    File.WriteAllBytes(newest, bytes);
 
     // The checksum rejects the edited file; the previous generation still has the setting.
     var reopened = new MetaStore(directory);

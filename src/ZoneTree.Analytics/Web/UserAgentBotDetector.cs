@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Text.RegularExpressions;
 
 namespace ZoneTree.Analytics.Web;
@@ -14,13 +13,7 @@ namespace ZoneTree.Analytics.Web;
 /// </remarks>
 sealed partial class UserAgentBotDetector : IBotDetector
 {
-  const int MaxCacheSize = 10_000;
-
-  const int MaxUserAgentLength = 1024;
-
-  static readonly BotInfo NotABot = new("", "");
-
-  readonly ConcurrentDictionary<string, BotInfo> cache = new(StringComparer.Ordinal);
+  readonly UserAgentCache<BotInfo> cache = new(DetectCore);
 
   public static UserAgentBotDetector Instance { get; } = new();
 
@@ -158,22 +151,7 @@ sealed partial class UserAgentBotDetector : IBotDetector
   [GeneratedRegex(@"(?<![A-Za-z0-9_.\-])([A-Za-z0-9_.\-]*(?:bot|crawler|spider|scraper|fetcher))(?:/|(?=[^/]*\+https?:))", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
   private static partial Regex GenericBotToken();
 
-  public BotInfo Detect(EventContext context)
-  {
-    var userAgent = context.UserAgent;
-    if (string.IsNullOrWhiteSpace(userAgent))
-      return null;
-    if (userAgent.Length > MaxUserAgentLength)
-      userAgent = userAgent[..MaxUserAgentLength];
-    if (!cache.TryGetValue(userAgent, out var bot))
-    {
-      bot = DetectCore(userAgent) ?? NotABot;
-      if (cache.Count >= MaxCacheSize)
-        cache.Clear();
-      cache.TryAdd(userAgent, bot);
-    }
-    return ReferenceEquals(bot, NotABot) ? null : bot;
-  }
+  public BotInfo Detect(EventContext context) => cache.Get(context.UserAgent);
 
   internal static BotInfo DetectCore(string userAgent)
   {

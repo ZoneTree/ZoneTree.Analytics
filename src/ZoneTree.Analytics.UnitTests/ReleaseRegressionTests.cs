@@ -200,7 +200,7 @@ public sealed class ReleaseRegressionTests : DirectoryTest
   {
     var engine = TestEngine.Create(directory);
     engine.Track(new AnalyticsEvent("purchase") { Timestamp = Utc(Day0.AddHours(1)) });
-    var paths = new[] { Path.Combine(directory, "meta", "meta-a.json"), Path.Combine(directory, "meta", "meta-b.json") };
+    var paths = new[] { Path.Combine(directory, "meta", "meta-a.bin"), Path.Combine(directory, "meta", "meta-b.bin") };
     foreach (var path in paths)
     {
       File.Move(path, path + ".bak");

@@ -126,8 +126,6 @@ sealed class ByteWriter
 /// </summary>
 ref struct ByteReader
 {
-  static readonly UTF8Encoding StrictUtf8 = new(false, true);
-
   readonly ReadOnlySpan<byte> span;
 
   readonly bool strict;
@@ -194,7 +192,7 @@ ref struct ByteReader
     var byteCount = checked((int)(lengthPlusOne - 1));
     if (byteCount == 0)
       return string.Empty;
-    var result = (strict ? StrictUtf8 : Encoding.UTF8).GetString(span.Slice(position, byteCount));
+    var result = (strict ? Text.StrictUtf8 : Encoding.UTF8).GetString(span.Slice(position, byteCount));
     position += byteCount;
     return result;
   }
@@ -211,7 +209,7 @@ ref struct ByteReader
       return null;
     var byteCount = checked((int)(lengthPlusOne - 1));
     if (strict)
-      StrictUtf8.GetCharCount(span.Slice(position, byteCount));
+      Text.StrictUtf8.GetCharCount(span.Slice(position, byteCount));
     var result = cache.Get(span.Slice(position, byteCount));
     position += byteCount;
     return result;

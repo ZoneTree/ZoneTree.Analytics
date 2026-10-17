@@ -133,7 +133,7 @@ public sealed class BackfillLoggingTests : DirectoryTest
       Assert.That(provider.Messages.Any(log => log.Category == "ZoneTree.Analytics" && log.Message.StartsWith("Rollup index backfill started;", StringComparison.Ordinal)), Is.True);
     }
     provider.Messages.Clear();
-    var options = DashboardAnalyticsOptions.CreateBenchmark(directory, TimeZoneInfo.Utc, 1, false, factory.CreateLogger("SampleBenchmark"));
+    var options = DashboardAnalyticsOptions.CreateBenchmark(directory, TimeZoneInfo.Utc, 1, false, true, factory.CreateLogger("SampleBenchmark"));
     TestEngine.UseTestDefaults(options);
     using (var engine = new AnalyticsEngine(options))
       Assert.That(provider.Messages.Any(log => log.Category == "SampleBenchmark" && log.Message.Contains("backfill check completed;", StringComparison.Ordinal)), Is.True);

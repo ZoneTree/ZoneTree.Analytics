@@ -1,6 +1,6 @@
 {
   "name": "zonetree-analytics-dashboard",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,13 +10,13 @@
     "publish": "purestack publish --content ./content"
   },
   "dependencies": {
-    "@purestack/ts-components": "^1.1.14",
-    "@purestack/ts-css": "^1.1.14",
-    "@purestack/ts-html": "^1.1.14",
-    "@purestack/ts-style": "^1.1.14",
-    "@purestack/ts-svg-icons": "^1.1.14",
-    "@purestack/ts-util": "^1.1.14",
-    "purestack": "^1.1.14",
+    "@purestack/ts-components": "^1.1.15",
+    "@purestack/ts-css": "^1.1.15",
+    "@purestack/ts-html": "^1.1.15",
+    "@purestack/ts-style": "^1.1.15",
+    "@purestack/ts-svg-icons": "^1.1.15",
+    "@purestack/ts-util": "^1.1.15",
+    "purestack": "^1.1.15",
     "regor": "^1.7.5"
   },
   "devDependencies": {

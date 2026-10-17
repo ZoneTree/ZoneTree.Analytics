@@ -4,13 +4,14 @@ using System.Runtime;
 using Microsoft.Extensions.Logging;
 using ZoneTree.Analytics;
 
-sealed record SampleBenchmarkRequest(int Events = 5_000_000, int Days = 365, int Workers = 20, bool Percentiles = false);
+sealed record SampleBenchmarkRequest(int Events = 5_000_000, int Days = 365, int Workers = 20, bool Percentiles = false,
+    bool Indexes = true);
 sealed record SampleBenchmarkResult(int Events, int Days, int Workers, bool Percentiles,
     double PreparationMs, double SubmissionMs, double IngestionMs, double EventsPerSecond,
     long Ingested, long Errors, long Dropped, long Rejected, string Build, string GarbageCollection, string TieredCompilation,
-    string FromDate = "", string ToDate = "");
+    string FromDate = "", string ToDate = "", bool Indexes = true);
 sealed record SampleBenchmarkStatus(string State = "idle", int Requested = 0, int Prepared = 0, int Submitted = 0,
-    int Workers = 20, int Days = 365, bool Percentiles = false, string Error = null, SampleBenchmarkResult Result = null,
+    int Workers = 20, int Days = 365, bool Percentiles = false, bool Indexes = true, string Error = null, SampleBenchmarkResult Result = null,
     long Ingested = 0, double ElapsedMs = 0, double EventsPerSecond = 0);
 sealed record SampleBenchmarkProgress(string State, int Prepared = 0, int Submitted = 0,
     long Ingested = 0, double ElapsedMs = 0, double EventsPerSecond = 0);
@@ -59,7 +60,7 @@ sealed class SampleBenchmark(string contentRoot, TimeZoneInfo timeZone, ILogger 
   async Task<SampleBenchmarkResult> MeasureAsync(string directory, AnalyticsEvent[] events, SampleBenchmarkRequest request, DateTimeOffset end,
       double preparationMs, Action<SampleBenchmarkProgress> progress, CancellationToken cancellationToken, CancellationToken applicationStopping)
   {
-    var options = DashboardAnalyticsOptions.CreateBenchmark(directory, timeZone, request.Workers, request.Percentiles, logger);
+    var options = DashboardAnalyticsOptions.CreateBenchmark(directory, timeZone, request.Workers, request.Percentiles, request.Indexes, logger);
     await using var engine = new AnalyticsEngine(options);
     progress(new("running", Prepared: events.Length));
     var stopwatch = Stopwatch.StartNew();
@@ -107,7 +108,7 @@ sealed class SampleBenchmark(string contentRoot, TimeZoneInfo timeZone, ILogger 
           statistics.EventsProcessed, statistics.Errors, statistics.EventsDropped, statistics.EventsRejected,
           build, GCSettings.IsServerGC ? "Server" : "Workstation", tiered == "0" ? "Disabled" : tiered == "1" ? "Enabled" : "Default",
           TimeZoneInfo.ConvertTime(end.AddDays(-request.Days), timeZone).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
-          TimeZoneInfo.ConvertTime(end, timeZone).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+          TimeZoneInfo.ConvertTime(end, timeZone).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), request.Indexes);
     }
     catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
     {

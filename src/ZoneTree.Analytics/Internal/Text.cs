@@ -7,7 +7,8 @@ namespace ZoneTree.Analytics.Internal;
 /// </summary>
 static class Text
 {
-  static readonly UTF8Encoding StrictUtf8 = new(false, true);
+  /// <summary>UTF-8 that throws on malformed input instead of replacing it.</summary>
+  public static readonly UTF8Encoding StrictUtf8 = new(false, true);
 
   /// <summary>Rejects names that cannot be represented unambiguously in storage keys.</summary>
   public static void ValidateStoredName(string value, string parameter)

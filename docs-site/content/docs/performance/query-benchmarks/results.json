@@ -1,26 +1,26 @@
 {
-  "measuredOn": "2026-10-14",
-  "measuredAtUtc": "2026-10-14T21:38:32.348Z",
-  "browser": "155.0.8059.41",
-  "url": "http://127.0.0.1:5088/?site=benchmark-results\u0026tz=UTC\u0026range=this-year\u0026compare=previous-period",
+  "measuredOn": "2026-10-17",
+  "measuredAtUtc": "2026-10-17T10:20:31.394Z",
+  "browser": "155.0.8059.82",
+  "url": "http://127.0.0.1:5088/?site=benchmark-results&tz=UTC&range=this-year&compare=previous-period",
   "dataset": {
     "events": 5000000,
     "days": 365,
     "workers": 20,
     "percentiles": false,
-    "preparationMs": 2315.4104,
-    "submissionMs": 95333.6618,
-    "ingestionMs": 129727.3037,
-    "eventsPerSecond": 38542.38743420364,
+    "preparationMs": 2431.9199,
+    "submissionMs": 34677.5676,
+    "ingestionMs": 44117.556,
+    "eventsPerSecond": 113333.56725381615,
     "ingested": 5000000,
     "errors": 0,
     "dropped": 0,
     "rejected": 0,
-    "build": "Debug",
+    "build": "Release",
     "garbageCollection": "Server",
     "tieredCompilation": "Default",
-    "fromDate": "2025-10-14",
-    "toDate": "2026-10-14"
+    "fromDate": "2025-10-17",
+    "toDate": "2026-10-17"
   },
   "methodology": {
     "samplesPerScenario": 30,
@@ -38,15 +38,14 @@
   },
   "initialReports": [
     {
-      "name": "summary",
-      "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/summary?site=benchmark-results\u0026tz=UTC\u0026range=this-year\u0026compare=previous-period",
+      "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/summary?site=benchmark-results&tz=UTC&range=this-year&compare=previous-period",
       "status": 200,
-      "milliseconds": 25.80000000447035,
       "from": "2026-01-01T00:00:00+00:00",
       "to": "2027-01-01T00:00:00+00:00",
       "plan": {
         "complete": true,
         "warnings": [],
+        "notices": [],
         "steps": [
           {
             "event": "pageview",
@@ -71,15 +70,14 @@
       }
     },
     {
-      "name": "timeseries",
-      "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/timeseries?site=benchmark-results\u0026tz=UTC\u0026interval=day\u0026range=this-year\u0026compare=previous-period",
+      "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/timeseries?site=benchmark-results&tz=UTC&interval=day&range=this-year&compare=previous-period",
       "status": 200,
-      "milliseconds": 29.599999994039536,
       "from": "2026-01-01T00:00:00+00:00",
       "to": "2027-01-01T00:00:00+00:00",
       "plan": {
         "complete": true,
         "warnings": [],
+        "notices": [],
         "steps": [
           {
             "event": "pageview",
@@ -104,15 +102,58 @@
       }
     },
     {
-      "name": "pages",
-      "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/pages?site=benchmark-results\u0026tz=UTC\u0026limit=5\u0026includePageFlowMetrics=false\u0026range=this-year\u0026compare=previous-period",
+      "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/breakdown?site=benchmark-results&tz=UTC&dimension=country&limit=5&includeSessionMetrics=false&range=this-year&compare=previous-period",
       "status": 200,
-      "milliseconds": 61.69999999552965,
       "from": "2026-01-01T00:00:00+00:00",
       "to": "2027-01-01T00:00:00+00:00",
       "plan": {
         "complete": true,
         "warnings": [],
+        "notices": [],
+        "steps": [
+          {
+            "event": "pageview",
+            "source": "DayRollups",
+            "from": "2026-01-01T00:00:00+00:00",
+            "to": "2027-01-01T00:00:00+00:00"
+          }
+        ],
+        "rollupSuggestions": []
+      }
+    },
+    {
+      "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/breakdown?site=benchmark-results&tz=UTC&dimension=source&limit=5&includeSessionMetrics=false&range=this-year&compare=previous-period",
+      "status": 200,
+      "from": "2026-01-01T00:00:00+00:00",
+      "to": "2027-01-01T00:00:00+00:00",
+      "plan": {
+        "complete": true,
+        "warnings": [],
+        "notices": [],
+        "steps": [
+          {
+            "event": "pageview",
+            "source": "DayRollups",
+            "from": "2026-01-01T00:00:00+00:00",
+            "to": "2027-01-01T00:00:00+00:00"
+          }
+        ],
+        "rollupSuggestions": []
+      }
+    },
+    {
+      "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/realtime?site=benchmark-results",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/pages?site=benchmark-results&tz=UTC&limit=5&includePageFlowMetrics=false&range=this-year&compare=previous-period",
+      "status": 200,
+      "from": "2026-01-01T00:00:00+00:00",
+      "to": "2027-01-01T00:00:00+00:00",
+      "plan": {
+        "complete": true,
+        "warnings": [],
+        "notices": [],
         "steps": [
           {
             "event": "pageview",
@@ -131,57 +172,14 @@
       }
     },
     {
-      "name": "breakdown:source",
-      "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/breakdown?site=benchmark-results\u0026tz=UTC\u0026dimension=source\u0026limit=5\u0026includeSessionMetrics=false\u0026range=this-year\u0026compare=previous-period",
+      "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/breakdown?site=benchmark-results&tz=UTC&dimension=device&limit=10&includeSessionMetrics=false&range=this-year&compare=previous-period",
       "status": 200,
-      "milliseconds": 31.899999998509884,
       "from": "2026-01-01T00:00:00+00:00",
       "to": "2027-01-01T00:00:00+00:00",
       "plan": {
         "complete": true,
         "warnings": [],
-        "steps": [
-          {
-            "event": "pageview",
-            "source": "DayRollups",
-            "from": "2026-01-01T00:00:00+00:00",
-            "to": "2027-01-01T00:00:00+00:00"
-          }
-        ],
-        "rollupSuggestions": []
-      }
-    },
-    {
-      "name": "breakdown:country",
-      "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/breakdown?site=benchmark-results\u0026tz=UTC\u0026dimension=country\u0026limit=5\u0026includeSessionMetrics=false\u0026range=this-year\u0026compare=previous-period",
-      "status": 200,
-      "milliseconds": 26.200000002980232,
-      "from": "2026-01-01T00:00:00+00:00",
-      "to": "2027-01-01T00:00:00+00:00",
-      "plan": {
-        "complete": true,
-        "warnings": [],
-        "steps": [
-          {
-            "event": "pageview",
-            "source": "DayRollups",
-            "from": "2026-01-01T00:00:00+00:00",
-            "to": "2027-01-01T00:00:00+00:00"
-          }
-        ],
-        "rollupSuggestions": []
-      }
-    },
-    {
-      "name": "breakdown:device",
-      "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/breakdown?site=benchmark-results\u0026tz=UTC\u0026dimension=device\u0026limit=10\u0026includeSessionMetrics=false\u0026range=this-year\u0026compare=previous-period",
-      "status": 200,
-      "milliseconds": 28.5,
-      "from": "2026-01-01T00:00:00+00:00",
-      "to": "2027-01-01T00:00:00+00:00",
-      "plan": {
-        "complete": true,
-        "warnings": [],
+        "notices": [],
         "steps": [
           {
             "event": "pageview",
@@ -200,24 +198,26 @@
       "label": "No filter",
       "filter": "",
       "batch": {
-        "median": 83.94999999925494,
-        "p95": 87,
-        "min": 81.89999999850988,
-        "max": 87.29999999701977
+        "median": 33.349999979138374,
+        "p95": 35.5,
+        "min": 31.69999998807907,
+        "max": 36.599999994039536
       },
+      "failedRequests": 0,
       "reports": [
         {
           "name": "summary",
-          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/summary?site=benchmark-results\u0026tz=UTC\u0026range=this-year\u0026compare=previous-period",
+          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/summary?site=benchmark-results&tz=UTC&range=this-year&compare=previous-period",
           "timing": {
-            "median": 25.900000002235174,
-            "p95": 27.799999997019768,
-            "min": 24.700000002980232,
-            "max": 30.100000001490116
+            "median": 8.549999997019768,
+            "p95": 9.799999982118607,
+            "min": 7.5,
+            "max": 10
           },
           "plan": {
             "complete": true,
             "warnings": [],
+            "notices": [],
             "steps": [
               {
                 "event": "pageview",
@@ -242,50 +242,51 @@
           },
           "rows": 0,
           "summary": {
-            "visitors": 1252269,
-            "pageViews": 4248150,
-            "sessions": 1455491,
-            "bounceRate": 0.3603375080986416,
-            "averageSessionDuration": 50.823987,
-            "pageViewsPerSession": 2.9187057838214048,
-            "botHits": 150599,
+            "visitors": 1238848,
+            "pageViews": 4267778,
+            "sessions": 1462364,
+            "bounceRate": 0.360501899663832,
+            "averageSessionDuration": 50.8062741,
+            "pageViewsPerSession": 2.9184101906228546,
+            "botHits": 151308,
             "previous": {
-              "visitors": 121140,
-              "pageViews": 411450,
-              "sessions": 150400,
-              "bounceRate": 0.42210771276595743,
-              "averageSessionDuration": 44.9160153,
-              "pageViewsPerSession": 2.7357047872340425,
-              "botHits": 15866
+              "visitors": 114359,
+              "pageViews": 392339,
+              "sessions": 143407,
+              "bounceRate": 0.422113285962331,
+              "averageSessionDuration": 44.9812875,
+              "pageViewsPerSession": 2.7358427412887796,
+              "botHits": 15066
             }
           },
           "from": "2026-01-01T00:00:00+00:00",
           "to": "2027-01-01T00:00:00+00:00",
           "samples": [
-            25.80000000447035, 26.200000002980232, 26.100000001490116,
-            25.399999998509884, 26.099999994039536, 26.399999998509884,
-            24.899999998509884, 24.799999997019768, 30.100000001490116,
-            25.200000002980232, 25.30000000447035, 24.700000002980232, 27.5, 25,
-            26.80000000447035, 26.100000001490116, 25.700000002980232,
-            26.100000001490116, 26.5, 27.799999997019768, 26.19999999552965,
-            25.900000005960464, 26.399999998509884, 24.899999998509884,
-            25.30000000447035, 25.700000002980232, 24.80000000447035,
-            25.399999998509884, 26.700000002980232, 25.899999998509884
+            8.099999994039536, 7.899999976158142, 7.800000011920929, 8,
+            9.400000005960464, 10, 8.800000011920929, 7.800000011920929,
+            7.799999982118607, 7.9000000059604645, 9.099999994039536, 9,
+            8.300000011920929, 8.800000011920929, 8.5, 7.899999976158142,
+            7.699999988079071, 8.900000005960464, 9.599999994039536,
+            7.5999999940395355, 8.699999988079071, 8.799999982118607,
+            8.200000017881393, 8.099999994039536, 8.599999994039536,
+            8.799999982118607, 9.799999982118607, 9.699999988079071,
+            8.700000017881393, 7.5
           ],
-          "serializedResponseCharacters": 859
+          "serializedResponseCharacters": 870
         },
         {
           "name": "timeseries",
-          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/timeseries?site=benchmark-results\u0026tz=UTC\u0026interval=day\u0026range=this-year\u0026compare=previous-period",
+          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/timeseries?site=benchmark-results&tz=UTC&interval=day&range=this-year&compare=previous-period",
           "timing": {
-            "median": 30.050000000745058,
-            "p95": 33.099999994039536,
-            "min": 28.700000002980232,
-            "max": 34.600000001490116
+            "median": 11.5,
+            "p95": 12.599999994039536,
+            "min": 10.600000023841858,
+            "max": 12.699999988079071
           },
           "plan": {
             "complete": true,
             "warnings": [],
+            "notices": [],
             "steps": [
               {
                 "event": "pageview",
@@ -313,30 +314,31 @@
           "from": "2026-01-01T00:00:00+00:00",
           "to": "2027-01-01T00:00:00+00:00",
           "samples": [
-            29.299999997019768, 29.19999999552965, 31.399999998509884,
-            29.69999999552965, 28.700000002980232, 30.69999999552965,
-            29.599999994039536, 30.100000001490116, 34.600000001490116, 29.5,
-            29.200000002980232, 29.80000000447035, 31, 29.899999998509884,
-            31.700000002980232, 31, 30, 30.700000002980232, 29.799999997019768,
-            33.099999994039536, 31.200000002980232, 30.200000002980232,
-            30.399999998509884, 30.299999997019768, 29.600000001490116,
-            30.100000001490116, 29.200000002980232, 30.200000002980232, 30,
-            29.700000002980232
+            10.900000005960464, 11.099999994039536, 11.699999988079071,
+            10.900000005960464, 12.199999988079071, 12.599999994039536,
+            11.700000017881393, 10.900000005960464, 10.699999988079071,
+            10.900000005960464, 12, 12.5, 11.400000005960464,
+            11.900000005960464, 11.400000005960464, 10.699999988079071,
+            10.800000011920929, 11.799999982118607, 12.699999988079071,
+            11.400000005960464, 11.599999994039536, 11.699999988079071,
+            10.600000023841858, 11.399999976158142, 11.699999988079071,
+            12.199999988079071, 11.900000005960464, 12.5, 10.800000011920929, 11
           ],
-          "serializedResponseCharacters": 129848
+          "serializedResponseCharacters": 129820
         },
         {
           "name": "pages",
-          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/pages?site=benchmark-results\u0026tz=UTC\u0026limit=5\u0026includePageFlowMetrics=false\u0026range=this-year\u0026compare=previous-period",
+          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/pages?site=benchmark-results&tz=UTC&limit=5&includePageFlowMetrics=false&range=this-year&compare=previous-period",
           "timing": {
-            "median": 63.599999997764826,
-            "p95": 65.69999999552965,
-            "min": 61.30000000447035,
-            "max": 66
+            "median": 25.900000005960464,
+            "p95": 27.5,
+            "min": 25,
+            "max": 28.5
           },
           "plan": {
             "complete": true,
             "warnings": [],
+            "notices": [],
             "steps": [
               {
                 "event": "pageview",
@@ -358,28 +360,30 @@
           "from": "2026-01-01T00:00:00+00:00",
           "to": "2027-01-01T00:00:00+00:00",
           "samples": [
-            62.899999998509884, 64, 63.69999999552965, 62.69999999552965,
-            65.39999999850988, 62.5, 62.20000000298023, 61.30000000447035, 66,
-            63.899999998509884, 63.30000000447035, 61.80000000447035, 64.5,
-            63.5, 63.29999999701977, 65.69999999552965, 63.29999999701977, 65.5,
-            64.60000000149012, 65.5, 64.89999999850988, 65, 62.899999998509884,
-            64.80000000447035, 63.70000000298023, 64, 63.20000000298023, 62,
-            63.099999994039536, 62.399999998509884
+            25.900000005960464, 25.599999994039536, 25.19999998807907,
+            25.700000017881393, 26.69999998807907, 26.599999994039536,
+            26.099999994039536, 27, 25, 25.400000005960464, 26,
+            26.200000017881393, 26.30000001192093, 25.600000023841858, 28.5,
+            25.900000005960464, 25, 25.5, 27.5, 25, 25.200000017881393,
+            25.69999998807907, 25.299999982118607, 26, 26.200000017881393,
+            25.900000005960464, 27.5, 25.900000005960464, 26.900000005960464,
+            25.400000005960464
           ],
-          "serializedResponseCharacters": 1600
+          "serializedResponseCharacters": 1613
         },
         {
           "name": "breakdown:source",
-          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/breakdown?site=benchmark-results\u0026tz=UTC\u0026dimension=source\u0026limit=5\u0026includeSessionMetrics=false\u0026range=this-year\u0026compare=previous-period",
+          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/breakdown?site=benchmark-results&tz=UTC&dimension=source&limit=5&includeSessionMetrics=false&range=this-year&compare=previous-period",
           "timing": {
-            "median": 32.399999998509884,
-            "p95": 34.399999998509884,
-            "min": 31.100000001490116,
-            "max": 50.5
+            "median": 14,
+            "p95": 15.200000017881393,
+            "min": 12.800000011920929,
+            "max": 15.5
           },
           "plan": {
             "complete": true,
             "warnings": [],
+            "notices": [],
             "steps": [
               {
                 "event": "pageview",
@@ -395,29 +399,30 @@
           "from": "2026-01-01T00:00:00+00:00",
           "to": "2027-01-01T00:00:00+00:00",
           "samples": [
-            31.399999998509884, 32.79999999701977, 31.600000001490116,
-            34.399999998509884, 33.20000000298023, 32.79999999701977,
-            32.100000001490116, 31.100000001490116, 32, 32.399999998509884,
-            32.29999999701977, 32.399999998509884, 31.600000001490116, 50.5,
-            31.69999999552965, 32.899999998509884, 32.5, 31.200000002980232,
-            33.70000000298023, 32.80000000447035, 33.5, 32, 32.5, 33.5,
-            32.69999999552965, 32.20000000298023, 32.19999999552965,
-            32.400000005960464, 31.299999997019768, 32.20000000298023
+            14.199999988079071, 14.400000005960464, 13.599999994039536,
+            14.300000011920929, 14.099999994039536, 13.5, 13.199999988079071,
+            14, 14, 14, 13.100000023841858, 14.300000011920929,
+            14.199999988079071, 12.900000005960464, 14.599999994039536,
+            14.400000005960464, 13.5, 14.800000011920929, 14.099999994039536,
+            13.199999988079071, 12.800000011920929, 12.800000011920929,
+            13.799999982118607, 14, 14, 12.900000005960464, 15.200000017881393,
+            12.900000005960464, 15.5, 13.400000005960464
           ],
-          "serializedResponseCharacters": 1547
+          "serializedResponseCharacters": 1562
         },
         {
           "name": "breakdown:country",
-          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/breakdown?site=benchmark-results\u0026tz=UTC\u0026dimension=country\u0026limit=5\u0026includeSessionMetrics=false\u0026range=this-year\u0026compare=previous-period",
+          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/breakdown?site=benchmark-results&tz=UTC&dimension=country&limit=5&includeSessionMetrics=false&range=this-year&compare=previous-period",
           "timing": {
-            "median": 27.200000002980232,
-            "p95": 28,
-            "min": 26.19999999552965,
-            "max": 28.19999999552965
+            "median": 11.450000002980232,
+            "p95": 12.599999994039536,
+            "min": 10.5,
+            "max": 13
           },
           "plan": {
             "complete": true,
             "warnings": [],
+            "notices": [],
             "steps": [
               {
                 "event": "pageview",
@@ -433,30 +438,30 @@
           "from": "2026-01-01T00:00:00+00:00",
           "to": "2027-01-01T00:00:00+00:00",
           "samples": [
-            27, 26.200000002980232, 26.69999999552965, 27.700000002980232,
-            26.899999998509884, 26.399999998509884, 27.200000002980232,
-            26.899999998509884, 26.30000000447035, 26.19999999552965,
-            26.399999998509884, 27.200000002980232, 27.099999994039536,
-            27.399999998509884, 27.299999997019768, 28.19999999552965,
-            26.899999998509884, 27.599999994039536, 27.600000001490116,
-            26.200000002980232, 28, 26.899999998509884, 27.5, 28,
-            27.69999999552965, 27.5, 27.200000002980232, 27.80000000447035,
-            27.399999998509884, 26.200000002980232
+            12.099999994039536, 11.900000005960464, 11, 11.5, 11.5,
+            11.299999982118607, 10.900000005960464, 12.200000017881393,
+            11.800000011920929, 11.699999988079071, 10.800000011920929,
+            11.599999994039536, 11.099999994039536, 10.700000017881393,
+            12.099999994039536, 12.099999994039536, 11.5, 11,
+            11.100000023841858, 10.799999982118607, 11.400000005960464, 10.5,
+            11.5, 11.300000011920929, 11.700000017881393, 10.800000011920929,
+            13, 10.600000023841858, 12.599999994039536, 11.199999988079071
           ],
-          "serializedResponseCharacters": 899
+          "serializedResponseCharacters": 911
         },
         {
           "name": "breakdown:device",
-          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/breakdown?site=benchmark-results\u0026tz=UTC\u0026dimension=device\u0026limit=10\u0026includeSessionMetrics=false\u0026range=this-year\u0026compare=previous-period",
+          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/breakdown?site=benchmark-results&tz=UTC&dimension=device&limit=10&includeSessionMetrics=false&range=this-year&compare=previous-period",
           "timing": {
-            "median": 26.75,
-            "p95": 27.799999997019768,
-            "min": 25.899999998509884,
-            "max": 28
+            "median": 11.149999991059303,
+            "p95": 12,
+            "min": 10.5,
+            "max": 12.300000011920929
           },
           "plan": {
             "complete": true,
             "warnings": [],
+            "notices": [],
             "steps": [
               {
                 "event": "pageview",
@@ -472,29 +477,30 @@
           "from": "2026-01-01T00:00:00+00:00",
           "to": "2027-01-01T00:00:00+00:00",
           "samples": [
-            27.600000001490116, 26.19999999552965, 25.899999998509884,
-            26.100000001490116, 26.5, 26.80000000447035, 26.600000001490116,
-            27.100000001490116, 26.19999999552965, 27.5, 27.299999997019768, 26,
-            27.100000001490116, 27, 27.100000001490116, 28, 26.799999997019768,
-            26.599999994039536, 26.5, 27.100000001490116, 27.100000001490116,
-            26.600000001490116, 26.700000002980232, 27.799999997019768, 26,
-            26.19999999552965, 26.899999998509884, 26.299999997019768, 26.5,
-            26.899999998509884
+            11.700000017881393, 11, 11.800000011920929, 10.599999994039536, 12,
+            11.699999988079071, 11, 11, 11.300000011920929, 10.699999988079071,
+            10.699999988079071, 11.099999994039536, 11.099999994039536,
+            11.199999988079071, 11.200000017881393, 10.900000005960464, 10.5,
+            11.200000017881393, 10.700000017881393, 11.300000011920929,
+            11.400000005960464, 11.699999988079071, 11, 11.700000017881393,
+            10.900000005960464, 12.300000011920929, 11.699999988079071, 11,
+            11.200000017881393, 11
           ],
-          "serializedResponseCharacters": 915
+          "serializedResponseCharacters": 929
         }
       ],
       "batchSamples": [
-        84.10000000149012, 81.89999999850988, 83.60000000149012,
-        83.70000000298023, 82.39999999850988, 84, 83.5, 83, 87.29999999701977,
-        83.39999999850988, 83, 83.10000000149012, 85.5, 84.5, 85.60000000149012,
-        87, 83.89999999850988, 83.89999999850988, 84.20000000298023,
-        86.70000000298023, 86.59999999403954, 83.80000000447035, 85,
-        86.19999999552965, 83.5, 84.10000000149012, 83.5, 84.10000000149012,
-        84.29999999701977, 83.10000000149012
+        34, 33.39999997615814, 33.20000001788139, 33, 35.5, 35.19999998807907,
+        33, 32.80000001192093, 33.099999994039536, 32.599999994039536,
+        32.900000005960464, 34.400000005960464, 33.599999994039536,
+        32.900000005960464, 34.30000001192093, 33.19999998807907,
+        31.69999998807907, 34.20000001788139, 34.400000005960464,
+        32.099999994039536, 32.900000005960464, 33.29999998211861, 33,
+        33.80000001192093, 33.5, 34, 36.599999994039536, 33.599999994039536,
+        34.70000001788139, 31.900000005960464
       ],
       "discardedWarmupBatches": [
-        87.59999999403954, 85.20000000298023, 84.89999999850988
+        33.900000005960464, 33.599999994039536, 34.10000002384186
       ]
     },
     {
@@ -502,24 +508,26 @@
       "label": "source = GitHub",
       "filter": "source==GitHub",
       "batch": {
-        "median": 60,
-        "p95": 62.29999999701977,
-        "min": 58.30000000447035,
-        "max": 62.79999999701977
+        "median": 15.950000002980232,
+        "p95": 17.799999982118607,
+        "min": 14.899999976158142,
+        "max": 17.80000001192093
       },
+      "failedRequests": 0,
       "reports": [
         {
           "name": "summary",
-          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/summary?site=benchmark-results\u0026tz=UTC\u0026range=this-year\u0026compare=previous-period\u0026filter=source%3D%3DGitHub",
+          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/summary?site=benchmark-results&tz=UTC&range=this-year&compare=previous-period&filter=source%3D%3DGitHub",
           "timing": {
-            "median": 43.80000000447035,
-            "p95": 46.399999998509884,
-            "min": 42.099999994039536,
-            "max": 46.79999999701977
+            "median": 5.850000008940697,
+            "p95": 7.100000023841858,
+            "min": 5,
+            "max": 7.299999982118607
           },
           "plan": {
             "complete": true,
             "warnings": [],
+            "notices": [],
             "steps": [
               {
                 "event": "pageview",
@@ -538,50 +546,50 @@
           },
           "rows": 0,
           "summary": {
-            "visitors": 558555,
-            "pageViews": 1805990,
-            "sessions": 596996,
-            "bounceRate": 0.32530033702068356,
-            "averageSessionDuration": 54.3240084,
-            "pageViewsPerSession": 3.025129146593947,
+            "visitors": 559394,
+            "pageViews": 1809311,
+            "sessions": 597719,
+            "bounceRate": 0.3251511161599347,
+            "averageSessionDuration": 54.3763243,
+            "pageViewsPerSession": 3.027026077471186,
             "botHits": null,
             "previous": {
-              "visitors": 17226,
-              "pageViews": 48515,
-              "sessions": 17772,
-              "bounceRate": 0.42763898266936756,
-              "averageSessionDuration": 44.8775575,
-              "pageViewsPerSession": 2.729855953184785,
+              "visitors": 16521,
+              "pageViews": 46258,
+              "sessions": 16972,
+              "bounceRate": 0.42794013669573416,
+              "averageSessionDuration": 44.7884179,
+              "pageViewsPerSession": 2.7255479613481026,
               "botHits": null
             }
           },
           "from": "2026-01-01T00:00:00+00:00",
           "to": "2027-01-01T00:00:00+00:00",
           "samples": [
-            43.5, 45.5, 46.79999999701977, 43.5, 43.900000005960464,
-            46.399999998509884, 44.29999999701977, 42.29999999701977,
-            42.80000000447035, 43.80000000447035, 43.79999999701977,
-            42.20000000298023, 42.600000001490116, 43.400000005960464,
-            43.80000000447035, 45.399999998509884, 43.80000000447035,
-            43.899999998509884, 44, 44.600000001490116, 42.5,
-            44.399999998509884, 44.899999998509884, 43.399999998509884,
-            42.69999999552965, 42.099999994039536, 42.5, 45.20000000298023,
-            44.79999999701977, 42.80000000447035
+            5.700000017881393, 6, 5.5, 5.199999988079071, 5, 6,
+            6.299999982118607, 6.199999988079071, 5.300000011920929,
+            5.300000011920929, 5.5999999940395355, 5.9000000059604645, 6.5,
+            6.299999982118607, 5.800000011920929, 7.299999982118607,
+            6.399999976158142, 5.200000017881393, 6.0999999940395355,
+            5.199999988079071, 5.0999999940395355, 5.199999988079071,
+            5.4000000059604645, 6.5, 7.100000023841858, 5.9000000059604645,
+            5.199999988079071, 5.200000017881393, 7, 6.0999999940395355
           ],
-          "serializedResponseCharacters": 744
+          "serializedResponseCharacters": 757
         },
         {
           "name": "timeseries",
-          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/timeseries?site=benchmark-results\u0026tz=UTC\u0026interval=day\u0026range=this-year\u0026compare=previous-period\u0026filter=source%3D%3DGitHub",
+          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/timeseries?site=benchmark-results&tz=UTC&interval=day&range=this-year&compare=previous-period&filter=source%3D%3DGitHub",
           "timing": {
-            "median": 46.400000002235174,
-            "p95": 48.5,
-            "min": 44.399999998509884,
-            "max": 48.5
+            "median": 7.950000002980232,
+            "p95": 9.099999994039536,
+            "min": 7.0999999940395355,
+            "max": 9.099999994039536
           },
           "plan": {
             "complete": true,
             "warnings": [],
+            "notices": [],
             "steps": [
               {
                 "event": "pageview",
@@ -603,30 +611,31 @@
           "from": "2026-01-01T00:00:00+00:00",
           "to": "2027-01-01T00:00:00+00:00",
           "samples": [
-            47.399999998509884, 48.5, 46.30000000447035, 47.80000000447035,
-            44.399999998509884, 45.899999998509884, 46.29999999701977,
-            45.29999999701977, 46.899999998509884, 45.20000000298023,
-            47.80000000447035, 46.19999999552965, 45.69999999552965,
-            45.899999998509884, 47.70000000298023, 48.5, 46.79999999701977,
-            45.29999999701977, 45.70000000298023, 46.79999999701977,
-            46.30000000447035, 46.600000001490116, 44.899999998509884, 47,
-            45.69999999552965, 46.80000000447035, 46.5, 48, 46.100000001490116,
-            47.30000000447035
+            7.5, 7.9000000059604645, 8, 7.800000011920929, 7.299999982118607,
+            7.699999988079071, 8.799999982118607, 8.5, 8.700000017881393,
+            7.100000023841858, 8.599999994039536, 7.800000011920929,
+            8.900000005960464, 9.099999994039536, 8.100000023841858,
+            8.199999988079071, 7.699999988079071, 7.200000017881393, 8,
+            7.4000000059604645, 7.800000011920929, 7.700000017881393,
+            7.799999982118607, 8.300000011920929, 9.099999994039536,
+            8.200000017881393, 7.0999999940395355, 7.0999999940395355,
+            8.799999982118607, 8.099999994039536
           ],
-          "serializedResponseCharacters": 130136
+          "serializedResponseCharacters": 130091
         },
         {
           "name": "pages",
-          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/pages?site=benchmark-results\u0026tz=UTC\u0026limit=5\u0026includePageFlowMetrics=false\u0026range=this-year\u0026compare=previous-period\u0026filter=source%3D%3DGitHub",
+          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/pages?site=benchmark-results&tz=UTC&limit=5&includePageFlowMetrics=false&range=this-year&compare=previous-period&filter=source%3D%3DGitHub",
           "timing": {
-            "median": 29.25,
-            "p95": 30,
-            "min": 28,
-            "max": 32.5
+            "median": 12.5,
+            "p95": 13.900000005960464,
+            "min": 12.199999988079071,
+            "max": 14.199999988079071
           },
           "plan": {
             "complete": true,
             "warnings": [],
+            "notices": [],
             "steps": [
               {
                 "event": "pageview",
@@ -643,30 +652,31 @@
           "from": "2026-01-01T00:00:00+00:00",
           "to": "2027-01-01T00:00:00+00:00",
           "samples": [
-            28.799999997019768, 32.5, 29.600000001490116, 29.100000001490116,
-            28.299999997019768, 29.400000005960464, 28.19999999552965,
-            28.799999997019768, 29.399999998509884, 28.700000002980232, 29.5,
-            29.899999998509884, 29.099999994039536, 30, 29.399999998509884,
-            28.80000000447035, 29.899999998509884, 29.099999994039536,
-            28.899999998509884, 28.399999998509884, 28.5, 29.899999998509884,
-            29.400000005960464, 28.399999998509884, 29.899999998509884,
-            28.900000005960464, 28, 29.899999998509884, 29.700000002980232,
-            29.899999998509884
+            12.5, 12.400000005960464, 12.599999994039536, 12.300000011920929,
+            12.199999988079071, 12.199999988079071, 12.399999976158142,
+            12.599999994039536, 13.700000017881393, 12.800000011920929,
+            13.900000005960464, 12.599999994039536, 13, 13, 12.700000017881393,
+            14.199999988079071, 12.299999982118607, 12.399999976158142,
+            12.400000005960464, 12.199999988079071, 12.199999988079071,
+            12.300000011920929, 13.199999988079071, 13.099999994039536,
+            12.699999988079071, 12.700000017881393, 12.299999982118607,
+            12.199999988079071, 12.5, 12.399999976158142
           ],
-          "serializedResponseCharacters": 1535
+          "serializedResponseCharacters": 1516
         },
         {
           "name": "breakdown:source",
-          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/breakdown?site=benchmark-results\u0026tz=UTC\u0026dimension=source\u0026limit=5\u0026includeSessionMetrics=false\u0026range=this-year\u0026compare=previous-period\u0026filter=source%3D%3DGitHub",
+          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/breakdown?site=benchmark-results&tz=UTC&dimension=source&limit=5&includeSessionMetrics=false&range=this-year&compare=previous-period&filter=source%3D%3DGitHub",
           "timing": {
-            "median": 24.299999997019768,
-            "p95": 26,
-            "min": 23.200000002980232,
-            "max": 26.900000005960464
+            "median": 4.450000002980232,
+            "p95": 6.199999988079071,
+            "min": 3.9000000059604645,
+            "max": 6.699999988079071
           },
           "plan": {
             "complete": true,
             "warnings": [],
+            "notices": [],
             "steps": [
               {
                 "event": "pageview",
@@ -682,30 +692,31 @@
           "from": "2026-01-01T00:00:00+00:00",
           "to": "2027-01-01T00:00:00+00:00",
           "samples": [
-            24.799999997019768, 24.799999997019768, 26, 24.299999997019768,
-            26.900000005960464, 24, 24.899999998509884, 24.899999998509884,
-            24.5, 24, 25.5, 23.200000002980232, 24.100000001490116,
-            23.299999997019768, 23.700000002980232, 25.100000001490116,
-            24.200000002980232, 24.200000002980232, 24.399999998509884,
-            24.19999999552965, 23.700000002980232, 24.399999998509884,
-            24.299999997019768, 24, 24.399999998509884, 25.799999997019768,
-            24.80000000447035, 24.200000002980232, 23.600000001490116,
-            23.600000001490116
+            4.799999982118607, 4, 4.5999999940395355, 4.700000017881393,
+            4.799999982118607, 5.100000023841858, 4.300000011920929,
+            4.0999999940395355, 6.699999988079071, 4.5999999940395355,
+            5.199999988079071, 4.199999988079071, 4.4000000059604645,
+            4.0999999940395355, 4.0999999940395355, 5, 4.100000023841858,
+            5.299999982118607, 4.199999988079071, 5.300000011920929,
+            4.5999999940395355, 4.5, 5.4000000059604645, 4.4000000059604645,
+            4.0999999940395355, 6.199999988079071, 3.9000000059604645,
+            4.0999999940395355, 4.200000017881393, 4.299999982118607
           ],
-          "serializedResponseCharacters": 559
+          "serializedResponseCharacters": 572
         },
         {
           "name": "breakdown:country",
-          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/breakdown?site=benchmark-results\u0026tz=UTC\u0026dimension=country\u0026limit=5\u0026includeSessionMetrics=false\u0026range=this-year\u0026compare=previous-period\u0026filter=source%3D%3DGitHub",
+          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/breakdown?site=benchmark-results&tz=UTC&dimension=country&limit=5&includeSessionMetrics=false&range=this-year&compare=previous-period&filter=source%3D%3DGitHub",
           "timing": {
-            "median": 13.5,
-            "p95": 14,
-            "min": 12.799999997019768,
-            "max": 14.399999998509884
+            "median": 5.699999988079071,
+            "p95": 6.5,
+            "min": 5.4000000059604645,
+            "max": 6.5
           },
           "plan": {
             "complete": true,
             "warnings": [],
+            "notices": [],
             "steps": [
               {
                 "event": "pageview",
@@ -722,30 +733,30 @@
           "from": "2026-01-01T00:00:00+00:00",
           "to": "2027-01-01T00:00:00+00:00",
           "samples": [
-            13.299999997019768, 13.299999997019768, 13.900000005960464,
-            13.399999998509884, 14.399999998509884, 13.799999997019768,
-            13.900000005960464, 13.800000004470348, 13.699999995529652,
-            12.899999998509884, 13.799999997019768, 13.699999995529652,
-            13.699999995529652, 13.299999997019768, 13.099999994039536,
-            13.600000001490116, 13.199999995529652, 13.600000001490116, 13.5,
-            13.699999995529652, 13.199999995529652, 13.100000001490116, 13.5,
-            13.200000002980232, 13.200000002980232, 14, 13.5,
-            13.799999997019768, 13.200000002980232, 12.799999997019768
+            5.5, 5.5, 5.799999982118607, 5.5999999940395355, 5.5,
+            5.4000000059604645, 5.600000023841858, 5.799999982118607,
+            6.199999988079071, 6.0999999940395355, 6.5, 5.5999999940395355,
+            5.700000017881393, 5.9000000059604645, 5.899999976158142,
+            6.4000000059604645, 5.5, 5.699999988079071, 5.699999988079071,
+            5.699999988079071, 5.5999999940395355, 5.5999999940395355, 6,
+            5.699999988079071, 5.5, 6.5, 6, 6, 5.4000000059604645,
+            6.299999982118607
           ],
-          "serializedResponseCharacters": 919
+          "serializedResponseCharacters": 931
         },
         {
           "name": "breakdown:device",
-          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/breakdown?site=benchmark-results\u0026tz=UTC\u0026dimension=device\u0026limit=10\u0026includeSessionMetrics=false\u0026range=this-year\u0026compare=previous-period\u0026filter=source%3D%3DGitHub",
+          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/breakdown?site=benchmark-results&tz=UTC&dimension=device&limit=10&includeSessionMetrics=false&range=this-year&compare=previous-period&filter=source%3D%3DGitHub",
           "timing": {
-            "median": 13.25,
-            "p95": 13.799999997019768,
-            "min": 12.700000002980232,
-            "max": 14.799999997019768
+            "median": 5.5999999940395355,
+            "p95": 6.199999988079071,
+            "min": 5.4000000059604645,
+            "max": 6.300000011920929
           },
           "plan": {
             "complete": true,
             "warnings": [],
+            "notices": [],
             "steps": [
               {
                 "event": "pageview",
@@ -762,57 +773,56 @@
           "from": "2026-01-01T00:00:00+00:00",
           "to": "2027-01-01T00:00:00+00:00",
           "samples": [
-            13.5, 13, 13.700000002980232, 13.099999994039536,
-            13.700000002980232, 13.100000001490116, 13.600000001490116,
-            13.600000001490116, 13.299999997019768, 13, 14.799999997019768,
-            13.600000001490116, 13.199999995529652, 13, 13.200000002980232,
-            13.600000001490116, 13.100000001490116, 13.799999997019768,
-            12.700000002980232, 13.100000001490116, 13.299999997019768,
-            13.399999998509884, 13.299999997019768, 13.300000004470348,
-            13.200000002980232, 12.900000005960464, 12.700000002980232,
-            13.399999998509884, 13.199999995529652, 13.199999995529652
+            5.5999999940395355, 5.5, 5.4000000059604645, 5.5999999940395355,
+            5.5, 5.899999976158142, 5.4000000059604645, 5.5, 5.5,
+            5.800000011920929, 5.800000011920929, 5.5, 5.800000011920929, 5.5,
+            5.800000011920929, 5.5, 5.799999982118607, 6.300000011920929,
+            5.600000023841858, 5.5999999940395355, 5.4000000059604645, 5.5, 6,
+            5.699999988079071, 5.5999999940395355, 5.700000017881393,
+            5.799999982118607, 6.199999988079071, 5.4000000059604645,
+            5.4000000059604645
           ],
-          "serializedResponseCharacters": 937
+          "serializedResponseCharacters": 948
         }
       ],
       "batchSamples": [
-        61, 61.70000000298023, 60.5, 61.099999994039536, 58.30000000447035,
-        59.899999998509884, 60, 59.20000000298023, 60.599999994039536,
-        58.400000005960464, 62.79999999701977, 60, 59.29999999701977,
-        59.100000001490116, 61.20000000298023, 62.29999999701977,
-        60.20000000298023, 59.19999999552965, 58.70000000298023,
-        60.20000000298023, 59.69999999552965, 60.20000000298023,
-        58.399999998509884, 60.600000001490116, 59.100000001490116, 60,
-        59.29999999701977, 61.600000001490116, 59.69999999552965,
-        60.600000001490116
+        16.099999994039536, 15.5, 15.600000023841858, 15.5, 15.299999982118607,
+        17, 16, 15.799999982118607, 17.5, 15.800000011920929,
+        16.599999994039536, 15.599999994039536, 16.700000017881393,
+        15.899999976158142, 15.700000017881393, 17.799999982118607,
+        16.400000005960464, 16.80000001192093, 15.900000005960464,
+        16.099999994039536, 15.099999994039536, 15.199999988079071,
+        16.80000001192093, 16.599999994039536, 16.80000001192093,
+        17.80000001192093, 14.899999976158142, 15.5, 16.600000023841858,
+        15.799999982118607
       ],
-      "discardedWarmupBatches": [
-        77.09999999403954, 61.80000000447035, 59.399999998509884
-      ]
+      "discardedWarmupBatches": [16, 15.900000005960464, 15.5]
     },
     {
       "id": "country-us",
       "label": "country = US",
       "filter": "country==US",
       "batch": {
-        "median": 68.5,
-        "p95": 69.69999999552965,
-        "min": 66.79999999701977,
-        "max": 70.60000000149012
+        "median": 26.5,
+        "p95": 28.700000017881393,
+        "min": 25.399999976158142,
+        "max": 28.900000005960464
       },
+      "failedRequests": 0,
       "reports": [
         {
           "name": "summary",
-          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/summary?site=benchmark-results\u0026tz=UTC\u0026range=this-year\u0026compare=previous-period\u0026filter=country%3D%3DUS",
+          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/summary?site=benchmark-results&tz=UTC&range=this-year&compare=previous-period&filter=country%3D%3DUS",
           "timing": {
-            "median": 39.399999998509884,
-            "p95": 41,
-            "min": 37.5,
-            "max": 41.30000000447035
+            "median": 8.600000008940697,
+            "p95": 10.299999982118607,
+            "min": 7.5,
+            "max": 10.699999988079071
           },
           "plan": {
             "complete": true,
             "warnings": [],
+            "notices": [],
             "steps": [
               {
                 "event": "pageview",
@@ -831,50 +841,50 @@
           },
           "rows": 0,
           "summary": {
-            "visitors": 748253,
-            "pageViews": 2533854,
-            "sessions": 873394,
-            "bounceRate": 0.36627913633480425,
-            "averageSessionDuration": 50.3437384,
-            "pageViewsPerSession": 2.9011580111610566,
+            "visitors": 742232,
+            "pageViews": 2543624,
+            "sessions": 877150,
+            "bounceRate": 0.36679473294191417,
+            "averageSessionDuration": 50.3063407,
+            "pageViewsPerSession": 2.8998734537992363,
             "botHits": null,
             "previous": {
-              "visitors": 72730,
-              "pageViews": 244789,
-              "sessions": 90188,
-              "bounceRate": 0.42852707677296314,
-              "averageSessionDuration": 44.3125506,
-              "pageViewsPerSession": 2.7142080986384,
+              "visitors": 68898,
+              "pageViews": 233444,
+              "sessions": 86030,
+              "bounceRate": 0.4288968964314774,
+              "averageSessionDuration": 44.3044966,
+              "pageViewsPerSession": 2.713518540044171,
               "botHits": null
             }
           },
           "from": "2026-01-01T00:00:00+00:00",
           "to": "2027-01-01T00:00:00+00:00",
           "samples": [
-            40.79999999701977, 37.70000000298023, 39.5, 39.19999999552965,
-            38.899999998509884, 39.19999999552965, 40.100000001490116,
-            40.600000001490116, 40.899999998509884, 39.900000005960464, 37.5,
-            38.29999999701977, 40.80000000447035, 41.30000000447035,
-            40.19999999552965, 40.79999999701977, 38.899999998509884,
-            37.80000000447035, 39.600000001490116, 38.79999999701977, 39.5,
-            39.399999998509884, 38.29999999701977, 39.399999998509884, 41,
-            38.30000000447035, 39.30000000447035, 38.5, 38.400000005960464,
-            39.69999999552965
+            7.5, 8.5, 8.599999994039536, 8.900000005960464, 7.9000000059604645,
+            8.400000005960464, 7.899999976158142, 8.600000023841858,
+            7.899999976158142, 8.5, 9.400000005960464, 10.699999988079071,
+            8.900000005960464, 9.800000011920929, 7.700000017881393,
+            8.399999976158142, 9.099999994039536, 8.900000005960464,
+            7.899999976158142, 8.800000011920929, 9.099999994039536, 9.5,
+            7.9000000059604645, 7.700000017881393, 7.799999982118607, 9,
+            8.700000017881393, 7.5, 8.700000017881393, 10.299999982118607
           ],
-          "serializedResponseCharacters": 744
+          "serializedResponseCharacters": 758
         },
         {
           "name": "timeseries",
-          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/timeseries?site=benchmark-results\u0026tz=UTC\u0026interval=day\u0026range=this-year\u0026compare=previous-period\u0026filter=country%3D%3DUS",
+          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/timeseries?site=benchmark-results&tz=UTC&interval=day&range=this-year&compare=previous-period&filter=country%3D%3DUS",
           "timing": {
-            "median": 42.30000000074506,
-            "p95": 43.80000000447035,
-            "min": 40.399999998509884,
-            "max": 43.899999998509884
+            "median": 10.5,
+            "p95": 11.700000017881393,
+            "min": 9.300000011920929,
+            "max": 11.800000011920929
           },
           "plan": {
             "complete": true,
             "warnings": [],
+            "notices": [],
             "steps": [
               {
                 "event": "pageview",
@@ -896,30 +906,30 @@
           "from": "2026-01-01T00:00:00+00:00",
           "to": "2027-01-01T00:00:00+00:00",
           "samples": [
-            43, 42.70000000298023, 41.399999998509884, 40.399999998509884,
-            41.600000001490116, 41, 42.69999999552965, 43.30000000447035,
-            42.600000001490116, 43.20000000298023, 41.29999999701977,
-            41.099999994039536, 42.5, 41.399999998509884, 41.5, 42.5,
-            42.399999998509884, 41.70000000298023, 41.899999998509884,
-            42.79999999701977, 42.30000000447035, 43.100000001490116,
-            41.600000001490116, 42.29999999701977, 43.80000000447035, 41.5,
-            42.70000000298023, 40.400000005960464, 43.899999998509884,
-            41.600000001490116
+            9.5, 10.199999988079071, 11.5, 10.600000023841858, 9.5,
+            10.300000011920929, 10.299999982118607, 10.5, 10.699999988079071,
+            11.300000011920929, 11.199999988079071, 11.700000017881393,
+            10.699999988079071, 11.200000017881393, 9.700000017881393,
+            10.699999988079071, 10.599999994039536, 10.700000017881393,
+            10.400000005960464, 10.5, 11.800000011920929, 11.100000023841858,
+            10, 9.300000011920929, 9.699999988079071, 10.299999982118607,
+            10.100000023841858, 10.199999988079071, 10.5, 10.799999982118607
           ],
-          "serializedResponseCharacters": 130958
+          "serializedResponseCharacters": 130941
         },
         {
           "name": "pages",
-          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/pages?site=benchmark-results\u0026tz=UTC\u0026limit=5\u0026includePageFlowMetrics=false\u0026range=this-year\u0026compare=previous-period\u0026filter=country%3D%3DUS",
+          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/pages?site=benchmark-results&tz=UTC&limit=5&includePageFlowMetrics=false&range=this-year&compare=previous-period&filter=country%3D%3DUS",
           "timing": {
-            "median": 46.25,
-            "p95": 47.70000000298023,
-            "min": 45.100000001490116,
-            "max": 48.30000000447035
+            "median": 19.549999997019768,
+            "p95": 21.099999994039536,
+            "min": 18.400000005960464,
+            "max": 22.19999998807907
           },
           "plan": {
             "complete": true,
             "warnings": [],
+            "notices": [],
             "steps": [
               {
                 "event": "pageview",
@@ -936,29 +946,31 @@
           "from": "2026-01-01T00:00:00+00:00",
           "to": "2027-01-01T00:00:00+00:00",
           "samples": [
-            46.20000000298023, 46, 46.399999998509884, 47.600000001490116,
-            45.600000001490116, 47.399999998509884, 46.79999999701977,
-            45.899999998509884, 47.399999998509884, 48.30000000447035,
-            45.29999999701977, 46.399999998509884, 46.600000001490116,
-            46.100000001490116, 46, 45.899999998509884, 45.600000001490116,
-            46.20000000298023, 46.899999998509884, 47, 45.5, 46.099999994039536,
-            46.20000000298023, 46.29999999701977, 47, 45.100000001490116, 46.5,
-            46.80000000447035, 46, 47.70000000298023
+            18.899999976158142, 18.899999976158142, 19.400000005960464,
+            20.799999982118607, 18.599999994039536, 20.900000005960464, 19,
+            21.099999994039536, 19.299999982118607, 20.69999998807907,
+            19.80000001192093, 20.30000001192093, 19.5, 22.19999998807907,
+            18.899999976158142, 19.5, 19.599999994039536, 20.80000001192093,
+            19.19999998807907, 19, 20.19999998807907, 19.600000023841858,
+            20.400000005960464, 18.400000005960464, 18.69999998807907,
+            19.400000005960464, 20.5, 18.900000005960464, 19.599999994039536,
+            20.19999998807907
           ],
-          "serializedResponseCharacters": 1511
+          "serializedResponseCharacters": 1524
         },
         {
           "name": "breakdown:source",
-          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/breakdown?site=benchmark-results\u0026tz=UTC\u0026dimension=source\u0026limit=5\u0026includeSessionMetrics=false\u0026range=this-year\u0026compare=previous-period\u0026filter=country%3D%3DUS",
+          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/breakdown?site=benchmark-results&tz=UTC&dimension=source&limit=5&includeSessionMetrics=false&range=this-year&compare=previous-period&filter=country%3D%3DUS",
           "timing": {
-            "median": 24,
-            "p95": 25.100000001490116,
-            "min": 22.899999998509884,
-            "max": 25.399999998509884
+            "median": 10.049999997019768,
+            "p95": 11.900000005960464,
+            "min": 9.600000023841858,
+            "max": 12.099999994039536
           },
           "plan": {
             "complete": true,
             "warnings": [],
+            "notices": [],
             "steps": [
               {
                 "event": "pageview",
@@ -975,29 +987,31 @@
           "from": "2026-01-01T00:00:00+00:00",
           "to": "2027-01-01T00:00:00+00:00",
           "samples": [
-            24.399999998509884, 23.600000001490116, 24, 24.5, 24.30000000447035,
-            24.900000005960464, 23.600000001490116, 25.100000001490116,
-            24.200000002980232, 22.899999998509884, 25.399999998509884,
-            24.200000002980232, 24.5, 23.799999997019768, 24.700000002980232,
-            23.5, 24.600000001490116, 24.399999998509884, 23.100000001490116,
-            24.299999997019768, 23.399999998509884, 23.200000002980232,
-            23.899999998509884, 24, 24, 23.69999999552965, 24,
-            24.299999997019768, 23.599999994039536, 23.80000000447035
+            10.299999982118607, 9.900000005960464, 10.200000017881393,
+            12.099999994039536, 10, 10.800000011920929, 10, 9.899999976158142,
+            10.100000023841858, 10.600000023841858, 9.899999976158142,
+            10.100000023841858, 9.900000005960464, 11.900000005960464,
+            9.699999988079071, 10.600000023841858, 9.900000005960464,
+            11.300000011920929, 10, 9.900000005960464, 10.099999994039536,
+            9.800000011920929, 11.699999988079071, 9.899999976158142,
+            10.400000005960464, 9.600000023841858, 11.299999982118607,
+            9.900000005960464, 10.199999988079071, 9.900000005960464
           ],
-          "serializedResponseCharacters": 1571
+          "serializedResponseCharacters": 1582
         },
         {
           "name": "breakdown:country",
-          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/breakdown?site=benchmark-results\u0026tz=UTC\u0026dimension=country\u0026limit=5\u0026includeSessionMetrics=false\u0026range=this-year\u0026compare=previous-period\u0026filter=country%3D%3DUS",
+          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/breakdown?site=benchmark-results&tz=UTC&dimension=country&limit=5&includeSessionMetrics=false&range=this-year&compare=previous-period&filter=country%3D%3DUS",
           "timing": {
-            "median": 22.650000002235174,
-            "p95": 23.400000005960464,
-            "min": 21.5,
-            "max": 23.899999998509884
+            "median": 6.950000002980232,
+            "p95": 8.599999994039536,
+            "min": 6.5,
+            "max": 9
           },
           "plan": {
             "complete": true,
             "warnings": [],
+            "notices": [],
             "steps": [
               {
                 "event": "pageview",
@@ -1013,29 +1027,30 @@
           "from": "2026-01-01T00:00:00+00:00",
           "to": "2027-01-01T00:00:00+00:00",
           "samples": [
-            22.700000002980232, 22.30000000447035, 22.600000001490116, 23, 23,
-            22.899999998509884, 22.600000001490116, 23.400000005960464,
-            22.200000002980232, 22.399999998509884, 23.899999998509884,
-            22.80000000447035, 22.700000002980232, 22.600000001490116,
-            23.100000001490116, 22, 23.19999999552965, 22.19999999552965, 22,
-            23.399999998509884, 22.400000005960464, 23, 22.5,
-            22.200000002980232, 22.900000005960464, 22.30000000447035,
-            22.799999997019768, 22.80000000447035, 21.5, 22.100000001490116
+            7.299999982118607, 6.5999999940395355, 7.300000011920929,
+            8.599999994039536, 7.0999999940395355, 8.099999994039536, 6.5,
+            7.0999999940395355, 6.699999988079071, 7.699999988079071,
+            6.800000011920929, 6.5999999940395355, 6.5, 9, 6.699999988079071,
+            7.9000000059604645, 6.800000011920929, 7.5999999940395355,
+            6.799999982118607, 6.600000023841858, 7, 6.5999999940395355,
+            6.9000000059604645, 7.199999988079071, 7.4000000059604645,
+            6.700000017881393, 7.699999988079071, 6.5, 8.5, 6.700000017881393
           ],
-          "serializedResponseCharacters": 552
+          "serializedResponseCharacters": 565
         },
         {
           "name": "breakdown:device",
-          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/breakdown?site=benchmark-results\u0026tz=UTC\u0026dimension=device\u0026limit=10\u0026includeSessionMetrics=false\u0026range=this-year\u0026compare=previous-period\u0026filter=country%3D%3DUS",
+          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/breakdown?site=benchmark-results&tz=UTC&dimension=device&limit=10&includeSessionMetrics=false&range=this-year&compare=previous-period&filter=country%3D%3DUS",
           "timing": {
-            "median": 21.849999997764826,
-            "p95": 22.799999997019768,
-            "min": 21.100000001490116,
-            "max": 23.099999994039536
+            "median": 9,
+            "p95": 9.700000017881393,
+            "min": 8.5,
+            "max": 10.200000017881393
           },
           "plan": {
             "complete": true,
             "warnings": [],
+            "notices": [],
             "steps": [
               {
                 "event": "pageview",
@@ -1052,54 +1067,57 @@
           "from": "2026-01-01T00:00:00+00:00",
           "to": "2027-01-01T00:00:00+00:00",
           "samples": [
-            21.399999998509884, 21.399999998509884, 22.100000001490116,
-            21.899999998509884, 22.5, 21.399999998509884, 21.899999998509884,
-            22.799999997019768, 21.19999999552965, 22.19999999552965,
-            22.700000002980232, 21.19999999552965, 21.899999998509884,
-            22.100000001490116, 21.700000002980232, 22.700000002980232,
-            23.099999994039536, 21.19999999552965, 21.700000002980232,
-            22.400000005960464, 21.100000001490116, 22.400000005960464, 21.5,
-            21.899999998509884, 21.399999998509884, 21.799999997019768,
-            21.700000002980232, 22.599999994039536, 21.200000002980232, 21.5
+            8.599999994039536, 8.900000005960464, 8.799999982118607,
+            9.299999982118607, 9.699999988079071, 9.200000017881393, 9.5,
+            9.299999982118607, 9, 9.700000017881393, 8.599999994039536,
+            9.299999982118607, 8.699999988079071, 8.699999988079071,
+            10.200000017881393, 8.699999988079071, 8.699999988079071,
+            8.900000005960464, 9, 9, 9.299999982118607, 8.5, 9.699999988079071,
+            9.600000023841858, 9.099999994039536, 8.699999988079071, 9, 9,
+            8.599999994039536, 8.799999982118607
           ],
-          "serializedResponseCharacters": 945
+          "serializedResponseCharacters": 956
         }
       ],
       "batchSamples": [
-        67.79999999701977, 67.5, 68.80000000447035, 69.69999999552965,
-        68.20000000298023, 69, 68.69999999552965, 69.10000000149012,
-        68.89999999850988, 70.60000000149012, 68.10000000149012,
-        67.79999999701977, 68.5, 68.40000000596046, 67.89999999850988,
-        68.89999999850988, 68.79999999701977, 67.70000000298023,
-        68.70000000298023, 69.5, 66.79999999701977, 68.70000000298023,
-        67.79999999701977, 68.29999999701977, 68.5, 67, 68.30000000447035,
-        69.69999999552965, 67.40000000596046, 69.29999999701977
+        25.399999976158142, 25.80000001192093, 27.599999994039536,
+        28.599999994039536, 26.400000005960464, 27.600000023841858,
+        26.399999976158142, 27.100000023841858, 26.399999976158142,
+        28.700000017881393, 26.599999994039536, 27.69999998807907, 26,
+        28.900000005960464, 26.700000017881393, 27.5, 26.19999998807907,
+        27.30000001192093, 26.299999982118607, 26.200000017881393,
+        28.299999982118607, 26.30000001192093, 26.69999998807907,
+        26.30000001192093, 26.299999982118607, 25.900000005960464,
+        26.900000005960464, 25.69999998807907, 27.600000023841858,
+        26.299999982118607
       ],
-      "discardedWarmupBatches": [93.40000000596046, 67.5, 68.20000000298023]
+      "discardedWarmupBatches": [26.5, 28.30000001192093, 25.400000005960464]
     },
     {
       "id": "page-blog",
       "label": "page = /blog",
       "filter": "page==/blog",
       "batch": {
-        "median": 62.149999998509884,
-        "p95": 63.79999999701977,
-        "min": 60.30000000447035,
-        "max": 64
+        "median": 14.299999982118607,
+        "p95": 15.299999982118607,
+        "min": 13.300000011920929,
+        "max": 15.900000005960464
       },
+      "failedRequests": 0,
       "reports": [
         {
           "name": "summary",
-          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/summary?site=benchmark-results\u0026tz=UTC\u0026range=this-year\u0026compare=previous-period\u0026filter=page%3D%3D%2Fblog",
+          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/summary?site=benchmark-results&tz=UTC&range=this-year&compare=previous-period&filter=page%3D%3D%2Fblog",
           "timing": {
-            "median": 44.849999997764826,
-            "p95": 46.70000000298023,
-            "min": 43.100000001490116,
-            "max": 47.100000001490116
+            "median": 6.299999997019768,
+            "p95": 7,
+            "min": 5.600000023841858,
+            "max": 7.899999976158142
           },
           "plan": {
             "complete": true,
             "warnings": [],
+            "notices": [],
             "steps": [
               {
                 "event": "pageview",
@@ -1118,50 +1136,51 @@
           },
           "rows": 0,
           "summary": {
-            "visitors": 793428,
-            "pageViews": 1077885,
+            "visitors": 795631,
+            "pageViews": 1078037,
             "sessions": null,
             "bounceRate": null,
             "averageSessionDuration": null,
             "pageViewsPerSession": null,
-            "botHits": 25230,
+            "botHits": 25295,
             "previous": {
-              "visitors": 23345,
-              "pageViews": 28941,
+              "visitors": 22394,
+              "pageViews": 27588,
               "sessions": null,
               "bounceRate": null,
               "averageSessionDuration": null,
               "pageViewsPerSession": null,
-              "botHits": 2662
+              "botHits": 2543
             }
           },
           "from": "2026-01-01T00:00:00+00:00",
           "to": "2027-01-01T00:00:00+00:00",
           "samples": [
-            45.19999999552965, 45.19999999552965, 43.100000001490116,
-            46.399999998509884, 45, 44.29999999701977, 44.79999999701977, 44.5,
-            44.600000001490116, 45.29999999701977, 44.899999998509884,
-            44.600000001490116, 44.69999999552965, 45.80000000447035, 43.5,
-            43.399999998509884, 47.100000001490116, 45.70000000298023,
-            44.099999994039536, 43.79999999701977, 45.399999998509884,
-            45.29999999701977, 44.70000000298023, 44.899999998509884,
-            45.20000000298023, 44.600000001490116, 45.100000001490116, 44,
-            46.70000000298023, 43.900000005960464
+            6.699999988079071, 6.300000011920929, 6.100000023841858,
+            6.300000011920929, 6.0999999940395355, 6.300000011920929,
+            5.9000000059604645, 5.799999982118607, 5.600000023841858, 7,
+            6.699999988079071, 6.5999999940395355, 7, 5.700000017881393, 6,
+            6.5999999940395355, 5.9000000059604645, 6.299999982118607,
+            6.300000011920929, 7.899999976158142, 6.9000000059604645,
+            6.699999988079071, 6.600000023841858, 5.700000017881393,
+            5.9000000059604645, 5.9000000059604645, 5.9000000059604645,
+            5.600000023841858, 5.699999988079071, 6.5
           ],
-          "serializedResponseCharacters": 670
+          "serializedResponseCharacters": 683
         },
         {
           "name": "timeseries",
-          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/timeseries?site=benchmark-results\u0026tz=UTC\u0026interval=day\u0026range=this-year\u0026compare=previous-period\u0026filter=page%3D%3D%2Fblog",
+          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/timeseries?site=benchmark-results&tz=UTC&interval=day&range=this-year&compare=previous-period&filter=page%3D%3D%2Fblog",
           "timing": {
-            "median": 47.55000000074506,
-            "p95": 49.69999999552965,
-            "min": 46.19999999552965,
-            "max": 50.100000001490116
+            "median": 7.800000011920929,
+            "p95": 9.299999982118607,
+            "min": 7.299999982118607,
+            "max": 9.400000005960464
           },
           "plan": {
             "complete": true,
             "warnings": [],
+            "notices": [],
             "steps": [
               {
                 "event": "pageview",
@@ -1183,30 +1202,31 @@
           "from": "2026-01-01T00:00:00+00:00",
           "to": "2027-01-01T00:00:00+00:00",
           "samples": [
-            47.600000001490116, 48.5, 46.399999998509884, 47.5,
-            50.100000001490116, 49.600000001490116, 46.80000000447035,
-            49.69999999552965, 46.20000000298023, 47.20000000298023,
-            47.600000001490116, 47.29999999701977, 46.5, 47.20000000298023,
-            46.79999999701977, 47.29999999701977, 49.399999998509884,
-            46.19999999552965, 47.80000000447035, 47.70000000298023,
-            46.69999999552965, 48.400000005960464, 48.5, 49.29999999701977,
-            49.100000001490116, 49.399999998509884, 46.70000000298023,
-            46.69999999552965, 48.899999998509884, 46.899999998509884
+            8.199999988079071, 7.800000011920929, 7.899999976158142,
+            7.699999988079071, 7.9000000059604645, 7.5999999940395355,
+            7.899999976158142, 7.5, 7.399999976158142, 8.5, 8.900000005960464,
+            8.400000005960464, 8.800000011920929, 7.300000011920929,
+            7.4000000059604645, 9.400000005960464, 7.5999999940395355,
+            8.099999994039536, 7.800000011920929, 9.299999982118607,
+            8.900000005960464, 8.300000011920929, 8, 7.5, 7.800000011920929,
+            7.299999982118607, 7.300000011920929, 7.5, 7.4000000059604645,
+            7.700000017881393
           ],
-          "serializedResponseCharacters": 120865
+          "serializedResponseCharacters": 120879
         },
         {
           "name": "pages",
-          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/pages?site=benchmark-results\u0026tz=UTC\u0026limit=5\u0026includePageFlowMetrics=false\u0026range=this-year\u0026compare=previous-period\u0026filter=page%3D%3D%2Fblog",
+          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/pages?site=benchmark-results&tz=UTC&limit=5&includePageFlowMetrics=false&range=this-year&compare=previous-period&filter=page%3D%3D%2Fblog",
           "timing": {
-            "median": 45,
-            "p95": 47,
-            "min": 42.600000001490116,
-            "max": 48
+            "median": 6.049999997019768,
+            "p95": 7.199999988079071,
+            "min": 5.399999976158142,
+            "max": 7.799999982118607
           },
           "plan": {
             "complete": true,
             "warnings": [],
+            "notices": [],
             "steps": [
               {
                 "event": "pageview",
@@ -1228,29 +1248,29 @@
           "from": "2026-01-01T00:00:00+00:00",
           "to": "2027-01-01T00:00:00+00:00",
           "samples": [
-            45.20000000298023, 44.600000001490116, 43.100000001490116,
-            44.30000000447035, 45.399999998509884, 43.79999999701977,
-            45.399999998509884, 45.100000001490116, 46.899999998509884, 47,
-            44.5, 44.69999999552965, 44.100000001490116, 44.79999999701977, 46,
-            44.69999999552965, 48, 45.599999994039536, 42.600000001490116,
-            43.30000000447035, 47, 47, 45.79999999701977, 46,
-            44.600000001490116, 45, 44.600000001490116, 45.099999994039536, 45,
-            43.79999999701977
+            6.800000011920929, 6.4000000059604645, 6, 6, 6.0999999940395355, 6,
+            5.699999988079071, 5.699999988079071, 5.5, 6.9000000059604645,
+            6.5999999940395355, 7.199999988079071, 7, 5.5, 6,
+            6.4000000059604645, 5.9000000059604645, 6.300000011920929,
+            6.200000017881393, 7.799999982118607, 6.700000017881393, 6.5, 6.5,
+            5.399999976158142, 5.800000011920929, 5.799999982118607,
+            5.700000017881393, 5.399999976158142, 6.199999988079071, 5.5
           ],
-          "serializedResponseCharacters": 623
+          "serializedResponseCharacters": 636
         },
         {
           "name": "breakdown:source",
-          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/breakdown?site=benchmark-results\u0026tz=UTC\u0026dimension=source\u0026limit=5\u0026includeSessionMetrics=false\u0026range=this-year\u0026compare=previous-period\u0026filter=page%3D%3D%2Fblog",
+          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/breakdown?site=benchmark-results&tz=UTC&dimension=source&limit=5&includeSessionMetrics=false&range=this-year&compare=previous-period&filter=page%3D%3D%2Fblog",
           "timing": {
-            "median": 17.200000002980232,
-            "p95": 18.299999997019768,
-            "min": 16.700000002980232,
-            "max": 18.600000001490116
+            "median": 7.699999988079071,
+            "p95": 8.399999976158142,
+            "min": 7.299999982118607,
+            "max": 8.800000011920929
           },
           "plan": {
             "complete": true,
             "warnings": [],
+            "notices": [],
             "steps": [
               {
                 "event": "pageview",
@@ -1267,30 +1287,31 @@
           "from": "2026-01-01T00:00:00+00:00",
           "to": "2027-01-01T00:00:00+00:00",
           "samples": [
-            17.200000002980232, 17.5, 17.200000002980232, 17.399999998509884,
-            17.200000002980232, 17.299999997019768, 16.700000002980232,
-            17.299999997019768, 17.30000000447035, 17.600000001490116,
-            17.100000001490116, 17.5, 17, 16.700000002980232, 17.69999999552965,
-            17.200000002980232, 16.899999998509884, 17, 18.299999997019768,
-            17.100000001490116, 17.400000005960464, 16.899999998509884,
-            17.299999997019768, 17.899999998509884, 17.099999994039536,
-            18.600000001490116, 17.399999998509884, 16.80000000447035,
-            17.19999999552965, 16.899999998509884
+            7.4000000059604645, 8.299999982118607, 7.899999976158142,
+            8.299999982118607, 7.9000000059604645, 8.399999976158142, 8,
+            7.9000000059604645, 7.299999982118607, 7.300000011920929,
+            7.300000011920929, 7.5999999940395355, 7.300000011920929,
+            8.800000011920929, 7.5999999940395355, 8.099999994039536,
+            7.4000000059604645, 8, 7.299999982118607, 7.4000000059604645,
+            7.4000000059604645, 7.300000011920929, 7.5, 8.100000023841858,
+            7.5999999940395355, 8, 7.799999982118607, 7.800000011920929,
+            8.200000017881393, 7.4000000059604645
           ],
-          "serializedResponseCharacters": 1558
+          "serializedResponseCharacters": 1572
         },
         {
           "name": "breakdown:country",
-          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/breakdown?site=benchmark-results\u0026tz=UTC\u0026dimension=country\u0026limit=5\u0026includeSessionMetrics=false\u0026range=this-year\u0026compare=previous-period\u0026filter=page%3D%3D%2Fblog",
+          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/breakdown?site=benchmark-results&tz=UTC&dimension=country&limit=5&includeSessionMetrics=false&range=this-year&compare=previous-period&filter=page%3D%3D%2Fblog",
           "timing": {
-            "median": 13.399999998509884,
-            "p95": 14.300000004470348,
-            "min": 12.900000005960464,
-            "max": 14.699999995529652
+            "median": 6.199999988079071,
+            "p95": 7,
+            "min": 5.699999988079071,
+            "max": 7.200000017881393
           },
           "plan": {
             "complete": true,
             "warnings": [],
+            "notices": [],
             "steps": [
               {
                 "event": "pageview",
@@ -1307,30 +1328,31 @@
           "from": "2026-01-01T00:00:00+00:00",
           "to": "2027-01-01T00:00:00+00:00",
           "samples": [
-            13.600000001490116, 12.900000005960464, 13.399999998509884,
-            13.299999997019768, 13.100000001490116, 13.700000002980232,
-            13.600000001490116, 13.299999997019768, 13.300000004470348,
-            13.899999998509884, 13.299999997019768, 13.200000002980232,
-            13.200000002980232, 13, 14.200000002980232, 13.200000002980232,
-            13.5, 13.5, 14.300000004470348, 13.100000001490116,
-            13.700000002980232, 13.200000002980232, 13.200000002980232,
-            14.299999997019768, 13.5, 14.699999995529652, 13.5,
-            13.600000001490116, 13.399999998509884, 13.300000004470348
+            6.199999988079071, 7, 6.799999982118607, 6.799999982118607,
+            6.4000000059604645, 6.4000000059604645, 6.200000017881393,
+            6.0999999940395355, 5.699999988079071, 5.9000000059604645,
+            5.800000011920929, 5.700000017881393, 5.799999982118607,
+            6.899999976158142, 6.199999988079071, 6.700000017881393,
+            6.4000000059604645, 6.5999999940395355, 5.799999982118607, 6,
+            5.9000000059604645, 6, 6, 6.199999988079071, 6.300000011920929,
+            6.300000011920929, 6.5, 5.799999982118607, 7.200000017881393,
+            5.699999988079071
           ],
-          "serializedResponseCharacters": 915
+          "serializedResponseCharacters": 928
         },
         {
           "name": "breakdown:device",
-          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/breakdown?site=benchmark-results\u0026tz=UTC\u0026dimension=device\u0026limit=10\u0026includeSessionMetrics=false\u0026range=this-year\u0026compare=previous-period\u0026filter=page%3D%3D%2Fblog",
+          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/breakdown?site=benchmark-results&tz=UTC&dimension=device&limit=10&includeSessionMetrics=false&range=this-year&compare=previous-period&filter=page%3D%3D%2Fblog",
           "timing": {
-            "median": 13.399999998509884,
-            "p95": 14.299999997019768,
-            "min": 12.899999998509884,
-            "max": 14.5
+            "median": 6.299999982118607,
+            "p95": 6.9000000059604645,
+            "min": 5.5999999940395355,
+            "max": 6.9000000059604645
           },
           "plan": {
             "complete": true,
             "warnings": [],
+            "notices": [],
             "steps": [
               {
                 "event": "pageview",
@@ -1347,31 +1369,32 @@
           "from": "2026-01-01T00:00:00+00:00",
           "to": "2027-01-01T00:00:00+00:00",
           "samples": [
-            14.200000002980232, 13.399999998509884, 13.800000004470348,
-            13.399999998509884, 13.200000002980232, 13.399999998509884,
-            13.299999997019768, 13.899999998509884, 13.400000005960464,
-            13.599999994039536, 13.200000002980232, 13.300000004470348, 13.5,
-            13.100000001490116, 14, 13.100000001490116, 13.600000001490116,
-            13.200000002980232, 14.100000001490116, 13.299999997019768,
-            13.300000004470348, 13.300000004470348, 13.5, 14.299999997019768,
-            13.299999997019768, 13.600000001490116, 13.399999998509884, 14.5,
-            13, 12.899999998509884
+            5.700000017881393, 6.699999988079071, 6.4000000059604645,
+            6.9000000059604645, 6.299999982118607, 6.799999982118607,
+            6.600000023841858, 6.299999982118607, 5.800000011920929,
+            5.700000017881393, 5.5999999940395355, 5.799999982118607,
+            5.5999999940395355, 6.5, 6.199999988079071, 6.5, 6.300000011920929,
+            6.5, 6.4000000059604645, 5.9000000059604645, 5.800000011920929,
+            5.899999976158142, 5.9000000059604645, 6.9000000059604645,
+            6.0999999940395355, 6.4000000059604645, 6.299999982118607,
+            6.200000017881393, 6.5999999940395355, 6.199999988079071
           ],
-          "serializedResponseCharacters": 935
+          "serializedResponseCharacters": 948
         }
       ],
       "batchSamples": [
-        62.399999998509884, 62.29999999701977, 60.30000000447035,
-        61.79999999701977, 63.5, 63, 61.5, 63.69999999552965,
-        61.900000005960464, 62.899999998509884, 61.899999998509884,
-        62.100000001490116, 61.29999999701977, 61.70000000298023,
-        61.29999999701977, 60.600000001490116, 64, 62.70000000298023, 62,
-        61.19999999552965, 62.80000000447035, 62.29999999701977, 62,
-        63.79999999701977, 62.600000001490116, 63.30000000447035,
-        62.19999999552965, 61.5, 62.399999998509884, 60.900000005960464
+        14.099999994039536, 14.599999994039536, 14.400000005960464,
+        14.800000011920929, 14.299999982118607, 14.5, 14.600000023841858,
+        13.899999976158142, 13.300000011920929, 14.300000011920929,
+        14.599999994039536, 14.199999988079071, 14.5, 14.400000005960464,
+        13.599999994039536, 15.900000005960464, 13.900000005960464,
+        14.699999988079071, 14.200000017881393, 15.299999982118607,
+        14.800000011920929, 14.299999982118607, 14, 14.400000005960464, 14,
+        13.900000005960464, 13.699999988079071, 13.700000017881393,
+        14.099999994039536, 14
       ],
       "discardedWarmupBatches": [
-        73.19999999552965, 62.100000001490116, 61.30000000447035
+        15.799999982118607, 14.900000005960464, 14.900000005960464
       ]
     }
   ],
@@ -1380,9 +1403,10 @@
     "logicalProcessors": 20,
     "operatingSystem": "Windows x64",
     "runtime": ".NET 10.0.6",
-    "hostBuild": "Debug",
+    "hostBuild": "Release",
     "transport": "HTTP over loopback",
     "storageProfile": "Not recorded",
     "installedMemoryGiB": 64
-  }
+  },
+  "stateUnchanged": true
 }

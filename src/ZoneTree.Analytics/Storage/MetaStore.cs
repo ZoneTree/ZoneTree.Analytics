@@ -1,7 +1,3 @@
-using System.Buffers;
-using System.Globalization;
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 
 namespace ZoneTree.Analytics.Storage;
@@ -11,35 +7,28 @@ namespace ZoneTree.Analytics.Storage;
 /// times and the raw event sequence. A few kilobytes of string pairs, changed rarely.
 /// </summary>
 /// <remarks>
-/// <para>
-/// The entries are kept in memory and every change persists all of them. Two files are written
-/// alternately, each in place and flushed to disk, and each records a generation number and a
-/// checksum. A write always replaces the older file, so a crash can only damage the file being
-/// written; loading picks the valid file with the highest generation. No rename and no directory
-/// flush are involved, which makes the scheme equally durable on every platform.
-/// </para>
-/// <para>
-/// File layout: a header line <c>zonetree-analytics-meta {generation} {sha256 of the rest}</c>
-/// followed by the entries as an indented JSON object with sorted keys.
-/// </para>
+/// The entries are kept in memory and every change persists all of them, as an indented JSON
+/// object with sorted keys in <see cref="AlternatingFiles"/>.
 /// </remarks>
 sealed class MetaStore
 {
-  const string Header = "zonetree-analytics-meta";
-
   readonly object sync = new();
 
-  readonly string[] paths;
+  readonly AlternatingFiles files;
 
   Dictionary<string, string> entries;
-
-  long generation;
 
   public MetaStore(string directory)
   {
     Directory.CreateDirectory(directory);
-    paths = [Path.Combine(directory, "meta-a.json"), Path.Combine(directory, "meta-b.json")];
-    (entries, generation) = Load();
+    files = new(Path.Combine(directory, "meta-a.bin"), Path.Combine(directory, "meta-b.bin"), "ZTAMETA1"u8);
+    entries = files.Load(Read);
+    // Files exist but none is readable: refuse to start over, which would replace the visitor
+    // secret and salts and reset the storage format settings of a directory that holds data.
+    if (entries == null && files.Exist)
+      throw new AnalyticsConfigurationException(
+          $"The analytics metadata in '{directory}' is damaged: no metadata file is valid.");
+    entries ??= new(StringComparer.Ordinal);
   }
 
   public string Get(string key)
@@ -83,80 +72,28 @@ sealed class MetaStore
       if (!removed && next.Count == entries.Count &&
           next.All(x => entries.TryGetValue(x.Key, out var value) && value == x.Value))
         return;
-      WriteNextGeneration(next);
+      files.Save(stream => Write(stream, next));
       entries = next;
       if (removed)
-        WriteNextGeneration(next);
+        files.Save(stream => Write(stream, next));
     }
   }
 
-  void WriteNextGeneration(Dictionary<string, string> content)
+  static Dictionary<string, string> Read(Stream stream)
   {
-    Write(paths[(generation + 1) % 2], generation + 1, content);
-    ++generation;
+    var result = new Dictionary<string, string>(StringComparer.Ordinal);
+    using var document = JsonDocument.Parse(stream);
+    foreach (var property in document.RootElement.EnumerateObject())
+      result[property.Name] = property.Value.GetString();
+    return result;
   }
 
-  (Dictionary<string, string> Entries, long Generation) Load()
+  static void Write(Stream stream, Dictionary<string, string> entries)
   {
-    var found = false;
-    (Dictionary<string, string> Entries, long Generation) newest = (new(StringComparer.Ordinal), 0);
-    foreach (var path in paths)
-    {
-      if (!File.Exists(path))
-        continue;
-      found = true;
-      if (TryRead(path, out var candidate) && candidate.Generation > newest.Generation)
-        newest = candidate;
-    }
-    // Files exist but none is readable: refuse to start over, which would replace the visitor
-    // secret and salts and reset the storage format settings of a directory that holds data.
-    if (found && newest.Generation == 0)
-      throw new AnalyticsConfigurationException(
-          $"The analytics metadata in '{Path.GetDirectoryName(paths[0])}' is damaged: no metadata file is valid.");
-    return newest;
+    using var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true });
+    writer.WriteStartObject();
+    foreach (var (key, value) in entries.OrderBy(x => x.Key, StringComparer.Ordinal))
+      writer.WriteString(key, value);
+    writer.WriteEndObject();
   }
-
-  static bool TryRead(string path, out (Dictionary<string, string> Entries, long Generation) result)
-  {
-    result = default;
-    var bytes = File.ReadAllBytes(path);
-    var newline = Array.IndexOf(bytes, (byte)'\n');
-    if (newline < 0)
-      return false;
-    var header = Encoding.UTF8.GetString(bytes, 0, newline).Split(' ');
-    var body = bytes.AsSpan(newline + 1);
-    if (header.Length != 3 || header[0] != Header ||
-        !long.TryParse(header[1], NumberStyles.None, CultureInfo.InvariantCulture, out var fileGeneration) ||
-        fileGeneration < 1 ||
-        !string.Equals(header[2], Checksum(body), StringComparison.Ordinal))
-      return false;
-    var entries = new Dictionary<string, string>(StringComparer.Ordinal);
-    using (var document = JsonDocument.Parse(body.ToArray()))
-    {
-      foreach (var property in document.RootElement.EnumerateObject())
-        entries[property.Name] = property.Value.GetString();
-    }
-    result = (entries, fileGeneration);
-    return true;
-  }
-
-  static void Write(string path, long fileGeneration, Dictionary<string, string> entries)
-  {
-    var body = new ArrayBufferWriter<byte>();
-    using (var writer = new Utf8JsonWriter(body, new JsonWriterOptions { Indented = true }))
-    {
-      writer.WriteStartObject();
-      foreach (var (key, value) in entries.OrderBy(x => x.Key, StringComparer.Ordinal))
-        writer.WriteString(key, value);
-      writer.WriteEndObject();
-    }
-    var header = Encoding.UTF8.GetBytes(string.Create(
-        CultureInfo.InvariantCulture, $"{Header} {fileGeneration} {Checksum(body.WrittenSpan)}\n"));
-    using var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None);
-    stream.Write(header);
-    stream.Write(body.WrittenSpan);
-    stream.Flush(flushToDisk: true);
-  }
-
-  static string Checksum(ReadOnlySpan<byte> body) => Convert.ToHexString(SHA256.HashData(body));
 }

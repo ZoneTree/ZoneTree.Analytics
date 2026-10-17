@@ -436,6 +436,8 @@ public sealed class FlushRecoveryTests : DirectoryTest
         o.Storage.StoreRawEvents = false;
         configure?.Invoke(o);
       });
+      // An engine creates the directory's metadata, so engines can reopen what the worker wrote.
+      using (TestEngine.Create(directory, o => o.Storage.StoreRawEvents = false)) { }
       var calendar = new ReportingCalendar(options.TimeZone, options.FirstDayOfWeek);
       var meta = new MetaStore(Path.Combine(directory, "meta"));
       var hasher = new VisitorHasher(options.Privacy.VisitorIdentification, null, meta);

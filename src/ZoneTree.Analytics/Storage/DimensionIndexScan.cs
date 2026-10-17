@@ -1,12 +1,11 @@
 using ZoneTree.Analytics.Internal;
+using Slice = ZoneTree.Analytics.Storage.RawEventStore.Slice;
 
 namespace ZoneTree.Analytics.Storage;
 
 /// <summary>Ordered covering reads, including k-way merging of distinct equality values.</summary>
 static class DimensionIndexScan
 {
-  readonly record struct Slice(IZoneTree<Memory<byte>, Memory<byte>> Tree, long From, long To);
-
   sealed class Cursor : IDisposable
   {
     readonly IZoneTreeIterator<Memory<byte>, Memory<byte>> iterator;
@@ -76,7 +75,7 @@ static class DimensionIndexScan
         leases.Add(lease);
         ranges.Add(new(lease.Tree, Math.Max(from, partition.From), Math.Min(to, partition.To)));
       }
-      var slices = parallelism == 1 ? ranges : Split(ranges, parallelism * 4);
+      var slices = parallelism == 1 ? ranges : RawEventStore.Split(ranges, parallelism * 4);
       var prefixes = selection.Values.Select(value => DimensionIndexKeyCodec.Prefix(selection.Index.KeyPrefix, site, value)).ToArray();
       var states = new TState[slices.Count];
       ParallelWork.For(slices.Count, parallelism, i =>
@@ -90,25 +89,6 @@ static class DimensionIndexScan
       return states;
     }
     finally { foreach (var lease in leases) lease.Dispose(); }
-  }
-
-  static List<Slice> Split(List<Slice> ranges, int target)
-  {
-    var total = ranges.Sum(x => x.To - x.From);
-    var slices = new List<Slice>();
-    foreach (var range in ranges)
-    {
-      var length = range.To - range.From;
-      var count = (int)Math.Clamp(Math.Round((double)target * length / total), 1, Math.Max(1, length / TimeSpan.TicksPerMinute));
-      var from = range.From;
-      for (var i = 1; i <= count; ++i)
-      {
-        var to = i == count ? range.To : range.From + (long)((Int128)length * i / count);
-        slices.Add(range with { From = from, To = to });
-        from = to;
-      }
-    }
-    return slices;
   }
 
   static void Read<TState>(Slice slice, byte[][] prefixes, TState state,

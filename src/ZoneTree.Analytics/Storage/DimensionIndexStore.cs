@@ -1,4 +1,3 @@
-using ZoneTree.Analytics.Internal;
 using ZoneTree.Logger;
 
 namespace ZoneTree.Analytics.Storage;
@@ -20,193 +19,116 @@ sealed class DimensionIndexUnavailableException : Exception;
 /// <remarks>
 /// Builds and repairs run on the background maintenance thread while ingestion writes its own
 /// copies: copying an event again writes the same key and value. Queries scan raw events until
-/// the indexes are ready. A build resumes from its checkpoint after a restart; the days that
-/// ingestion wrote meanwhile are repaired. Erasure and the build's chunks hold <see cref="Gate"/>
-/// one at a time, and every chunk reads the raw events again, so a build never copies an
-/// erased event back.
+/// the indexes are ready. Erasure and the build's chunks hold <see cref="Gate"/> one at a time,
+/// and every chunk reads the raw events again, so a build never copies an erased event back.
 /// </remarks>
-sealed class DimensionIndexStore : IDisposable
+sealed class DimensionIndexStore : BackgroundIndex
 {
-  const string DimensionsKey = "dimension-index.dimensions";
-  const string CleanKey = "dimension-index.clean";
   const string PartitionsKey = "dimension-index.partitions.shared";
-  const string UncleanReason = "missing or unclean checkpoint";
   const int ProbeLimit = 1024;
   const int ChunkSize = 4096;
-  readonly MetaStore meta;
-  readonly string manifest;
-  readonly string directory;
   readonly DimensionIndexOptions options;
   readonly RawEventStore rawEvents;
   readonly StoreFactory factory;
-  readonly ILogger logger;
   readonly IndexRecovery recovery;
   readonly List<DimensionIndex> indexes = [];
-  readonly List<IDisposable> resources = [];
-  int invalid;
   int suspended;
-  long revision;
-  volatile bool ready;
-  bool rebuild;
   long fence;
-  long[] dirtyDays = [];
-  long[] repairDays = [];
 
   public IReadOnlyList<DimensionIndex> Indexes => indexes;
   public PartitionedStore<Memory<byte>, Memory<byte>> Store { get; private set; }
   public IEnumerable<PartitionedStore<Memory<byte>, Memory<byte>>> AllStores => Store == null ? [] : [Store];
 
-  public bool IsAvailable => ready && Volatile.Read(ref invalid) == 0 && Volatile.Read(ref suspended) == 0;
-  public bool IsHealthy => Volatile.Read(ref invalid) == 0;
-
-  /// <summary>Whether the indexes are being built or repaired; queries scan raw events meanwhile.</summary>
-  public bool IsBuilding => indexes.Count > 0 && !ready && IsHealthy;
+  public bool IsAvailable => IsReady && IsHealthy && Volatile.Read(ref suspended) == 0;
 
   /// <summary>Held by erasure and by each chunk of a build, so that a build never copies an erased event.</summary>
   public object Gate { get; } = new();
 
   public DimensionIndexStore(string directory, DimensionIndexOptions options, RawEventStore rawEvents,
       StoreFactory factory, MetaStore meta, ILogger logger)
+      : base(meta, logger, directory, "Dimension index", "dimension-index", "dimension-index.dimensions",
+          StorageFormats.DimensionIndexKey, StorageFormats.DimensionIndex, "The dimension indexes of the analytics data directory")
   {
-    this.meta = meta;
-    this.directory = directory;
     this.options = options;
     this.rawEvents = rawEvents;
     this.factory = factory;
-    this.logger = logger;
     recovery = new(meta, "dimension-index.dirty.");
-    manifest = string.Join('\n', options.Dimensions.Order(StringComparer.Ordinal));
   }
 
   /// <summary>
-  /// Opens the indexes and decides whether they need a build or a repair, which
-  /// <see cref="Build"/> then runs in the background. A new build drops the old copies first,
-  /// before ingestion writes new ones. Builds copy the raw events up to <paramref name="fence"/>,
-  /// the last sequence stored before ingestion starts: ingestion copies the later ones.
+  /// Opens the indexes and decides their work. Builds copy the raw events up to
+  /// <paramref name="fence"/>, the last sequence stored before ingestion starts: ingestion copies
+  /// the later ones.
   /// </summary>
   public void Initialize(long fence)
   {
     this.fence = fence;
-    using var startup = new StageLog(logger, "Dimension index initialization", directory);
-    using var check = new StageLog(logger, "Dimension index backfill check", directory);
-    var format = meta.Get(StorageFormats.DimensionIndexKey);
-    if (format != null)
-      StorageFormats.Require(format, StorageFormats.DimensionIndex, "The dimension indexes of the analytics data directory");
-    var reasons = new List<string>();
-    // Indexes that were never initialized have no checkpoint, manifest or format to compare.
-    if (format == null) reasons.Add("new indexes");
-    else
-    {
-      if (meta.Get(CleanKey) != "true") reasons.Add(UncleanReason);
-      if (meta.Get(DimensionsKey) != manifest) reasons.Add("configuration changed");
-    }
-    if (!factory.RawEventsDurable || !factory.DimensionIndexesDurable) reasons.Add("write-ahead logging disabled");
-    dirtyDays = recovery.Days;
-    var partitions = 0;
-    if (options.Dimensions.Count > 0)
-    {
-      Store = Open();
-      foreach (var dimension in options.Dimensions) indexes.Add(new(dimension, Store));
-      var names = Store.ListPartitions();
-      partitions = names.Count;
-      var expected = (meta.Get(PartitionsKey) ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries);
-      if (IndexRecoveryScan.MissingRetainedPartitions(expected, names, factory.RawRetentionCutoff))
-        reasons.Add("partition manifest changed");
-    }
-    rebuild = reasons.Count > 0 && indexes.Count > 0;
-    var checkpoint = Checkpoint();
-    // Only an interrupted build of the same configuration resumes; any other reason starts over.
-    var resuming = rebuild && checkpoint.Copying && reasons.All(reason => reason == UncleanReason);
-    // A new build copies every day; one that resumes repairs the days written since it began.
-    repairDays = rebuild && !resuming ? [] : dirtyDays;
-    var decision = indexes.Count == 0 ? "disabled" : rebuild ? "rebuild required" : dirtyDays.Length > 0 ? "repair affected days" : "reuse existing indexes";
-    var reason = indexes.Count == 0 ? "no configured dimensions" : rebuild ? string.Join(", ", reasons) : dirtyDays.Length > 0 ? "durable write intents require reconciliation" : "clean checkpoint and matching manifests";
-    check.Complete($"decision={decision}; indexes={indexes.Count}; physical stores={(Store == null ? 0 : 1)}; partitions={partitions}; dirty days={dirtyDays.Length}; resuming={resuming}; reasons={reason}");
-    // Configuration changes rebuild the shared tree, removing discarded namespaces.
-    // Disabling every dimension drops its partitions; interrupted cleanup is retried.
-    if (Store == null && Directory.Exists(directory))
-    {
-      var obsolete = Open();
-      foreach (var partition in obsolete.ListPartitions()) obsolete.Drop(partition);
-    }
-    if (rebuild && !resuming)
-    {
-      meta.Set(CleanKey, "false");
-      checkpoint.Begin();
-      foreach (var partition in Store.ListPartitions()) Store.Drop(partition);
-      Started(checkpoint);
-      // A new directory has nothing to copy: the build completes at once.
-      if (rawEvents.Store.ListPartitions().Count == 0)
-        Build(CancellationToken.None);
-    }
-    if (!rebuild && repairDays.Length == 0)
-    {
-      ready = true;
-      MarkClean();
-    }
-    startup.Complete($"decision={(ready ? rebuild ? "rebuild completed" : decision : rebuild ? "rebuild in background" : "repair in background")}; indexes={indexes.Count}; physical stores={(Store == null ? 0 : 1)}");
+    Open(string.Join('\n', options.Dimensions.Order(StringComparer.Ordinal)), []);
   }
 
-  IndexBackfillCheckpoint Checkpoint() => new(meta, "dimension-index.backfill", manifest);
+  protected override int IndexCount => indexes.Count;
 
-  /// <summary>
-  /// Stops a build once a copy has failed: the copies after it were skipped, so no checkpoint
-  /// or coverage may claim them.
-  /// </summary>
-  void RequireHealthy()
+  protected override int StoreCount => Store == null ? 0 : 1;
+
+  protected override string DisabledReason => "no configured dimensions";
+
+  protected override bool Durable => factory.RawEventsDurable && factory.DimensionIndexesDurable;
+
+  protected override IEnumerable<IndexRecovery> Journals => [recovery];
+
+  protected override bool NothingToCopy => rawEvents.Store.ListPartitions().Count == 0;
+
+  protected override int OpenStores(List<string> reasons)
   {
-    if (!IsHealthy)
-      throw Failed(null);
+    if (options.Dimensions.Count == 0)
+    {
+      // Disabling every dimension drops its partitions; interrupted cleanup is retried.
+      if (Directory.Exists(Root))
+      {
+        var obsolete = Open();
+        foreach (var partition in obsolete.ListPartitions()) obsolete.Drop(partition);
+      }
+      return 0;
+    }
+    // One shared tree holds every dimension: a configuration change rebuilds it, removing
+    // discarded namespaces.
+    Store = Open();
+    foreach (var dimension in options.Dimensions) indexes.Add(new(dimension, Store));
+    var names = Store.ListPartitions();
+    var expected = (Meta.Get(PartitionsKey) ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries);
+    if (IndexRecoveryScan.MissingRetainedPartitions(expected, names, factory.RawRetentionCutoff))
+      reasons.Add("partition manifest changed");
+    return names.Count;
   }
 
-  /// <summary>The failure of a build that cannot succeed until the engine opens again.</summary>
-  static AnalyticsStorageException Failed(Exception cause) => new(
+  protected override void DropCopies()
+  {
+    foreach (var partition in Store.ListPartitions()) Store.Drop(partition);
+  }
+
+  protected override void SavePartitions(Dictionary<string, string> entries) =>
+      entries[PartitionsKey] = Store == null ? "" : string.Join(',', Store.ListPartitions());
+
+  protected override AnalyticsStorageException BuildFailed(Exception cause) => new(
       "The dimension indexes could not be built" + (cause == null ? ": a copy failed." : ": " + cause.Message) +
       " Queries scan raw events without them until the engine opens again, which resumes the build.", cause);
-
-  /// <summary>Records that the indexes cover the raw events, and makes them available to queries.</summary>
-  void Complete(IndexBackfillCheckpoint checkpoint)
-  {
-    RequireHealthy();
-    meta.Update(entries =>
-    {
-      SaveCoverage(entries);
-      checkpoint.Clear(entries);
-    });
-    recovery.ClearRepaired(dirtyDays);
-    ready = true;
-    Interlocked.Increment(ref revision);
-  }
-
-  /// <summary>
-  /// Records the configuration and format of a build that has dropped the old copies: an
-  /// interrupted build of them resumes at the next open, while the indexes stay unclean.
-  /// </summary>
-  void Started(IndexBackfillCheckpoint checkpoint)
-  {
-    meta.Update(entries =>
-    {
-      SaveCoverage(entries);
-      entries[CleanKey] = "false";
-    });
-    checkpoint.Cleared();
-  }
 
   /// <summary>
   /// Runs the build or repair that <see cref="Initialize"/> decided, on the background
   /// maintenance thread, then makes the indexes available to queries. Every attempt resumes
   /// from the checkpoint, so a failed attempt can simply be repeated.
   /// </summary>
-  public void Build(CancellationToken cancellationToken)
+  public override void Build(CancellationToken cancellationToken)
   {
-    if (ready) return;
+    if (IsReady) return;
     // Indexes that failed wait for the next open, which resumes them from their last checkpoint.
     RequireHealthy();
-    using var build = new StageLog(logger, "Dimension index backfill", directory);
+    using var build = new StageLog(Logger, "Dimension index backfill", Root);
     var checkpoint = Checkpoint();
+    var repairDays = RepairDays.GetValueOrDefault(recovery) ?? [];
     var record = new RawEvent();
     var selector = new DimensionSelector(options.Dimensions);
-    long records = rebuild ? checkpoint.Count : 0;
+    long records = Rebuilding ? checkpoint.Count : 0;
     var resumed = records;
     long rows = 0;
     long bytes = 0;
@@ -230,7 +152,7 @@ sealed class DimensionIndexStore : IDisposable
       catch (Exception exception)
       {
         // The writer has invalidated the indexes: no retry in this run can complete them.
-        throw Failed(exception);
+        throw BuildFailed(exception);
       }
       rows += copies;
       bytes += (long)copies * value.Length;
@@ -257,7 +179,7 @@ sealed class DimensionIndexStore : IDisposable
       RequireHealthy();
       checkpoint.Save(partition, key, records);
     }
-    if (rebuild)
+    if (Rebuilding)
     {
       var resumePartition = checkpoint.Partition;
       var resumeKey = checkpoint.Key;
@@ -310,10 +232,10 @@ sealed class DimensionIndexStore : IDisposable
 
   PartitionedStore<Memory<byte>, Memory<byte>> Open()
   {
-    var store = new PartitionedStore<Memory<byte>, Memory<byte>>(directory,
-        options.RecordsPerPartition, factory.OpenDimensionIndex, logger,
+    var store = new PartitionedStore<Memory<byte>, Memory<byte>>(Root,
+        options.RecordsPerPartition, factory.OpenDimensionIndex, Logger,
         factory.CreateDimensionIndexMaintainer, factory.WriteAheadLogDirectoryOf);
-    resources.Add(store);
+    Resources.Add(store);
     return store;
   }
 
@@ -324,16 +246,10 @@ sealed class DimensionIndexStore : IDisposable
 
   public DimensionIndexWriter CreateWriter() => new(this);
 
-  public void Invalidate()
-  {
-    Volatile.Write(ref invalid, 1);
-    Interlocked.Increment(ref revision);
-  }
-
   public IDisposable Suspend()
   {
     Interlocked.Increment(ref suspended);
-    Interlocked.Increment(ref revision);
+    ChangeRevision();
     return new Suspension(this);
   }
 
@@ -344,19 +260,19 @@ sealed class DimensionIndexStore : IDisposable
     {
       var released = Interlocked.Exchange(ref current, null);
       if (released == null) return;
-      Interlocked.Increment(ref released.revision);
+      released.ChangeRevision();
       Interlocked.Decrement(ref released.suspended);
     }
   }
 
   public void Check(DimensionIndexSelection selection)
   {
-    if (!IsAvailable || selection.Revision != Interlocked.Read(ref revision))
+    if (!CanUse(selection))
       throw new DimensionIndexUnavailableException();
   }
 
   public bool CanUse(DimensionIndexSelection selection) =>
-      IsAvailable && selection.Revision == Interlocked.Read(ref revision);
+      IsAvailable && selection.Revision == Revision;
 
   /// <summary>The query plan notice of a scan that could not read the index of a dimension yet.</summary>
   public static string UnbuiltNotice(string dimension) =>
@@ -386,7 +302,7 @@ sealed class DimensionIndexStore : IDisposable
       Func<string, bool> allowed, CancellationToken cancellationToken)
   {
     if (indexes.Count == 0 || !IsAvailable) return null;
-    var currentRevision = Interlocked.Read(ref revision);
+    var currentRevision = Revision;
     DimensionIndexSelection best = null;
     var bestCount = int.MaxValue;
     foreach (var filter in Mandatory(filters))
@@ -400,7 +316,7 @@ sealed class DimensionIndexStore : IDisposable
       if (count < bestCount) { best = selection; bestCount = count; }
       if (count == 0) break;
     }
-    return IsAvailable && currentRevision == Interlocked.Read(ref revision) ? best : null;
+    return IsAvailable && currentRevision == Revision ? best : null;
   }
 
   internal static IEnumerable<Filter> Mandatory(IEnumerable<Filter> filters)
@@ -434,29 +350,4 @@ sealed class DimensionIndexStore : IDisposable
     values = [.. combined];
     return true;
   }
-
-  /// <summary>
-  /// Records that the indexes cover the raw events, when they do: after an orderly shutdown no
-  /// day needs a repair. An unfinished build keeps its checkpoint and resumes at the next open.
-  /// </summary>
-  public void MarkClean()
-  {
-    if (!ready || Volatile.Read(ref invalid) != 0) return;
-    meta.Update(entries =>
-    {
-      SaveCoverage(entries);
-      recovery.Clear(entries);
-      Checkpoint().Clear(entries);
-    });
-  }
-
-  void SaveCoverage(Dictionary<string, string> entries)
-  {
-    entries[DimensionsKey] = manifest;
-    entries[StorageFormats.DimensionIndexKey] = StorageFormats.Text(StorageFormats.DimensionIndex);
-    entries[PartitionsKey] = Store == null ? "" : string.Join(',', Store.ListPartitions());
-    entries[CleanKey] = factory.RawEventsDurable && factory.DimensionIndexesDurable ? "true" : "false";
-  }
-
-  public void Dispose() => Disposal.DisposeAll(resources);
 }

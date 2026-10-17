@@ -44,7 +44,7 @@ Edit `ConfigureCommon` for retention, storage, ingestion, queries, or rollups sh
 traffic, performance samples, new benchmarks and reopened benchmark reports. Raw events are
 retained for three years in all datasets. `ConfigurePrimary`, `CreatePerformanceSamples`,
 `CreateBenchmark` and `CreateBenchmarkReport` contain the per-engine settings; sample and
-benchmark worker counts come from the dashboard, and the benchmark percentile setting and
+benchmark worker counts come from the dashboard, and the benchmark percentile and index settings and
 reporting time zone are preserved when reopening a completed dataset. Each engine receives
 independent options and collections. Restart the host to apply edited engine settings.
 
@@ -56,7 +56,7 @@ Select **View sample reports**, or choose **Performance samples** in a report's 
 
 **Delete sample data** closes the sample engine and removes its events, rollups and metadata, then permits a fresh dataset. Primary traffic and `Analytics:DataDirectory` are preserved. Sample controls and endpoints are available only in Development mode, including when `Dashboard:Watch=false`; production hosts do not expose them.
 
-**Benchmark ingestion** prepares the same realistic traffic in memory before timing, then feeds it to a fresh engine with the default per-worker limits. **Include load-time percentile aggregation** controls only percentile rollups; event values and traffic shape are retained. Progress polls lightweight engine counters every 250 ms and shows ingested events, queued events, elapsed time and average throughput so far. The progress bar follows processed events, then shows a separate saving-aggregates stage while the final flush finishes. The result separates preparation, submission, and ingestion-through-flush time. Throughput uses successfully processed events divided by the submission-through-flush interval, with preparation, store creation, dataset publication, disposal and cleanup excluded.
+**Benchmark ingestion** prepares the same realistic traffic in memory before timing, then feeds it to a fresh engine with the default per-worker limits. **Include load-time percentile aggregation** controls only percentile rollups; event values and traffic shape are retained. Clear **Maintain dimension and rollup indexes** to measure ingestion without the dashboard's secondary indexes; that run's reports read rollups and raw events directly. Progress polls lightweight engine counters every 250 ms and shows ingested events, queued events, elapsed time and average throughput so far. The progress bar follows processed events, then shows a separate saving-aggregates stage while the final flush finishes. The result separates preparation, submission, and ingestion-through-flush time. Throughput uses successfully processed events divided by the submission-through-flush interval, with preparation, store creation, dataset publication, disposal and cleanup excluded.
 
 Completed sample generations and benchmarks compact their stores before reporting completion,
 moving remaining in-memory records into disk segments and draining their WALs. The dashboard
@@ -72,7 +72,7 @@ $env:DOTNET_TieredCompilation = '0'
 dotnet run -c Release --project apps/ZoneTree.Analytics.Dashboard/server -- --Dashboard:Watch=false
 ```
 
-The dashboard server exposes `GET /_analytics/sample-data/status` and JSON `POST` requests to `/generate` (`{"events":1000000,"days":60,"workers":8}`), `/benchmark` (`{"events":5000000,"days":90,"workers":20,"percentiles":false}`), `/cancel` (`{}`), `/clear` (`{}`), and `/clear-benchmark` (`{}`). Generation workers default to 1; benchmark defaults are described above. Status includes the active operation, generation progress, benchmark preparation/ingestion progress, and the previous completed benchmark result. Its config response advertises both report sites and their endpoints; other sites continue using the configured reporting API.
+The dashboard server exposes `GET /_analytics/sample-data/status` and JSON `POST` requests to `/generate` (`{"events":1000000,"days":60,"workers":8}`), `/benchmark` (`{"events":5000000,"days":90,"workers":20,"percentiles":false,"indexes":true}`), `/cancel` (`{}`), `/clear` (`{}`), and `/clear-benchmark` (`{}`). Generation workers default to 1; benchmark defaults are described above. Status includes the active operation, generation progress, benchmark preparation/ingestion progress, and the previous completed benchmark result. Its config response advertises both report sites and their endpoints; other sites continue using the configured reporting API.
 
 ## Build and host
 

@@ -67,7 +67,7 @@ sealed class SampleDataJobs(SampleDataStore store, SampleBenchmark benchmark, IH
       var token = cancellation.Token;
       activeOperation = "benchmark";
       benchmarkStatus = new("preparing", request.Events, Workers: request.Workers, Days: request.Days,
-          Percentiles: request.Percentiles, Result: benchmarkStatus.Result);
+          Percentiles: request.Percentiles, Indexes: request.Indexes, Result: benchmarkStatus.Result);
       operation = Task.Run(async () =>
       {
         try

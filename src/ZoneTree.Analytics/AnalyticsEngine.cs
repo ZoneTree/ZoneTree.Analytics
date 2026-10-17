@@ -362,6 +362,9 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
 
   bool IsDisposed => Volatile.Read(ref disposed) != 0;
 
+  /// <summary>The directories of the data root that hold stores or checkpoints.</summary>
+  static readonly string[] DataDirectories = ["events", "rollups", "sessions", "indexes", "rollup-indexes", "backfill"];
+
   /// <summary>
   /// Persists the settings that define the storage format when the directory is created, and
   /// requires the same settings on reopen. Returns true for a new directory.
@@ -379,6 +382,13 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
     ];
     if (meta.Get(StorageFormats.DatasetKey) is not { } format)
     {
+      // Data without metadata is not a new directory: starting over would replace its visitor
+      // secret and salts and claim rollup coverage it does not have.
+      if (DataDirectories.Any(x => Directory.Exists(Path.Combine(dataRoot, x))) ||
+          Directory.EnumerateFiles(Path.Combine(dataRoot, "meta")).Any())
+        throw new AnalyticsConfigurationException(
+            $"The analytics data directory '{dataRoot}' holds data but no valid metadata: an older release wrote it, " +
+            "or its metadata files were removed. Start with a fresh analytics data directory.");
       meta.Update(entries =>
       {
         foreach (var (key, value, _) in settings)
@@ -899,12 +909,7 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
         continue;
       rollups.GetStore(granularity).RemoveExpired(
           cutoff, tree => ExpiredRecords.DeleteFirstOfExpiredHeads(tree, KeyCodec.RollupHead, key => retentionClock.IsRollupExpired(granularity, key)));
-      removedUpTo = granularity switch
-      {
-        Granularity.Minute => removedUpTo with { MinuteRollups = cutoff },
-        Granularity.Hour => removedUpTo with { HourRollups = cutoff },
-        _ => removedUpTo with { DayRollups = cutoffs.DayRollups, DayRollupsLocalDay = cutoff }
-      };
+      removedUpTo = removedUpTo.WithRollup(granularity, cutoffs);
     }
   }
 

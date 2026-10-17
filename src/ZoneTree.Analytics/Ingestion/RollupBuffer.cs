@@ -120,6 +120,8 @@ sealed class RollupBuffer
 
   readonly List<(string Dimension, ulong Hash)> eventDistinct = [];
 
+  readonly PageDimensions pageDimensions = new();
+
   // Per scope, per definition: whether contributions of the scope reach the definition.
   readonly bool[][] accepts;
 
@@ -172,6 +174,15 @@ sealed class RollupBuffer
     Granularity.Hour => ReportingCalendar.FloorTicks(ticks, TimeSpan.TicksPerHour),
     _ => dayCache.LocalDay(ticks)
   };
+
+  /// <summary>
+  /// Adds an entrance or an exit to the page view rows of a page: the session's dimensions with
+  /// the page and its hostname, without counting a page view.
+  /// </summary>
+  public void ContributePageMark(string site, long ticks, IReadOnlyDictionary<string, string> sessionDimensions,
+      string page, string hostname, List<ValueChange> changes) =>
+      Contribute(site, StandardEvents.PageView, ticks, pageDimensions.Of(sessionDimensions, page, hostname), 0, 0,
+          changes, DimensionScope.PageView);
 
   /// <summary>
   /// Adds a contribution to every applicable rollup row.

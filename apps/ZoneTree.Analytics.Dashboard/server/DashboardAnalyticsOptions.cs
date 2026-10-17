@@ -39,20 +39,26 @@ static class DashboardAnalyticsOptions
     return options;
   }
 
+  // Without indexes, ingestion writes only raw events, sessions and rollups.
   public static AnalyticsOptions CreateBenchmark(string directory, TimeZoneInfo timeZone,
-      int workers, bool percentiles, ILogger logger = null)
+      int workers, bool percentiles, bool indexes, ILogger logger = null)
   {
     var options = Create(directory, BenchmarkSite, timeZone, logger);
     SetWorkers(options, workers);
     options.Ingestion.QueueFullBehavior = QueueFullBehavior.Wait;
     if (percentiles) options.Rollups.ValueAggregates["load_time"] = ValueAggregates.Percentiles;
+    if (!indexes)
+    {
+      options.Storage.DimensionIndexes.Dimensions.Clear();
+      options.Storage.RollupIndexes.Definitions.Clear();
+    }
     return options;
   }
 
-  // Reopening uses the saved dataset time zone and percentile setting, with one worker.
+  // Reopening uses the saved dataset time zone, percentile and index settings, with one worker.
   public static AnalyticsOptions CreateBenchmarkReport(string directory, string timeZoneId,
-      bool percentiles, ILogger logger = null) =>
-      CreateBenchmark(directory, TimeZoneInfo.FindSystemTimeZoneById(timeZoneId), 1, percentiles, logger);
+      bool percentiles, bool indexes, ILogger logger = null) =>
+      CreateBenchmark(directory, TimeZoneInfo.FindSystemTimeZoneById(timeZoneId), 1, percentiles, indexes, logger);
 
   // Generated ingestion runs as many rollup writers as workers, so the rows that every worker
   // buffers are merged and written in parallel at the same scale.

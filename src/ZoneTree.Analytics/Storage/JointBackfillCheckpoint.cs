@@ -1,5 +1,3 @@
-using System.Buffers.Binary;
-using System.Security.Cryptography;
 using System.Text;
 using ZoneTree.Analytics.Query;
 
@@ -41,23 +39,12 @@ sealed class JointBackfillReplacement
 /// a rebuilt part is apart from what ingestion writes, so replaying it never undoes a flush.
 /// </summary>
 /// <remarks>
-/// The journal is binary: a flush of replacements holds serialized rollup rows, whose dense
-/// sketches are 16 KiB each. Two files are written alternately, like <see cref="MetaStore"/>,
-/// so a crash can only damage the file being written; loading picks the valid file with the
-/// highest generation. File layout:
-/// <code>
-/// magic(8) generation(8, LE) body length(8, LE) sha256 of body(32) body
-/// </code>
+/// The journal is binary, in <see cref="AlternatingFiles"/>: a flush of replacements holds
+/// serialized rollup rows, whose dense sketches are 16 KiB each.
 /// </remarks>
 sealed class JointBackfillCheckpoint
 {
-  const int HeaderLength = 56;
-
-  static readonly byte[] Magic = "ZTAJRNL1"u8.ToArray();
-
-  readonly string[] paths;
-
-  long generation;
+  readonly AlternatingFiles files;
 
   public JointBackfillState State { get; }
   public bool Resuming { get; }
@@ -71,8 +58,12 @@ sealed class JointBackfillCheckpoint
   {
     var directory = Path.Combine(root, "backfill", "joint-rollups");
     Directory.CreateDirectory(directory);
-    paths = [Path.Combine(directory, "journal-a.bin"), Path.Combine(directory, "journal-b.bin")];
-    var loaded = Load();
+    files = new(Path.Combine(directory, "journal-a.bin"), Path.Combine(directory, "journal-b.bin"), "ZTAJRNL1"u8);
+    var loaded = files.Load(stream =>
+    {
+      using var reader = new BinaryReader(stream, Encoding.UTF8, leaveOpen: true);
+      return Read(reader);
+    });
     Resuming = resume && loaded?.Configuration == configuration;
     if (Resuming)
       State = loaded;
@@ -84,28 +75,11 @@ sealed class JointBackfillCheckpoint
     }
   }
 
-  public void Save()
+  public void Save() => files.Save(stream =>
   {
-    var path = paths[(generation + 1) % 2];
-    using (var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 16))
-    {
-      // The header is written last: a torn write never carries a matching checksum.
-      stream.Write(new byte[HeaderLength]);
-      using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-      using (var body = new BinaryWriter(new HashingStream(stream, hash), Encoding.UTF8, leaveOpen: true))
-        Write(body, State);
-      var length = stream.Position - HeaderLength;
-      var header = new byte[HeaderLength];
-      Magic.CopyTo(header, 0);
-      BinaryPrimitives.WriteInt64LittleEndian(header.AsSpan(8), generation + 1);
-      BinaryPrimitives.WriteInt64LittleEndian(header.AsSpan(16), length);
-      hash.GetHashAndReset().CopyTo(header, 24);
-      stream.Position = 0;
-      stream.Write(header);
-      stream.Flush(flushToDisk: true);
-    }
-    ++generation;
-  }
+    using var writer = new BinaryWriter(stream, Encoding.UTF8, leaveOpen: true);
+    Write(writer, State);
+  });
 
   /// <summary>
   /// Writes the rebuilt parts of the checkpoint, then commits that they are written.
@@ -126,51 +100,7 @@ sealed class JointBackfillCheckpoint
     Save();
   }
 
-  public void Complete()
-  {
-    foreach (var path in paths)
-      File.Delete(path);
-    generation = 0;
-  }
-
-  JointBackfillState Load()
-  {
-    JointBackfillState newest = null;
-    foreach (var path in paths)
-    {
-      if (!File.Exists(path))
-        continue;
-      using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 16);
-      if (TryReadHeader(stream, out var fileGeneration) && fileGeneration > generation)
-      {
-        stream.Position = HeaderLength;
-        using var reader = new BinaryReader(stream, Encoding.UTF8, leaveOpen: true);
-        newest = Read(reader);
-        generation = fileGeneration;
-      }
-    }
-    return newest;
-  }
-
-  /// <summary>Validates the header and the checksum of the whole body.</summary>
-  static bool TryReadHeader(FileStream stream, out long fileGeneration)
-  {
-    fileGeneration = 0;
-    var header = new byte[HeaderLength];
-    if (stream.Length < HeaderLength || stream.ReadAtLeast(header, HeaderLength, throwOnEndOfStream: false) != HeaderLength ||
-        !header.AsSpan(0, 8).SequenceEqual(Magic))
-      return false;
-    fileGeneration = BinaryPrimitives.ReadInt64LittleEndian(header.AsSpan(8));
-    var length = BinaryPrimitives.ReadInt64LittleEndian(header.AsSpan(16));
-    if (fileGeneration < 1 || length != stream.Length - HeaderLength)
-      return false;
-    using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-    var buffer = new byte[1 << 16];
-    int read;
-    while ((read = stream.Read(buffer)) > 0)
-      hash.AppendData(buffer, 0, read);
-    return hash.GetHashAndReset().AsSpan().SequenceEqual(header.AsSpan(24, 32));
-  }
+  public void Complete() => files.Delete();
 
   static void Write(BinaryWriter writer, JointBackfillState state)
   {
@@ -320,27 +250,5 @@ sealed class JointBackfillCheckpoint
   {
     var length = reader.ReadInt32();
     return length < 0 ? null : reader.ReadBytes(length);
-  }
-
-  /// <summary>Forwards writes to a stream and hashes them.</summary>
-  sealed class HashingStream(Stream inner, IncrementalHash hash) : Stream
-  {
-    public override bool CanRead => false;
-    public override bool CanSeek => false;
-    public override bool CanWrite => true;
-    public override long Length => throw new NotSupportedException();
-    public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
-    public override void Flush() => inner.Flush();
-    public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
-    public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
-    public override void SetLength(long value) => throw new NotSupportedException();
-
-    public override void Write(byte[] buffer, int offset, int count) => Write(buffer.AsSpan(offset, count));
-
-    public override void Write(ReadOnlySpan<byte> buffer)
-    {
-      hash.AppendData(buffer);
-      inner.Write(buffer);
-    }
   }
 }
