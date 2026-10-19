@@ -27,6 +27,7 @@
   <ItemGroup>
     <ProjectReference Include="..\ZoneTree.Analytics\ZoneTree.Analytics.csproj" />
     <ProjectReference Include="..\ZoneTree.Analytics.AspNetCore\ZoneTree.Analytics.AspNetCore.csproj" />
+    <ProjectReference Include="..\..\apps\ZoneTree.Analytics.Dashboard\server\ZoneTree.Analytics.Dashboard.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -34,13 +35,5 @@
     <Using Include="ZoneTree.Analytics.UnitTests.TestTime" Static="true" />
   </ItemGroup>
 
-  <ItemGroup>
-    <Compile Include="../../apps/ZoneTree.Analytics.Dashboard/server/SampleTraffic.cs" Link="Dashboard/SampleTraffic.cs" />
-    <Compile Include="../../apps/ZoneTree.Analytics.Dashboard/server/DashboardAnalyticsOptions.cs" Link="Dashboard/DashboardAnalyticsOptions.cs" />
-    <Compile Include="../../apps/ZoneTree.Analytics.Dashboard/server/SampleTrafficProfile.cs" Link="Dashboard/SampleTrafficProfile.cs" />
-    <Compile Include="../../apps/ZoneTree.Analytics.Dashboard/server/SampleBenchmark.cs" Link="Dashboard/SampleBenchmark.cs" />
-    <Compile Include="../../apps/ZoneTree.Analytics.Dashboard/server/BenchmarkReportStore.cs" Link="Dashboard/BenchmarkReportStore.cs" />
-    <Compile Include="../../apps/ZoneTree.Analytics.Dashboard/server/SampleEngineLease.cs" Link="Dashboard/SampleEngineLease.cs" />
-  </ItemGroup>
 
 </Project>

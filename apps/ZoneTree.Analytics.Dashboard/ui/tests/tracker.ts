@@ -19,6 +19,29 @@ test('dashboard visits record accepted beacons in the live .NET engine', async (
       channel: process.env.ZT_BROWSER_CHANNEL ?? 'chrome',
       headless: true,
     })
+    // A fresh host starts in setup mode: create the administrator and record dashboard visits.
+    const verified = await http.post('/_dashboard/api/setup/verify', {
+      data: { key: inject('dashboardSetupKey') },
+    })
+    assert.ok(
+      verified.ok(),
+      'The setup key from the host log must unlock setup',
+    )
+    const { settings } = (await verified.json()) as {
+      settings: { sites: { trackDashboardUsage: boolean } }
+    }
+    settings.sites.trackDashboardUsage = true
+    const completed = await http.post('/_dashboard/api/setup/complete', {
+      data: {
+        key: inject('dashboardSetupKey'),
+        administrator: {
+          userName: 'tester',
+          password: 'tracker test password',
+        },
+        settings,
+      },
+    })
+    assert.ok(completed.ok(), await completed.text())
     const response = await http.get(dashboardConfigPath)
     assert.ok(response.ok(), 'The host must expose dashboard configuration')
     const config = validateConfig(await response.json())
@@ -29,13 +52,18 @@ test('dashboard visits record accepted beacons in the live .NET engine', async (
     )
     const summary = async () => {
       const result = await http.get(`${config.apiBaseUrl}/summary`, {
-        params: { range: 'today', tz: config.timeZone, site: '' },
+        params: {
+          range: 'today',
+          tz: config.timeZone,
+          site: 'dashboard-usage',
+        },
       })
       assert.ok(result.ok())
       return ((await result.json()) as SummaryReport).summary
     }
     const before = await summary()
     const context = await browser.newContext({
+      storageState: await http.storageState(),
       userAgent:
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
     })

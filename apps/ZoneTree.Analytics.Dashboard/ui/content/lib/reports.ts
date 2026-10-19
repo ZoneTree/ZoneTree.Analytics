@@ -42,10 +42,6 @@ export const reportInfo = {
     title: 'Query explorer',
     description: 'Ask your data a more specific question.',
   },
-  settings: {
-    title: 'Connection',
-    description: 'Connect this dashboard to your analytics engine.',
-  },
   'sample-data': {
     title: 'Sample data',
     description: 'Generate and manage traffic for performance testing.',

@@ -1,4 +1,5 @@
 import type { Config, Scope } from './contracts'
+import { redirectToSignIn } from './session'
 
 export function normalizeApiUrl(value: string): string {
   const base = value.trim().replace(/\/+$/, '')
@@ -62,7 +63,6 @@ export function postScope(
 export class ApiClient {
   private active = 0
   private waiting: (() => void)[] = []
-  token = '' // Loaded from this tab's sessionStorage, never a URL or localStorage.
   constructor(
     public config: Config,
     private readonly onResponse?: (
@@ -131,7 +131,6 @@ export class ApiClient {
           headers: {
             Accept: 'application/json',
             ...(body ? { 'Content-Type': 'application/json' } : {}),
-            ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}),
           },
           ...(body
             ? {
@@ -143,6 +142,8 @@ export class ApiClient {
             : {}),
         },
       )
+      if (response.status === 401 && this.config.mode === 'live')
+        redirectToSignIn()
       if (!response.ok) {
         const message = (await response.json().catch(() => null)) as {
           error?: string
@@ -150,7 +151,7 @@ export class ApiClient {
         throw new Error(
           message?.error ||
             (response.status === 401
-              ? 'Sign in to your analytics host or enter a bearer token in Connection.'
+              ? 'Your session ended. Sign in again.'
               : response.status === 403
                 ? 'Access to this site is not allowed.'
                 : `Reporting API returned HTTP ${response.status}.`),

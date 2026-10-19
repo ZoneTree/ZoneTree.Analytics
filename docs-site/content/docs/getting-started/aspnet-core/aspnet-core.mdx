@@ -23,6 +23,8 @@ Replace `Program.cs` with this development example:
 
 `AddZoneTreeAnalytics` registers a shared engine with dependency injection. Your application can inject `IAnalyticsTracker` to record custom actions or `AnalyticsEngine` to read reports.
 
+A host that opens or replaces engines at runtime calls `AddZoneTreeAnalyticsWeb` instead. It registers only the web options and reporting limits; the tracker and reporting endpoints resolve `AnalyticsEngine` from the request services, so the host supplies it for each request, for example by replacing `HttpContext.RequestServices` with a provider that returns the engine it leased. Do not register the engine as a scoped service: the request scope would dispose it.
+
 `UseZoneTreeAnalytics` records successful HTML GET responses.
 
 Host shutdown saves remaining work and closes the engine automatically.

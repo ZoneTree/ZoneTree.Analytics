@@ -117,7 +117,14 @@ public sealed class AnalyticsOptions
     return clone;
   }
 
-  internal void Validate()
+  /// <summary>
+  /// Checks the options the way the engine does before it opens the data directory, without
+  /// touching storage. Compatibility with an existing data directory (time zone, sketch
+  /// precision, write-ahead-log directory) and ZoneTree store settings are checked only when an
+  /// engine opens.
+  /// </summary>
+  /// <exception cref="ArgumentException">The options are invalid.</exception>
+  public void Validate()
   {
     if (string.IsNullOrWhiteSpace(DataDirectory))
       throw new ArgumentException("DataDirectory is required.");

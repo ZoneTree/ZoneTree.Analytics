@@ -16,6 +16,10 @@ sealed class DashboardDevelopmentServer(
   };
   Process process;
   Uri origin;
+  long lastOutputTicks = DateTime.UtcNow.Ticks;
+
+  // When PureStack last printed anything: its first full render keeps logging after it serves.
+  public DateTime LastOutputUtc => new(Interlocked.Read(ref lastOutputTicks), DateTimeKind.Utc);
 
   public async Task StartAsync(CancellationToken cancellationToken)
   {
@@ -38,8 +42,18 @@ sealed class DashboardDevelopmentServer(
     foreach (var argument in new[] { cli, "serve", "--content", "./content", "--host", "127.0.0.1", "--port", port.ToString(), "--full-render" })
       start.ArgumentList.Add(argument);
     process = new Process { StartInfo = start, EnableRaisingEvents = true };
-    process.OutputDataReceived += (_, line) => { if (!string.IsNullOrWhiteSpace(line.Data)) logger.LogInformation("PureStack: {Line}", line.Data); };
-    process.ErrorDataReceived += (_, line) => { if (!string.IsNullOrWhiteSpace(line.Data)) logger.LogWarning("PureStack: {Line}", line.Data); };
+    process.OutputDataReceived += (_, line) =>
+    {
+      if (string.IsNullOrWhiteSpace(line.Data)) return;
+      Interlocked.Exchange(ref lastOutputTicks, DateTime.UtcNow.Ticks);
+      logger.LogInformation("PureStack: {Line}", line.Data);
+    };
+    process.ErrorDataReceived += (_, line) =>
+    {
+      if (string.IsNullOrWhiteSpace(line.Data)) return;
+      Interlocked.Exchange(ref lastOutputTicks, DateTime.UtcNow.Ticks);
+      logger.LogWarning("PureStack: {Line}", line.Data);
+    };
     process.Exited += (_, _) =>
     {
       if (!lifetime.ApplicationStopping.IsCancellationRequested)
@@ -90,8 +104,8 @@ sealed class DashboardDevelopmentServer(
 
   public async Task ForwardAsync(HttpContext context)
   {
-    // Reporting and tracker routes are handled by ASP.NET Core, including misses.
-    if (context.Request.Path.StartsWithSegments("/_analytics"))
+    // Reporting, tracker and dashboard API routes are handled by ASP.NET Core, including misses.
+    if (context.Request.Path.StartsWithSegments("/_analytics") || context.Request.Path.StartsWithSegments("/_dashboard"))
     {
       context.Response.StatusCode = StatusCodes.Status404NotFound;
       return;

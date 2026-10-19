@@ -34,7 +34,9 @@ function browserEnvironment(url = 'http://localhost/') {
   const document = {
     hidden: false,
     body: { dataset: { basePath: '/' } },
+    documentElement: { classList: { toggle: () => true } },
     getElementById: () => null,
+    querySelectorAll: () => [],
   }
   const history = {
     replaceState: (

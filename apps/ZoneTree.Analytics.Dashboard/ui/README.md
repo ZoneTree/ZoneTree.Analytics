@@ -11,9 +11,9 @@ yarn install
 yarn dashboard:dev
 ```
 
-Open **http://127.0.0.1:4500/**. PureStack's development middleware serves demo settings from `GET /_analytics/api/config`. Date ranges, comparisons, filters, breakdowns, and CSV exports work in demo mode. Advanced query expressions and ordered funnel evaluation require the live API.
+Open **http://127.0.0.1:4500/**. PureStack's development middleware serves demo settings from `GET /_analytics/api/config` and acts as a signed-in administrator. Date ranges, comparisons, filters, breakdowns, and CSV exports work in demo mode. Advanced query expressions and ordered funnel evaluation require the live API.
 
-Open **Connection** to select the live API, configure its URL, sites, reporting time zone, and refresh interval. The default reporting URL is `/_analytics/api`. Settings are stored in this browser. Optional bearer credentials are stored separately in this tab's sessionStorage; host cookies are also supported.
+Sign-in, setup, account and administration pages need the .NET server; in the standalone preview they explain that instead of loading.
 
 ## Run with the real .NET engine
 
@@ -29,24 +29,27 @@ From the repository root:
 yarn dashboard --Analytics:SeedDemo=true
 ```
 
-Open **http://127.0.0.1:5088/**. This .NET 10 application serves the static dashboard and reporting API on the same origin, and supplies live connection settings through `GET /_analytics/api/config`. The optional flag records synthetic traffic through the real engine on an empty store; it never erases existing data. Omit the flag to start with an empty analytics store, or set `--Analytics:DataDirectory=<path>` to read a compatible existing store. A data directory can only be opened by one engine at a time. The application defaults to UTC and a sample geolocator.
+Open **http://127.0.0.1:5088/**. This .NET 10 application serves the static dashboard and reporting API on the same origin, and supplies live connection settings through `GET /_analytics/api/config`. A fresh server opens the setup wizard: open the setup link printed at the end of the console output (or enter its key), create the administrator, and choose sites, time zone and collection. The optional flag then records synthetic traffic through the real engine on an empty primary site; it never erases existing data. To read a compatible existing store, choose its directory under **Advanced settings** during setup. A data directory can only be opened by one engine at a time.
 
 The `dotnet run` launch profile uses **Development** mode. The host starts PureStack's native development server automatically and serves its generated pages through port 5088. Editing MDX, page TypeScript, shared components, styles, or configuration rebuilds the affected pages and reloads the browser. Reporting and tracker requests still use the real .NET endpoints. No separate `yarn dev` or manual publish is needed. Stopping the host stops its PureStack child process.
 
 Set `--Dashboard:Watch=false` to serve an existing static release in Development. Override the source directory with `--Dashboard:SourcePath=<dashboard directory>` or the Node executable with `--Dashboard:NodePath=<node executable>`.
 
-In **Production**, run `yarn publish` first. The server serves `apps/ZoneTree.Analytics.Dashboard/ui/dist/publish`; override it with `--Dashboard:Path=<absolute path>`. The application binds to all network interfaces by default. Integrate your existing host's authentication and site authorization before exposing analytics reports outside that host.
+In **Production**, run `yarn publish` first. The server serves `apps/ZoneTree.Analytics.Dashboard/ui/dist/publish`; override it with `--Dashboard:Path=<absolute path>`. The application binds to all network interfaces by default. Every page and report requires signing in; serve it over HTTPS outside a trusted network.
 
-Every dashboard page loads the host's `/_analytics/script.js` tracker with localhost tracking enabled and `data-track-navigation="false"`. It records the page load without counting report-filter and date changes through `history.replaceState` as extra visits. Dashboard visits are recorded in the host's default analytics site. Page views increase on visits; unique visitors count distinct visitors. Refresh reports to see ingested traffic, or wait for the configured auto-refresh interval. Standalone PureStack previews keep synthetic demo reports and acknowledge beacons without persisting them.
+Every dashboard page loads the host's `/_analytics/script.js` tracker with localhost tracking enabled and `data-track-navigation="false"`. It records the page load without counting report-filter and date changes through `history.replaceState` as extra visits. Dashboard visits are recorded in the administrator-only **Dashboard usage** site when **Record dashboard usage** is on in **Administration → Sites**, and ignored otherwise. Page views increase on visits; unique visitors count distinct visitors. Refresh reports to see ingested traffic, or wait for the configured auto-refresh interval. Standalone PureStack previews keep synthetic demo reports and acknowledge beacons without persisting them.
 
-All engine options are centralized in `apps/ZoneTree.Analytics.Dashboard/server/DashboardAnalyticsOptions.cs`.
-Edit `ConfigureCommon` for retention, storage, ingestion, queries, or rollups shared by actual
-traffic, performance samples, new benchmarks and reopened benchmark reports. Raw events are
-retained for three years in all datasets. `ConfigurePrimary`, `CreatePerformanceSamples`,
-`CreateBenchmark` and `CreateBenchmarkReport` contain the per-engine settings; sample and
-benchmark worker counts come from the dashboard, and the benchmark percentile and index settings and
-reporting time zone are preserved when reopening a completed dataset. Each engine receives
-independent options and collections. Restart the host to apply edited engine settings.
+The primary engine is configured in **Administration**: setup chooses the first settings, and
+the admin pages change them, reopening the engine when needed. The Development datasets are
+configured in `apps/ZoneTree.Analytics.Dashboard/server/DashboardAnalyticsOptions.cs`:
+`ConfigureCommon` holds retention, storage, ingestion, queries and rollups shared by performance
+samples, new benchmarks and reopened benchmark reports, whose raw events are retained for three
+years. `CreatePerformanceSamples`, `CreateBenchmark` and `CreateBenchmarkReport` contain the
+per-engine settings; sample and benchmark worker counts come from the dashboard, and the benchmark
+percentile and index settings and reporting time zone are preserved when reopening a completed
+dataset. New sample datasets use the reporting time zone chosen during setup; an existing one keeps the
+time zone it was created with. Restart the host to apply edited
+sample settings.
 
 ## Performance sample data
 
@@ -54,7 +57,7 @@ With the dashboard server in Development mode, open **Tools â†’ Sample data
 
 Select **View sample reports**, or choose **Performance samples** in a report's site selector. These reports use a separate engine and store at `apps/ZoneTree.Analytics.Dashboard/server/data/performance-samples`. Traffic follows the reporting time zone, with quiet nights, busy daytime hours, quieter weekends, growth, campaign spikes and a temporary dip. Visits vary in length, bounce rate and conversions; campaign traffic also changes sources and load times. The dataset includes page views, signups, purchases, bot traffic, device types, sources and geography. Counts describe generated input events; the engine also produces session records. Each generation adds a batch with new visitor IDs. Delete an existing uniformly distributed dataset before generating a fresh one to see the new patterns clearly.
 
-**Delete sample data** closes the sample engine and removes its events, rollups and metadata, then permits a fresh dataset. Primary traffic and `Analytics:DataDirectory` are preserved. Sample controls and endpoints are available only in Development mode, including when `Dashboard:Watch=false`; production hosts do not expose them.
+**Delete sample data** closes the sample engine and removes its events, rollups and metadata, then permits a fresh dataset. Primary traffic and its data directory are preserved. Sample controls and endpoints are available only in Development mode, including when `Dashboard:Watch=false`; production hosts do not expose them.
 
 **Benchmark ingestion** prepares the same realistic traffic in memory before timing, then feeds it to a fresh engine with the default per-worker limits. **Include load-time percentile aggregation** controls only percentile rollups; event values and traffic shape are retained. Clear **Maintain dimension and rollup indexes** to measure ingestion without the dashboard's secondary indexes; that run's reports read rollups and raw events directly. Progress polls lightweight engine counters every 250 ms and shows ingested events, queued events, elapsed time and average throughput so far. The progress bar follows processed events, then shows a separate saving-aggregates stage while the final flush finishes. The result separates preparation, submission, and ingestion-through-flush time. Throughput uses successfully processed events divided by the submission-through-flush interval, with preparation, store creation, dataset publication, disposal and cleanup excluded.
 
@@ -122,7 +125,7 @@ yarn publish
 
 Linting and formatting use the repository's root Biome configuration. From the repository root, run `yarn lint` and `yarn format:check` for checks, or `yarn lint:fix` and `yarn format` to apply fixes. The root `yarn check` includes linting, formatting, and TypeScript checks.
 
-The dashboard loads its connection settings from `GET /_analytics/api/config` on the dashboard's host. The server returns the following JSON response, with sites and refresh interval supplied by `apps/ZoneTree.Analytics.Dashboard/server/appsettings.json`, and the time zone shared with the analytics engine:
+The dashboard loads its settings from `GET /_analytics/api/config` on the dashboard's host. The server builds the response from the stored settings and the signed-in user, listing only the sites that user may read:
 
 ```json
 {
@@ -130,14 +133,15 @@ The dashboard loads its connection settings from `GET /_analytics/api/config` on
   "apiBaseUrl": "/_analytics/api",
   "timeZone": "Europe/Berlin",
   "sites": [
-    { "id": "", "name": "Default site" },
-    { "id": "store", "name": "Store" }
+    { "id": "shop", "name": "Shop" },
+    { "id": "blog", "name": "Blog" }
   ],
-  "refreshSeconds": 30
+  "refreshSeconds": 30,
+  "user": { "id": "…", "userName": "olivia", "displayName": "Olivia", "role": "Analyst", "canQuery": true }
 }
 ```
 
-Set `Dashboard:Sites`, `Dashboard:RefreshSeconds`, and `Analytics:TimeZone` through ASP.NET Core configuration, including environment variables or command-line arguments. Site IDs must match the engine's sites. Supported refresh intervals are `0`, `30`, `60`, and `300` seconds. Connection settings saved in the browser override the API response; use **Reset settings** to fetch the host configuration again. For a different reporting API origin, return its URL as `apiBaseUrl` and configure that API's CORS policy to allow the dashboard origin and credentials.
+Sites, the refresh interval and the time zone are dashboard settings. Supported refresh intervals are `0`, `30`, `60`, and `300` seconds. A `401` from the config endpoint or the reporting API sends the browser to `/signin/`. For a different reporting API origin, return its URL as `apiBaseUrl` and configure that API's CORS policy to allow the dashboard origin and credentials.
 
 An existing host should register this config endpoint alongside its reporting endpoints, returning only settings the current user can access. The sample registers it on the reporting route group so it shares any authorization policy applied to that group. A missing or failed config endpoint displays a connection error instead of demo reports. No static config asset is published.
 
@@ -155,10 +159,13 @@ For hosting below a path such as `/analytics/`, set PureStack's `basePath` in `c
 | `/bots/` | `content/bots/bots.mdx`, `content/bots/bots.ts` | Bot requests and categories |
 | `/funnels/` | `content/funnels/funnels.mdx`, `content/funnels/funnels.ts` | Editable ordered funnel steps and conversion window |
 | `/explorer/` | `content/explorer/explorer.mdx`, `content/explorer/explorer.ts` | Editable query JSON, presets, totals, and query plan |
-| `/connection/` | `content/connection/connection.mdx`, `content/connection/connection.ts` | Configuration and connection test |
+| `/signin/`, `/signout/` | `content/signin/`, `content/signout/` | Sign-in form and sign-out, on the `auth` template |
+| `/setup/` | `content/setup/setup.mdx`, `content/setup/setup.ts` | First-run wizard |
+| `/account/`, `/account/settings/` | `content/account/` | Profile, signed-in browsers, display name and password |
+| `/admin/…` | `content/admin/` | Server status, sites, users, indexes and rollups, settings, audit log |
 | `/sample-data/` | `content/sample-data/sample-data.mdx`, `content/sample-data/sample-data.ts` | Sample generation, progress, cancellation, and deletion |
 
-Each page's MDX and TypeScript live together in its folder. PureStack treats matching folder and file names as folder indexes. The root `index.mdx` imports the shared overview markup so the homepage stays at `/`. Each page component has an exported interface, declarative `html` template, and business logic in the same TypeScript file. `content/components` contains shared typed components with their templates and behavior. `content/lib` contains HTTP contracts, transport, configuration, demo data, and formatting helpers. `design` holds the PureStack plugin, build-time components, skin, and typed styles.
+Each page's MDX and TypeScript live together in its folder. PureStack treats matching folder and file names as folder indexes. The root `index.mdx` imports the shared overview markup so the homepage stays at `/`. Each page component has an exported interface, declarative `html` template, and business logic in the same TypeScript file. `content/components` contains shared typed components with their templates and behavior. `content/lib` contains HTTP contracts, transport, configuration, demo data, and formatting helpers; `session.ts`, `admin.ts` and `settings-model.ts` hold the session, the review-before-save flow and the schema-driven settings form shared by the wizard and the admin pages. `design` holds the PureStack plugin, build-time components, skin, and typed styles.
 
 PureStack provides route generation, header partials, browser entry bundles, icons, the logo and favicon, theme switching, theme palettes, component styles, and static publishing. The plugin selects browser icons from PureStack's catalog at build time and emits a small `assets/dashboard-icons.json`, keeping the full catalog out of page bundles. Regor binds state, conditions, loops, component props, and events. The dashboard uses PureStack's Panel, Btn, Badge, AppForm, FormInputField, FormSelectField, FormStatus, LineChart, and DoughnutChart components. Report values are rendered through text bindings; there is no HTML-string renderer.
 

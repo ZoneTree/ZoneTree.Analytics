@@ -1,3 +1,5 @@
+using System.Net;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Extensions.FileProviders;
 using ZoneTree.Analytics;
 using ZoneTree.Analytics.AspNetCore;
@@ -12,81 +14,130 @@ var dashboardPath = Path.GetFullPath(builder.Configuration["Dashboard:Path"]
 if (!watchDashboard && !File.Exists(Path.Combine(dashboardPath, "index.html")))
   throw new InvalidOperationException("Build the dashboard first: cd apps/ZoneTree.Analytics.Dashboard/ui; yarn install; yarn publish. " +
       "Or supply --Dashboard:Path=<absolute path to the generated site>.");
-var timeZone = TimeZoneInfo.FindSystemTimeZoneById(builder.Configuration["Analytics:TimeZone"] ?? "UTC");
-builder.Services.AddSingleton(timeZone);
-var sites = builder.Configuration.GetSection("Dashboard:Sites").Get<DashboardSite[]>()
-    ?? [new("", "Default site")];
+
+// Users, sessions, settings and the audit log. Everything else is configured in the dashboard.
+var systemDirectory = builder.Configuration["Dashboard:SystemDirectory"] ?? SystemStore.DefaultDirectory;
+var systemStore = new SystemStore(Path.IsPathRooted(systemDirectory) ? systemDirectory : Path.Combine(contentRoot, systemDirectory));
+builder.Services.AddSingleton(systemStore);
+builder.Services.AddSingleton<UserStore>();
+builder.Services.AddSingleton<AuditLog>();
+builder.Services.AddSingleton<EngineHost>();
+builder.Services.AddSingleton<SettingsService>();
+builder.Services.AddSingleton<SessionStore>();
+builder.Services.AddSingleton<SignInThrottle>();
+builder.Services.AddSingleton<SetupKey>();
+builder.Services.AddSingleton<SetupStatus>();
+builder.Services.AddSingleton<SiteResolution>();
+builder.Services.AddHostedService<SessionCleanup>();
+builder.Services.AddDashboardAuthentication();
+// Behind a reverse proxy that terminates HTTPS, the origin check, secure cookies and visitor
+// addresses need the original scheme, host and client address. Loopback proxies are trusted by
+// default; list others with Dashboard:KnownProxies (comma-separated addresses).
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+  options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedHost;
+  foreach (var proxy in (builder.Configuration["Dashboard:KnownProxies"] ?? "").Split(',',
+      StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+    options.KnownProxies.Add(IPAddress.Parse(proxy));
+});
+builder.Services.AddZoneTreeAnalyticsWeb(web =>
+{
+  web.MaxConcurrentReportingRequests = SettingsService.StoredConcurrentRequests(systemStore);
+  web.SiteResolver = context => context.Items[EngineMiddleware.SiteItem] as string;
+  web.AuthorizeSite = (context, site) => DashboardAuthentication.User(context)?.CanAccess(site) == true;
+});
+
 var sampleDataEnabled = builder.Environment.IsDevelopment();
 if (sampleDataEnabled)
 {
+  // New Development datasets take the reporting time zone current when they are created.
   builder.Services.AddSingleton<SampleDataStore>();
   builder.Services.AddSingleton(services => new SampleBenchmark(contentRoot,
-      timeZone, services.GetRequiredService<ILogger<SampleBenchmark>>()));
+      () => services.GetRequiredService<SettingsService>().ReportingTimeZone, services.GetRequiredService<ILogger<SampleBenchmark>>()));
   builder.Services.AddSingleton<SampleDataJobs>();
   builder.Services.AddHostedService(services => services.GetRequiredService<SampleDataJobs>());
-  sites = [.. sites.Where(site => site.Id != SampleDataStore.Site && site.Id != BenchmarkReportStore.Site),
-      new(SampleDataStore.Site, "Performance samples"), new(BenchmarkReportStore.Site, "Latest benchmark")];
 }
-var refreshSeconds = builder.Configuration.GetValue("Dashboard:RefreshSeconds", 30);
-const string apiPath = "/_analytics/api";
 if (watchDashboard)
 {
   builder.Services.AddSingleton<DashboardDevelopmentServer>();
   builder.Services.AddHostedService(services => services.GetRequiredService<DashboardDevelopmentServer>());
 }
 
-builder.Services.AddZoneTreeAnalytics(options => DashboardAnalyticsOptions.ConfigurePrimary(options,
-    builder.Configuration["Analytics:DataDirectory"] ?? DashboardAnalyticsOptions.DefaultDataDirectory, timeZone));
-
 var app = builder.Build();
-// Open the engine now: data it cannot load fails startup instead of every request.
-var engine = app.Services.GetRequiredService<AnalyticsEngine>();
-if (builder.Configuration.GetValue<bool>("Analytics:SeedDemo"))
+var settings = app.Services.GetRequiredService<SettingsService>();
+var engines = app.Services.GetRequiredService<EngineHost>();
+var setup = app.Services.GetRequiredService<SetupStatus>();
+// Open the engine now: data it cannot load is reported at startup and in the admin panel.
+if (settings.IsConfigured)
 {
-  if (engine.GetEventNames(DateRange.LastDays(60)).Count == 0)
-    await SampleTraffic.SeedAsync(engine);
+  await engines.OpenAsync(settings.Current);
+  if (engines.State == EngineState.Running && builder.Configuration.GetValue<bool>("Analytics:SeedDemo"))
+  {
+    using var lease = await engines.AcquireAsync(CancellationToken.None);
+    if (lease.Engine.GetEventNames(DateRange.LastDays(60)).Count == 0)
+      await SampleTraffic.SeedAsync(lease.Engine);
+  }
 }
 
-// In an existing production host, put your authorization policy on both
-// reporting routes and dashboard access.
-var reportingApi = app.MapZoneTreeAnalyticsApi(apiPath);
-app.MapZoneTreeAnalytics();
+app.UseForwardedHeaders();
+app.UseAuthentication();
+app.UseMiddleware<SameOriginMiddleware>();
+app.UseMiddleware<PageGateMiddleware>();
+using var files = watchDashboard ? null : new PhysicalFileProvider(dashboardPath);
+if (!watchDashboard)
+{
+  app.UseDefaultFiles(new DefaultFilesOptions { FileProvider = files });
+  app.UseStaticFiles(new StaticFileOptions { FileProvider = files });
+}
+app.UseAuthorization();
+app.UseMiddleware<EngineMiddleware>();
+
+var reportingApi = app.MapZoneTreeAnalyticsApi(EngineMiddleware.ApiPath)
+    .RequireAuthorization()
+    .RequireQueryRoleForQueries()
+    .UseEngine(EngineSource.Primary, pattern => !pattern.TrimEnd('/').EndsWith("/config", StringComparison.OrdinalIgnoreCase));
+app.MapZoneTreeAnalytics()
+    .UseEngine(EngineSource.Primary, pattern => pattern.TrimEnd('/').EndsWith("/event", StringComparison.OrdinalIgnoreCase), beacon: true);
+app.MapDashboardAuth();
+app.MapDashboardSetup();
+app.MapDashboardAdmin();
+reportingApi.MapGet("/config", (HttpContext context) =>
+{
+  context.Response.Headers.CacheControl = "no-store";
+  var user = DashboardAuthentication.User(context);
+  var current = settings.Current;
+  var sites = current?.Sites.Items.Where(site => user.CanAccess(site.Id)).Select(site => new SiteView(site.Id, site.Name)).ToList() ?? [];
+  if (user.IsAdministrator && current?.Sites.TrackDashboardUsage == true)
+    sites.Add(new(SettingsMapper.DashboardUsageSite, "Dashboard usage"));
+  var samples = sampleDataEnabled && user.IsAdministrator;
+  if (samples)
+    sites.AddRange([new(SampleDataStore.Site, "Performance samples"), new(BenchmarkReportStore.Site, "Latest benchmark")]);
+  return Results.Json(new
+  {
+    mode = "live",
+    apiBaseUrl = EngineMiddleware.ApiPath,
+    timeZone = current?.General.TimeZone ?? "UTC",
+    sites,
+    refreshSeconds = current?.General.RefreshSeconds ?? 30,
+    sampleData = samples ? new
+    {
+      siteId = SampleDataStore.Site,
+      apiBaseUrl = SampleDataStore.ApiPath,
+      managementUrl = "/_analytics/sample-data",
+      benchmark = new { siteId = BenchmarkReportStore.Site, apiBaseUrl = BenchmarkReportStore.ApiPath }
+    } : null,
+    user = new { id = user.Id, userName = user.UserName, displayName = user.DisplayName, role = user.Role.ToString(), canQuery = user.CanQuery },
+  });
+});
 if (sampleDataEnabled)
 {
-  app.Use(async (context, next) =>
-  {
-    var isBenchmark = context.Request.Path.StartsWithSegments(BenchmarkReportStore.ApiPath);
-    if (!isBenchmark && !context.Request.Path.StartsWithSegments(SampleDataStore.ApiPath)) { await next(context); return; }
-    var original = context.RequestServices;
-    try
-    {
-      using var lease = isBenchmark
-          ? app.Services.GetRequiredService<SampleBenchmark>().Reports.Acquire()
-          : app.Services.GetRequiredService<SampleDataStore>().Acquire();
-      context.RequestServices = new SampleRequestServices(original, lease.Engine);
-      try { await next(context); }
-      finally { context.RequestServices = original; }
-    }
-    catch (SampleDataBusyException)
-    {
-      context.Response.StatusCode = 503;
-      await context.Response.WriteAsJsonAsync(new { error = "Sample data is being prepared. Try refreshing shortly." });
-    }
-    catch (BenchmarkDataUnavailableException)
-    {
-      context.Response.StatusCode = 404;
-      await context.Response.WriteAsJsonAsync(new { error = "Run a benchmark to create its report dataset." });
-    }
-  });
-  app.MapZoneTreeAnalyticsApi(SampleDataStore.ApiPath);
-  app.MapZoneTreeAnalyticsApi(BenchmarkReportStore.ApiPath);
-  var management = app.MapGroup("/_analytics/sample-data");
+  app.MapZoneTreeAnalyticsApi(SampleDataStore.ApiPath)
+      .RequireAuthorization(DashboardAuthentication.AdministratorPolicy).UseEngine(EngineSource.Samples);
+  app.MapZoneTreeAnalyticsApi(BenchmarkReportStore.ApiPath)
+      .RequireAuthorization(DashboardAuthentication.AdministratorPolicy).UseEngine(EngineSource.Benchmark);
+  var management = app.MapGroup("/_analytics/sample-data").RequireAuthorization(DashboardAuthentication.AdministratorPolicy);
   management.AddEndpointFilter(async (context, next) =>
   {
-    var request = context.HttpContext.Request;
-    if (!HttpMethods.IsGet(request.Method) && request.Headers.Origin.Count > 0
-        && request.Headers.Origin.ToString() != $"{request.Scheme}://{request.Host}")
-      return Results.Json(new { error = "Use sample controls from this host." }, statusCode: 403);
     context.HttpContext.Response.Headers.CacheControl = "no-store";
     return await next(context);
   });
@@ -107,54 +158,37 @@ if (sampleDataEnabled)
   management.MapPost("/clear-benchmark", (System.Text.Json.JsonElement body, SampleDataJobs jobs) =>
       jobs.ClearBenchmark() ? Results.Json(jobs.Status, statusCode: 202) : Results.Conflict(new { error = "Cancel the running operation before deleting benchmark data." }));
 }
-reportingApi.MapGet("/config", (HttpContext context) =>
-{
-  context.Response.Headers.CacheControl = "no-store";
-  return Results.Json(new
-  {
-    mode = "live",
-    apiBaseUrl = apiPath,
-    timeZone = timeZone.Id,
-    sites,
-    refreshSeconds,
-    sampleData = sampleDataEnabled ? new
-    {
-      siteId = SampleDataStore.Site,
-      apiBaseUrl = SampleDataStore.ApiPath,
-      managementUrl = "/_analytics/sample-data",
-      benchmark = new { siteId = BenchmarkReportStore.Site, apiBaseUrl = BenchmarkReportStore.ApiPath }
-    } : null,
-  });
-});
-using var files = watchDashboard ? null : new PhysicalFileProvider(dashboardPath);
 if (watchDashboard)
   app.MapFallback("/{**path}", app.Services.GetRequiredService<DashboardDevelopmentServer>().ForwardAsync);
-else
-{
-  app.UseDefaultFiles(new DefaultFilesOptions { FileProvider = files });
-  app.UseStaticFiles(new StaticFileOptions { FileProvider = files });
-}
-// Complete migrations before browsers start their reporting request timeouts.
+// Complete migrations before browsers start their reporting request timeouts. A Development
+// dataset that cannot open is reported on its pages; it does not stop the dashboard.
 if (sampleDataEnabled)
 {
-  var samples = app.Services.GetRequiredService<SampleDataStore>();
-  if (samples.HasRetainedData)
-    using (samples.Acquire()) { }
-  var benchmark = app.Services.GetRequiredService<SampleBenchmark>();
-  if (benchmark.Reports.Result != null)
-    using (benchmark.Reports.Acquire()) { }
+  try
+  {
+    var samples = app.Services.GetRequiredService<SampleDataStore>();
+    if (samples.HasRetainedData)
+      using (samples.Acquire()) { }
+    var benchmark = app.Services.GetRequiredService<SampleBenchmark>();
+    if (benchmark.Reports.Result != null)
+      using (benchmark.Reports.Acquire()) { }
+  }
+  catch (Exception error) when (error is AnalyticsConfigurationException or IOException)
+  {
+    app.Logger.LogError(error, "A Development sample dataset could not open. Delete it from the Sample data page to start a new one.");
+  }
 }
 app.Lifetime.ApplicationStarted.Register(() =>
 {
-  foreach (var address in app.Urls)
-  {
-    var displayAddress = address;
-    if (Uri.TryCreate(address, UriKind.Absolute, out var uri)
-        && uri.Host is "0.0.0.0" or "[::]")
-      displayAddress = new UriBuilder(uri) { Host = "localhost" }.Uri.AbsoluteUri;
-    app.Logger.LogInformation("Open dashboard: {Url}", displayAddress);
-  }
+  var displayAddresses = app.Urls.Select(address =>
+      Uri.TryCreate(address, UriKind.Absolute, out var uri) && uri.Host is "0.0.0.0" or "[::]"
+          ? new UriBuilder(uri) { Host = "localhost" }.Uri.AbsoluteUri
+          : address).ToList();
+  foreach (var address in displayAddresses)
+    app.Logger.LogInformation("Open dashboard: {Url}", address);
+  if (!setup.Complete && displayAddresses.Count > 0)
+    _ = SetupBanner.ShowAsync(displayAddresses[0], app.Services.GetRequiredService<SetupKey>(), setup,
+        watchDashboard ? app.Services.GetRequiredService<DashboardDevelopmentServer>() : null, app.Lifetime.ApplicationStopping);
 });
+app.Lifetime.ApplicationStopped.Register(() => systemStore.Dispose());
 await app.RunAsync();
-
-sealed record DashboardSite(string Id, string Name);

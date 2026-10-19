@@ -150,7 +150,7 @@ Then, from the repository root, start the server with sample data:
 yarn dashboard --Analytics:SeedDemo=true
 ```
 
-Open **http://127.0.0.1:5088/**. Development mode starts the UI automatically. Demo seeding populates an empty primary dataset; omit the flag to use your own data. The core library does not require Node.js or Yarn.
+Open the setup link printed at the end of the server's console output and finish the setup wizard. Development mode starts the UI automatically. Demo seeding populates the empty primary site once setup is complete; omit the flag to use your own data. The core library does not require Node.js or Yarn.
 
 Read the [dashboard guide][dashboard] for prerequisites, static release builds, and deployment settings.
 

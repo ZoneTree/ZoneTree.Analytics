@@ -18,8 +18,11 @@ sealed record SampleBenchmarkProgress(string State, int Prepared = 0, int Submit
 
 // Preparation uses the same realistic generator. The measured interval contains
 // submission and the final flush; store creation, statistics and cleanup are outside it.
-sealed class SampleBenchmark(string contentRoot, TimeZoneInfo timeZone, ILogger logger = null) : IAsyncDisposable
+// Each run takes the reporting time zone current when it starts.
+sealed class SampleBenchmark(string contentRoot, Func<TimeZoneInfo> currentTimeZone, ILogger logger = null) : IAsyncDisposable
 {
+  public SampleBenchmark(string contentRoot, TimeZoneInfo timeZone, ILogger logger = null) : this(contentRoot, () => timeZone, logger) { }
+
   public BenchmarkReportStore Reports { get; } = new(contentRoot, logger);
 
   public static AnalyticsEvent[] PrepareEvents(SampleBenchmarkRequest request, TimeZoneInfo timeZone,
@@ -40,6 +43,7 @@ sealed class SampleBenchmark(string contentRoot, TimeZoneInfo timeZone, ILogger 
   public async Task<SampleBenchmarkResult> RunAsync(SampleBenchmarkRequest request, Action<SampleBenchmarkProgress> progress,
       CancellationToken cancellationToken, CancellationToken applicationStopping)
   {
+    var timeZone = currentTimeZone();
     var preparation = Stopwatch.StartNew();
     var end = DateTimeOffset.UtcNow.AddSeconds(-1);
     var events = PrepareEvents(request, timeZone, count => progress(new("preparing", Prepared: count)), end, cancellationToken);
@@ -47,7 +51,7 @@ sealed class SampleBenchmark(string contentRoot, TimeZoneInfo timeZone, ILogger 
     var directory = Reports.CreateRunDirectory();
     try
     {
-      var result = await MeasureAsync(directory, events, request, end, preparation.Elapsed.TotalMilliseconds,
+      var result = await MeasureAsync(directory, events, request, end, timeZone, preparation.Elapsed.TotalMilliseconds,
           progress, cancellationToken, applicationStopping);
       if (result == null) return null;
       progress(new("publishing", events.Length, events.Length, result.Ingested, result.IngestionMs, result.EventsPerSecond));
@@ -58,7 +62,7 @@ sealed class SampleBenchmark(string contentRoot, TimeZoneInfo timeZone, ILogger 
   }
 
   async Task<SampleBenchmarkResult> MeasureAsync(string directory, AnalyticsEvent[] events, SampleBenchmarkRequest request, DateTimeOffset end,
-      double preparationMs, Action<SampleBenchmarkProgress> progress, CancellationToken cancellationToken, CancellationToken applicationStopping)
+      TimeZoneInfo timeZone, double preparationMs, Action<SampleBenchmarkProgress> progress, CancellationToken cancellationToken, CancellationToken applicationStopping)
   {
     var options = DashboardAnalyticsOptions.CreateBenchmark(directory, timeZone, request.Workers, request.Percentiles, request.Indexes, logger);
     await using var engine = new AnalyticsEngine(options);

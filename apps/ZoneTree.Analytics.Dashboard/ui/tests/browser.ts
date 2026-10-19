@@ -14,6 +14,14 @@ import {
 import { checkLargeSvgChart } from './chart-browser'
 import { checkSampleDataTools } from './sample-data-browser'
 
+const testUser = {
+  id: 'test',
+  userName: 'tester',
+  displayName: 'Test Administrator',
+  role: 'Administrator',
+  canQuery: true,
+}
+
 test('dashboard browser reports, navigation, and sample tools', async () => {
   const workspace = fileURLToPath(new URL('../', import.meta.url))
   const root = resolve(
@@ -52,7 +60,36 @@ test('dashboard browser reports, navigation, and sample tools', async () => {
             'Content-Type': 'application/json',
             'Cache-Control': 'no-store',
           })
-          .end(JSON.stringify({ ...defaultConfig, timeZone: 'UTC' }))
+          .end(
+            JSON.stringify({
+              ...defaultConfig,
+              timeZone: 'UTC',
+              user: testUser,
+            }),
+          )
+        return
+      }
+      if (path === '/_dashboard/api/auth/me') {
+        response.writeHead(200, { 'Content-Type': 'application/json' }).end(
+          JSON.stringify({
+            user: {
+              ...testUser,
+              allSites: true,
+              sites: [],
+              disabled: false,
+              created: '2026-01-01T00:00:00Z',
+              lastSignIn: null,
+            },
+            sites: defaultConfig.sites,
+            sessionId: 'test',
+          }),
+        )
+        return
+      }
+      if (path === '/_dashboard/api/auth/me/sessions') {
+        response
+          .writeHead(200, { 'Content-Type': 'application/json' })
+          .end('[]')
         return
       }
       if (path.endsWith('/')) path += 'index.html'
@@ -95,7 +132,9 @@ test('dashboard browser reports, navigation, and sample tools', async () => {
     const page = await context.newPage()
     // Keep demo assertions deterministic when the full suite uses a live host.
     await page.route(`**${dashboardConfigPath}`, (route) =>
-      route.fulfill({ json: { ...defaultConfig, timeZone: 'UTC' } }),
+      route.fulfill({
+        json: { ...defaultConfig, timeZone: 'UTC', user: testUser },
+      }),
     )
     const errors: string[] = []
     page.on('pageerror', (error) => errors.push(error.message))
@@ -311,12 +350,16 @@ test('dashboard browser reports, navigation, and sample tools', async () => {
       .getByRole('heading', { name: 'Conversion journey', exact: true })
       .waitFor()
     assert.equal(await page.locator('.funnel-result').count(), 3)
-    await page.goto(`${base}/connection/`)
-    await ready()
+    // The signed-in administrator sees their initials, the administration navigation and their account.
+    assert.equal(
+      await page.locator('[data-user-initials]').first().textContent(),
+      'TA',
+    )
+    assert.ok(await page.locator('.nav-admin').isVisible())
+    await page.goto(`${base}/account/`)
     await page
-      .getByRole('button', { name: 'Save connection', exact: true })
-      .click()
-    await page.getByText('Connection saved.', { exact: false }).waitFor()
+      .getByRole('heading', { name: 'Signed-in browsers', exact: true })
+      .waitFor()
     await page.goto(`${base}/`)
     await ready()
     await page.getByRole('button', { name: 'Dark theme', exact: true }).click()
@@ -435,7 +478,6 @@ test('dashboard browser reports, navigation, and sample tools', async () => {
 
     // A failed live connection must never fall back to plausible demo numbers.
     await page.evaluate(() => {
-      localStorage.removeItem('zt-dashboard-connection-v1')
       sessionStorage.removeItem('zt-dashboard-scope-v1')
     })
     await page.route(`**${dashboardConfigPath}`, (route) =>
@@ -660,7 +702,7 @@ test('dashboard browser reports, navigation, and sample tools', async () => {
     await checkSampleDataTools(page, base)
     assert.deepEqual(errors, [], 'No browser errors with sample tools')
     console.log(
-      'Browser checks passed: nine routes, filters, charts, queries, funnels, connection, CSV, themes, mobile navigation, API failure/recovery, zero counts, safe text binding, pagination.',
+      'Browser checks passed: nine routes, filters, charts, queries, funnels, account, CSV, themes, mobile navigation, API failure/recovery, zero counts, safe text binding, pagination.',
     )
   } finally {
     await browser?.close()

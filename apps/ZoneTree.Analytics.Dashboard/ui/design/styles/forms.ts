@@ -21,7 +21,7 @@ export function registerFormsStyles(context: DashboardStyleContext) {
     .marginBottom('20px')
 
   root
-    .select('.zt-dashboard label:not(.control):not(.mobile-only)')
+    .select('.zt-dashboard label:not(.control):not(.check):not(.mobile-only)')
     .display('grid')
     .gap('7px')
     .color(muted)

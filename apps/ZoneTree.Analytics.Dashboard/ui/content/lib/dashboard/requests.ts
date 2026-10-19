@@ -1,5 +1,4 @@
 import { ApiClient } from '../api'
-import { readStorage } from '../config'
 import type { Plan } from '../contracts'
 import { DemoClient } from '../demo'
 import type { DashboardScope } from './scope'
@@ -24,15 +23,6 @@ export function createDashboardRequests(
     if (endpoint !== 'realtime' && scope.config().mode === 'live')
       status.apiResponseMs(Math.round(milliseconds))
   })
-  const storedToken = readStorage('zt-dashboard-token-v1', true) as {
-    base?: string
-    token?: string
-  } | null
-  api.token =
-    storedToken?.base === config.apiBaseUrl &&
-    typeof storedToken.token === 'string'
-      ? storedToken.token
-      : ''
   const demo = new DemoClient()
   return {
     api,

@@ -21,8 +21,7 @@ const template = html`
   <Panel class="form-panel"
     r-if="dashboard.config.mode !== 'live' || !dashboard.config.sampleData">
     <h2>Sample data controls are unavailable</h2>
-    <p>Use the sample host in Development mode with a live API connection to generate and delete performance sample data.</p>
-    <a class="button" :href="dashboard.assetPath('connection/')">Open connection settings</a>
+    <p>Sample data tools need the dashboard server in Development mode, signed in as the administrator.</p>
   </Panel>
   <ReportFooter :dashboard="dashboard" />
 `
