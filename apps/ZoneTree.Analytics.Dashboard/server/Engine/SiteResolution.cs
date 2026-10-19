@@ -2,7 +2,9 @@
 // Referer, matched against each site's domains. Null means the event is not recorded.
 sealed class SiteResolution
 {
-  sealed record Lookup(DashboardSettings Settings, Dictionary<string, string> Exact, List<(string Suffix, string Apex, string Site)> Wildcards);
+  sealed record Wildcard(string Suffix, string Apex, string Site, bool WithPort);
+
+  sealed record Lookup(DashboardSettings Settings, Dictionary<string, string> Exact, List<Wildcard> Wildcards);
 
   Lookup lookup;
 
@@ -17,9 +19,14 @@ sealed class SiteResolution
       return settings.Sites.TrackDashboardUsage ? SettingsMapper.DashboardUsageSite : null;
     var name = host.Split(':')[0];
     if (current.Exact.TryGetValue(host, out var site) || current.Exact.TryGetValue(name, out site)) return site;
-    foreach (var (suffix, apex, wildcardSite) in current.Wildcards)
-      if (name.EndsWith(suffix, StringComparison.OrdinalIgnoreCase) || string.Equals(name, apex, StringComparison.OrdinalIgnoreCase))
-        return wildcardSite;
+    foreach (var wildcard in current.Wildcards)
+    {
+      // A pattern with a port matches only pages served on that port.
+      var candidate = wildcard.WithPort ? host : name;
+      if (candidate.EndsWith(wildcard.Suffix, StringComparison.OrdinalIgnoreCase)
+          || string.Equals(candidate, wildcard.Apex, StringComparison.OrdinalIgnoreCase))
+        return wildcard.Site;
+    }
     return Unmatched(settings);
   }
 
@@ -38,16 +45,16 @@ sealed class SiteResolution
   static Lookup Build(DashboardSettings settings)
   {
     var exact = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-    var wildcards = new List<(string, string, string)>();
+    var wildcards = new List<Wildcard>();
     foreach (var site in settings.Sites.Items)
       foreach (var domain in site.Domains)
       {
         // *.example.com covers example.com and every subdomain.
-        if (domain.StartsWith("*.", StringComparison.Ordinal)) wildcards.Add((domain[1..], domain[2..], site.Id));
+        if (domain.StartsWith("*.", StringComparison.Ordinal)) wildcards.Add(new(domain[1..], domain[2..], site.Id, domain.Contains(':')));
         else exact[domain] = site.Id;
       }
     // The longest suffix wins: *.shop.example.com before *.example.com.
-    wildcards.Sort((first, second) => second.Item1.Length.CompareTo(first.Item1.Length));
+    wildcards.Sort((first, second) => second.Suffix.Length.CompareTo(first.Suffix.Length));
     return new(settings, exact, wildcards);
   }
 }

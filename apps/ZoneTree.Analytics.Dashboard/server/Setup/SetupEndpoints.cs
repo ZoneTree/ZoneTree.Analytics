@@ -40,14 +40,13 @@ static class SetupEndpoints
   static IResult Verify(HttpContext context, SetupStatus status, SetupKey key, SignInThrottle throttle, string candidate)
   {
     if (status.Complete) return DashboardJson.Error("Setup is already complete. Sign in instead.", StatusCodes.Status409Conflict);
-    if (throttle.Paused(Scope, null, context) is { } wait) return AuthEndpoints.TooManyAttempts(context, wait);
+    if (throttle.Begin(Scope, null, context) is { } wait) return AuthEndpoints.TooManyAttempts(context, wait);
     if (key.Matches(candidate))
     {
       throttle.Succeeded(Scope, null, context);
       return null;
     }
-    throttle.Failed(Scope, null, context);
-    return DashboardJson.Error("The setup key does not match. Copy it from the server log.", StatusCodes.Status403Forbidden);
+    return DashboardJson.Error("The setup key does not match. Open the setup link the server printed, or copy its key.", StatusCodes.Status403Forbidden);
   }
 
   static async Task<IResult> CompleteAsync(HttpContext context, SetupStatus status, SetupKey key, SignInThrottle throttle,

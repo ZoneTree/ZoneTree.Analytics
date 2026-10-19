@@ -347,4 +347,74 @@ public sealed class DashboardAdministrationTests : DirectoryTest
     key.Retire();
     Assert.That(key.Matches(value), Is.False);
   }
+
+  [TestCase("http://app.example.com:8080", "blog")]
+  [TestCase("http://example.com:8080", "blog")]
+  [TestCase("http://app.example.com:9090", null)]
+  [TestCase("http://app.example.com", null)]
+  public void WildcardDomainsWithAPortMatchOnlyThatPort(string origin, string site)
+  {
+    var settings = Settings();
+    settings.Sites.Items[1].Domains = ["*.example.com:8080"];
+    settings.Sites.UnmatchedTraffic = UnmatchedTraffic.Ignore;
+    SettingsMapper.Validate(settings, directory, null);
+    var context = new DefaultHttpContext();
+    context.Request.Host = new HostString("dashboard.local");
+    context.Request.Headers.Origin = origin;
+    Assert.That(new SiteResolution().Resolve(context, settings), Is.EqualTo(site));
+  }
+
+  [Test]
+  public void MissingListsBecomeEmptyAndEmptyEntriesNameTheirField()
+  {
+    var json = System.Text.Json.JsonSerializer.Serialize(Settings(), SystemStore.Json)
+        .Replace("\"internalHosts\":[]", "\"internalHosts\":null")
+        .Replace("\"referrerSources\":{}", "\"referrerSources\":null");
+    var settings = System.Text.Json.JsonSerializer.Deserialize<DashboardSettings>(json, SystemStore.Json);
+    Assert.That(settings.Tracking.InternalHosts, Is.Null);
+    Assert.DoesNotThrow(() => SettingsMapper.Validate(settings, directory, null));
+    Assert.That(settings.Tracking.InternalHosts, Is.Empty);
+    Assert.That(settings.Tracking.ReferrerSources, Is.Empty);
+
+    settings.Rollups.Granularities = null;
+    var granularities = Assert.Throws<SettingsValidationException>(() => SettingsMapper.Validate(settings, directory, null));
+    Assert.That(granularities.Key, Is.EqualTo("rollups.granularities"), "an empty list is still invalid where one is required");
+
+    settings = Settings();
+    settings.Rollups.ValueAggregates.Add(null);
+    Assert.That(Assert.Throws<SettingsValidationException>(() => SettingsMapper.Validate(settings, directory, null)).Key,
+        Is.EqualTo("rollups.valueAggregates"));
+    settings = Settings();
+    settings.Storage.RollupStore = null;
+    Assert.That(Assert.Throws<SettingsValidationException>(() => SettingsMapper.Validate(settings, directory, null)).Key,
+        Is.EqualTo("storage.rollupStore"));
+  }
+
+  [Test]
+  public async Task SignInAttemptsAreCountedBeforeTheirPasswordsAreChecked()
+  {
+    await using var host = new Host(directory);
+    var throttle = new SignInThrottle(host.Settings);
+    var limit = host.Settings.Security.MaxFailedSignIns;
+    var context = new DefaultHttpContext();
+    context.Connection.RemoteIpAddress = System.Net.IPAddress.Parse("203.0.113.7");
+    // Attempts arriving together: only the limit gets through to the password check.
+    var admitted = Enumerable.Range(0, 50).AsParallel().Count(_ => throttle.Begin("signin", "admin", context) == null);
+    Assert.That(admitted, Is.EqualTo(limit));
+
+    // Rotating user names from one address runs into the address's own limit.
+    var other = new DefaultHttpContext();
+    other.Connection.RemoteIpAddress = System.Net.IPAddress.Parse("203.0.113.8");
+    var names = Enumerable.Range(0, 100).Count(n => throttle.Begin("signin", $"user{n}", other) == null);
+    Assert.That(names, Is.EqualTo(limit * 4));
+
+    // A success clears its name and is taken back from the address.
+    var fresh = new DefaultHttpContext();
+    fresh.Connection.RemoteIpAddress = System.Net.IPAddress.Parse("203.0.113.9");
+    for (var attempt = 0; attempt < limit * 3; attempt++)
+    {
+      Assert.That(throttle.Begin("signin", "owner", fresh), Is.Null);
+      throttle.Succeeded("signin", "owner", fresh);
+    }
+  }
 }

@@ -42,6 +42,10 @@ static class AdminEndpoints
     admin.MapPut("/users/{id}", async (string id, HttpContext context, UserStore users, SettingsService settings, AuditLog audit) =>
     {
       var change = await DashboardJson.ReadAsync<UserChange>(context.Request);
+      // Your own password changes on the account page, which checks the current one and keeps
+      // this browser signed in.
+      if (change.Password != null && id == DashboardAuthentication.User(context).Id)
+        throw new UserStoreException("Change your own password in Account settings.");
       var user = users.Update(id, change, AuthEndpoints.KnownSites(settings));
       audit.Write(Actor(context), "user.updated", Describe(user.UserName, change), context);
       return DashboardJson.Ok(UserView.From(user));

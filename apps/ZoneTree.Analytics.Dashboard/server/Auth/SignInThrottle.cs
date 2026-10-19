@@ -1,9 +1,11 @@
 using System.Collections.Concurrent;
 
-// Pauses sign-in for a user name and client address after repeated failures. Kept in memory:
-// a restart clears it.
+// Pauses sign-in after repeated failures, for a user name from one address and, with a larger
+// limit, for the address whatever names it tries. Kept in memory: a restart clears it.
 sealed class SignInThrottle(SettingsService settings)
 {
+  const int AddressLimitFactor = 4;
+
   sealed class Attempts
   {
     public int Failures;
@@ -13,40 +15,64 @@ sealed class SignInThrottle(SettingsService settings)
 
   readonly ConcurrentDictionary<string, Attempts> attempts = new(StringComparer.Ordinal);
 
-  static string Key(string scope, string name, HttpContext context) =>
-      scope + "\n" + (name ?? "").Trim().ToLowerInvariant() + "\n" + context.Connection.RemoteIpAddress;
+  // Password hashing is deliberately slow: at most this many run at once, so a flood of
+  // attempts waits in line instead of taking every processor.
+  readonly SemaphoreSlim hashing = new(Math.Max(1, Environment.ProcessorCount / 2));
 
-  // The time left in a pause, or null when an attempt may proceed.
-  public TimeSpan? Paused(string scope, string name, HttpContext context)
-  {
-    if (!attempts.TryGetValue(Key(scope, name, context), out var entry)) return null;
-    lock (entry)
-    {
-      var left = entry.PausedUntil - DateTime.UtcNow;
-      return left > TimeSpan.Zero ? left : null;
-    }
-  }
+  static string NameKey(string scope, string name, HttpContext context) =>
+      scope + "\nname\n" + (name ?? "").Trim().ToLowerInvariant() + "\n" + context.Connection.RemoteIpAddress;
 
-  public void Failed(string scope, string name, HttpContext context)
+  static string AddressKey(string scope, HttpContext context) => scope + "\naddress\n" + context.Connection.RemoteIpAddress;
+
+  // Counts the attempt before its credentials are checked, so attempts sent at the same time
+  // cannot all get through. Returns the time left in a pause, or null when the attempt may go on.
+  public TimeSpan? Begin(string scope, string name, HttpContext context)
   {
     var security = settings.Security;
     var now = DateTime.UtcNow;
     var window = TimeSpan.FromMinutes(security.SignInLockoutMinutes);
-    var entry = attempts.GetOrAdd(Key(scope, name, context), _ => new Attempts { WindowStart = now });
-    lock (entry)
-    {
-      if (now - entry.WindowStart > window) { entry.Failures = 0; entry.WindowStart = now; }
-      if (++entry.Failures >= security.MaxFailedSignIns)
+    var byName = attempts.GetOrAdd(NameKey(scope, name, context), _ => new Attempts { WindowStart = now });
+    var byAddress = attempts.GetOrAdd(AddressKey(scope, context), _ => new Attempts { WindowStart = now });
+    // Checking and counting happen under both locks, always taken name first, then address.
+    lock (byName)
+      lock (byAddress)
       {
-        entry.PausedUntil = now + window;
-        entry.Failures = 0;
-        entry.WindowStart = now;
+        var wait = Max(byName.PausedUntil - now, byAddress.PausedUntil - now);
+        if (wait > TimeSpan.Zero) return wait;
+        Count(byName, security.MaxFailedSignIns, now, window);
+        Count(byAddress, security.MaxFailedSignIns * AddressLimitFactor, now, window);
       }
-    }
     if (attempts.Count > 100_000) Prune(now, window);
+    return null;
   }
 
-  public void Succeeded(string scope, string name, HttpContext context) => attempts.TryRemove(Key(scope, name, context), out _);
+  // A successful attempt clears the name's count and is taken back from the address's count.
+  public void Succeeded(string scope, string name, HttpContext context)
+  {
+    attempts.TryRemove(NameKey(scope, name, context), out _);
+    if (attempts.TryGetValue(AddressKey(scope, context), out var byAddress))
+      lock (byAddress)
+        if (byAddress.Failures > 0) byAddress.Failures--;
+  }
+
+  public async Task<T> HashAsync<T>(Func<T> work, CancellationToken cancellationToken)
+  {
+    await hashing.WaitAsync(cancellationToken);
+    try { return work(); }
+    finally { hashing.Release(); }
+  }
+
+  static TimeSpan Max(TimeSpan first, TimeSpan second) => first > second ? first : second;
+
+  // The caller holds the entry's lock.
+  static void Count(Attempts entry, int limit, DateTime now, TimeSpan window)
+  {
+    if (now - entry.WindowStart > window) { entry.Failures = 0; entry.WindowStart = now; }
+    if (++entry.Failures < limit) return;
+    entry.PausedUntil = now + window;
+    entry.Failures = 0;
+    entry.WindowStart = now;
+  }
 
   void Prune(DateTime now, TimeSpan window)
   {

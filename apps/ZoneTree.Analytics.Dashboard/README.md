@@ -53,7 +53,10 @@ one ZoneTree under `server/data/system`; choose another directory with
 `--Dashboard:SystemDirectory=<path>`. After setup, these stored settings are the source of
 truth for the analytics engine. Passwords are PBKDF2-SHA256 hashes. Session cookies are
 HttpOnly and SameSite=Lax, marked Secure over HTTPS, and state-changing requests from other
-origins are rejected. Serve the dashboard over HTTPS in production.
+origins are rejected. Serve the dashboard over HTTPS in production. Behind a reverse proxy that
+terminates HTTPS, the server reads `X-Forwarded-Proto`, `X-Forwarded-Host` and `X-Forwarded-For` from
+loopback proxies; list other proxy addresses with `--Dashboard:KnownProxies=10.0.0.5,10.0.0.6`.
+Failed sign-ins pause a user name from one address, and with a larger limit the address itself.
 
 The host listens on all network interfaces by default. Startup logs include a clickable local
 dashboard URL; other devices can connect using `http://<your-computer's-LAN-IP>:5088/`.

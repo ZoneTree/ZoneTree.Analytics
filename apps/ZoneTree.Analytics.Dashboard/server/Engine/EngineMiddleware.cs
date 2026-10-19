@@ -1,43 +1,63 @@
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Routing;
 using ZoneTree.Analytics;
 
-// Gives reporting and tracker requests the engine they read or write. Primary requests lease the
-// configured engine; in Development the sample and benchmark APIs lease their own datasets.
+enum EngineSource { Primary, Samples, Benchmark }
+
+// Marks an endpoint that reads or writes an engine, and which one. Routing decides it, so any
+// URL that reaches the endpoint, with or without a trailing slash, gets the engine.
+sealed record EngineEndpoint(EngineSource Source, bool IsBeacon);
+
+static class EngineEndpoints
+{
+  // Adds the engine to the endpoints of a group whose route pattern the filter accepts.
+  public static TBuilder UseEngine<TBuilder>(this TBuilder builder, EngineSource source, Func<string, bool> pattern = null,
+      bool beacon = false) where TBuilder : IEndpointConventionBuilder
+  {
+    builder.Add(endpoint =>
+    {
+      if (endpoint is RouteEndpointBuilder route && (pattern?.Invoke(route.RoutePattern.RawText ?? "") ?? true))
+        endpoint.Metadata.Add(new EngineEndpoint(source, beacon));
+    });
+    return builder;
+  }
+
+  // Ad-hoc queries are for analysts; funnels and standard reports are for every role.
+  public static TBuilder RequireQueryRoleForQueries<TBuilder>(this TBuilder builder) where TBuilder : IEndpointConventionBuilder
+  {
+    builder.Add(endpoint =>
+    {
+      if (endpoint is RouteEndpointBuilder route && IsQuery(route.RoutePattern.RawText))
+        endpoint.Metadata.Add(new AuthorizeAttribute(DashboardAuthentication.QueryPolicy));
+    });
+    return builder;
+  }
+
+  public static bool IsQuery(string pattern) => pattern?.TrimEnd('/').EndsWith("/query", StringComparison.OrdinalIgnoreCase) == true;
+}
+
+// Gives reporting and tracker endpoints the engine they read or write. Primary endpoints lease
+// the configured engine; in Development the sample and benchmark APIs lease their own datasets.
 sealed class EngineMiddleware(RequestDelegate next, EngineHost engines, SettingsService settings, SiteResolution sites,
     IServiceProvider services)
 {
   public const string ApiPath = "/_analytics/api";
-  public const string EventPath = "/_analytics/event";
   public const string SiteItem = "zt-dashboard-site";
 
   public async Task InvokeAsync(HttpContext context)
   {
-    var path = context.Request.Path;
-    // Ad-hoc queries are for analysts; funnels and standard reports are for every role.
-    if (path.StartsWithSegments("/_analytics") && path.Value.EndsWith("/query", StringComparison.OrdinalIgnoreCase)
-        && DashboardAuthentication.User(context) is { CanQuery: false })
-    {
-      context.Response.StatusCode = StatusCodes.Status403Forbidden;
-      await context.Response.WriteAsJsonAsync(new { error = "The query explorer needs the analyst role. Ask the administrator for access." });
-      return;
-    }
-    if (path.StartsWithSegments(SampleDataStore.ApiPath) || path.StartsWithSegments(BenchmarkReportStore.ApiPath))
-    {
-      await SampleAsync(context, path.StartsWithSegments(BenchmarkReportStore.ApiPath));
-      return;
-    }
-    var isEvent = path.Equals(EventPath, StringComparison.OrdinalIgnoreCase) && HttpMethods.IsPost(context.Request.Method);
-    if (!isEvent && !path.StartsWithSegments(ApiPath))
+    var endpoint = context.GetEndpoint()?.Metadata.GetMetadata<EngineEndpoint>();
+    if (endpoint == null)
     {
       await next(context);
       return;
     }
-    // The dashboard configuration describes the host, not the engine.
-    if (path.StartsWithSegments(ApiPath + "/config"))
+    if (endpoint.Source != EngineSource.Primary)
     {
-      await next(context);
+      await SampleAsync(context, endpoint.Source == EngineSource.Benchmark);
       return;
     }
-    if (isEvent)
+    if (endpoint.IsBeacon)
     {
       var current = settings.Current;
       var site = current == null ? null : sites.Resolve(context, current);
@@ -57,7 +77,7 @@ sealed class EngineMiddleware(RequestDelegate next, EngineHost engines, Settings
     {
       context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
       context.Response.Headers.RetryAfter = "5";
-      if (!isEvent) await context.Response.WriteAsJsonAsync(new { error = error.Message });
+      if (!endpoint.IsBeacon) await context.Response.WriteAsJsonAsync(new { error = error.Message });
       return;
     }
     using (lease)

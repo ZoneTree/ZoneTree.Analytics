@@ -39,13 +39,13 @@ static class AuthEndpoints
     var request = await DashboardJson.ReadAsync<SignInRequest>(context.Request);
     var userName = request.UserName?.Trim() ?? "";
     if (userName.Length > 64) userName = userName[..64];
-    if (throttle.Paused(SignInScope, userName, context) is { } wait)
+    if (throttle.Begin(SignInScope, userName, context) is { } wait)
       return TooManyAttempts(context, wait);
     var user = users.FindByName(userName);
-    var valid = PasswordHasher.Verify(request.Password, user?.PasswordHash) && user is { Disabled: false };
+    var valid = await throttle.HashAsync(() => PasswordHasher.Verify(request.Password, user?.PasswordHash), context.RequestAborted)
+        && user is { Disabled: false };
     if (!valid)
     {
-      throttle.Failed(SignInScope, userName, context);
       audit.Write(userName, "auth.signin-failed", user == null ? "Unknown user name." : user.Disabled ? "The account is disabled." : "Wrong password.", context);
       return DashboardJson.Error("The user name or password is incorrect.", StatusCodes.Status401Unauthorized);
     }
@@ -91,13 +91,11 @@ static class AuthEndpoints
   {
     var request = await DashboardJson.ReadAsync<PasswordRequest>(context.Request);
     var user = DashboardAuthentication.User(context);
-    if (throttle.Paused("password", user.Id, context) is { } wait)
+    if (throttle.Begin("password", user.Id, context) is { } wait)
       return TooManyAttempts(context, wait);
-    if (!PasswordHasher.Verify(request.CurrentPassword, user.PasswordHash))
-    {
-      throttle.Failed("password", user.Id, context);
+    if (!await throttle.HashAsync(() => PasswordHasher.Verify(request.CurrentPassword, user.PasswordHash), context.RequestAborted))
       return DashboardJson.Error("The current password is incorrect.");
-    }
+    throttle.Succeeded("password", user.Id, context);
     var updated = users.Update(user.Id, new UserChange(null, null, null, null, null, null, request.NewPassword ?? ""), KnownSites(settings));
     sessions.RevokeAll(user.Id);
     var (token, session) = sessions.Create(updated, context);

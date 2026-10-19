@@ -1,3 +1,18 @@
+static class DashboardPaths
+{
+  // Scripts, styles, fonts and images: files other than pages, outside the dashboard's APIs.
+  // They are public and need no session.
+  public static bool IsStaticAsset(PathString path)
+  {
+    var value = path.Value ?? "";
+    if (value.StartsWith("/_dashboard/", StringComparison.OrdinalIgnoreCase)
+        || value.StartsWith(EngineMiddleware.ApiPath + "/", StringComparison.OrdinalIgnoreCase))
+      return false;
+    var extension = Path.GetExtension(value);
+    return extension.Length > 0 && !extension.Equals(".html", StringComparison.OrdinalIgnoreCase);
+  }
+}
+
 // Whether the setup wizard has created the administrator. Cached: checked on every page request.
 sealed class SetupStatus(UserStore users, SettingsService settings)
 {
@@ -42,8 +57,7 @@ sealed class PageGateMiddleware(RequestDelegate next, SetupStatus setup)
     var path = request.Path.Value ?? "/";
     if (!(HttpMethods.IsGet(request.Method) || HttpMethods.IsHead(request.Method)) || path.StartsWith("/_", StringComparison.Ordinal))
       return next(context);
-    var extension = Path.GetExtension(path);
-    if (extension.Length > 0 && !extension.Equals(".html", StringComparison.OrdinalIgnoreCase))
+    if (DashboardPaths.IsStaticAsset(request.Path))
       return next(context);
     var page = PageOf(path);
     if (!setup.Complete)

@@ -44,6 +44,7 @@ sealed class DashboardAuthenticationHandler(IOptionsMonitor<AuthenticationScheme
 {
   protected override Task<AuthenticateResult> HandleAuthenticateAsync()
   {
+    if (DashboardPaths.IsStaticAsset(Request.Path)) return Task.FromResult(AuthenticateResult.NoResult());
     var token = Request.Cookies[SessionStore.CookieName];
     if (string.IsNullOrEmpty(token)) return Task.FromResult(AuthenticateResult.NoResult());
     if (!sessions.TryAuthenticate(token, out var id, out var user))

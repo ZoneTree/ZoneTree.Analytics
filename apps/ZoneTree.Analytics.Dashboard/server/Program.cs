@@ -1,3 +1,5 @@
+using System.Net;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Extensions.FileProviders;
 using ZoneTree.Analytics;
 using ZoneTree.Analytics.AspNetCore;
@@ -28,6 +30,16 @@ builder.Services.AddSingleton<SetupStatus>();
 builder.Services.AddSingleton<SiteResolution>();
 builder.Services.AddHostedService<SessionCleanup>();
 builder.Services.AddDashboardAuthentication();
+// Behind a reverse proxy that terminates HTTPS, the origin check, secure cookies and visitor
+// addresses need the original scheme, host and client address. Loopback proxies are trusted by
+// default; list others with Dashboard:KnownProxies (comma-separated addresses).
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+  options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedHost;
+  foreach (var proxy in (builder.Configuration["Dashboard:KnownProxies"] ?? "").Split(',',
+      StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+    options.KnownProxies.Add(IPAddress.Parse(proxy));
+});
 builder.Services.AddZoneTreeAnalyticsWeb(web =>
 {
   web.MaxConcurrentReportingRequests = SettingsService.StoredConcurrentRequests(systemStore);
@@ -38,12 +50,10 @@ builder.Services.AddZoneTreeAnalyticsWeb(web =>
 var sampleDataEnabled = builder.Environment.IsDevelopment();
 if (sampleDataEnabled)
 {
-  // The Development datasets follow the reporting time zone chosen during setup.
-  builder.Services.AddSingleton(services => TimeZoneInfo.FindSystemTimeZoneById(
-      services.GetRequiredService<SettingsService>().Current?.General.TimeZone ?? "UTC"));
+  // New Development datasets take the reporting time zone current when they are created.
   builder.Services.AddSingleton<SampleDataStore>();
   builder.Services.AddSingleton(services => new SampleBenchmark(contentRoot,
-      services.GetRequiredService<TimeZoneInfo>(), services.GetRequiredService<ILogger<SampleBenchmark>>()));
+      () => services.GetRequiredService<SettingsService>().ReportingTimeZone, services.GetRequiredService<ILogger<SampleBenchmark>>()));
   builder.Services.AddSingleton<SampleDataJobs>();
   builder.Services.AddHostedService(services => services.GetRequiredService<SampleDataJobs>());
 }
@@ -69,6 +79,7 @@ if (settings.IsConfigured)
   }
 }
 
+app.UseForwardedHeaders();
 app.UseAuthentication();
 app.UseMiddleware<SameOriginMiddleware>();
 app.UseMiddleware<PageGateMiddleware>();
@@ -81,8 +92,12 @@ if (!watchDashboard)
 app.UseAuthorization();
 app.UseMiddleware<EngineMiddleware>();
 
-var reportingApi = app.MapZoneTreeAnalyticsApi(EngineMiddleware.ApiPath).RequireAuthorization();
-app.MapZoneTreeAnalytics();
+var reportingApi = app.MapZoneTreeAnalyticsApi(EngineMiddleware.ApiPath)
+    .RequireAuthorization()
+    .RequireQueryRoleForQueries()
+    .UseEngine(EngineSource.Primary, pattern => !pattern.TrimEnd('/').EndsWith("/config", StringComparison.OrdinalIgnoreCase));
+app.MapZoneTreeAnalytics()
+    .UseEngine(EngineSource.Primary, pattern => pattern.TrimEnd('/').EndsWith("/event", StringComparison.OrdinalIgnoreCase), beacon: true);
 app.MapDashboardAuth();
 app.MapDashboardSetup();
 app.MapDashboardAdmin();
@@ -116,8 +131,10 @@ reportingApi.MapGet("/config", (HttpContext context) =>
 });
 if (sampleDataEnabled)
 {
-  app.MapZoneTreeAnalyticsApi(SampleDataStore.ApiPath).RequireAuthorization(DashboardAuthentication.AdministratorPolicy);
-  app.MapZoneTreeAnalyticsApi(BenchmarkReportStore.ApiPath).RequireAuthorization(DashboardAuthentication.AdministratorPolicy);
+  app.MapZoneTreeAnalyticsApi(SampleDataStore.ApiPath)
+      .RequireAuthorization(DashboardAuthentication.AdministratorPolicy).UseEngine(EngineSource.Samples);
+  app.MapZoneTreeAnalyticsApi(BenchmarkReportStore.ApiPath)
+      .RequireAuthorization(DashboardAuthentication.AdministratorPolicy).UseEngine(EngineSource.Benchmark);
   var management = app.MapGroup("/_analytics/sample-data").RequireAuthorization(DashboardAuthentication.AdministratorPolicy);
   management.AddEndpointFilter(async (context, next) =>
   {

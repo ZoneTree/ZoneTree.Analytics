@@ -89,7 +89,7 @@ Generate the static UI:
 
 The server serves the published output from `ui/dist/publish`. Use `Dashboard:Watch=false` for static serving in Development, or `Dashboard:Path` for another output directory.
 
-The application listens on all network interfaces by default. Every report, page, and setting requires signing in; only the tracker script and beacon endpoint are public. Serve the dashboard over HTTPS so session cookies are sent only on secure connections.
+The application listens on all network interfaces by default. Every report, page, and setting requires signing in; only the tracker script and beacon endpoint are public. Serve the dashboard over HTTPS so session cookies are sent only on secure connections. Behind a reverse proxy, the server trusts forwarded headers from loopback proxies; list other proxy addresses in `Dashboard:KnownProxies`.
 
 Users, sessions, settings, and the audit log live in one ZoneTree under `data/system`; set `Dashboard:SystemDirectory` to store them elsewhere. After setup, the stored settings configure the analytics engine. `DashboardAnalyticsOptions.cs` configures only the Development sample and benchmark engines. See [configuration](../../operations/configuration/configuration.mdx) before changing an existing dataset.
 

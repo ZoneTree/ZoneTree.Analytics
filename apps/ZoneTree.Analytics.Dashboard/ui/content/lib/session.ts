@@ -63,11 +63,23 @@ export function redirectToSignIn() {
 }
 
 // Only same-site paths: an open redirect would let a link send users elsewhere after sign-in.
-export function safeReturnUrl(value: string | null): string {
-  if (!value?.startsWith('/') || value.startsWith('//') || value.includes('\\'))
+// The browser's own URL parser decides, because it drops tabs and newlines and reads
+// backslashes as slashes: "/<tab>/evil.example" would otherwise become "//evil.example".
+export function safeReturnUrl(
+  value: string | null,
+  origin = location.origin,
+): string {
+  if (!value?.startsWith('/')) return '/'
+  let url: URL
+  try {
+    url = new URL(value, origin)
+  } catch {
     return '/'
-  if (value.startsWith('/signin') || value.startsWith('/signout')) return '/'
-  return value
+  }
+  if (url.origin !== origin) return '/'
+  const path = url.pathname + url.search + url.hash
+  if (path.startsWith('/signin') || path.startsWith('/signout')) return '/'
+  return path
 }
 
 export class DashboardApiError extends Error {

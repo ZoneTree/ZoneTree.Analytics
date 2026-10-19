@@ -51,6 +51,9 @@ sealed class SettingsService
 
   public SecuritySettings Security => current?.Security ?? DefaultSecurity;
 
+  // The time zone chosen during setup, or UTC before it.
+  public TimeZoneInfo ReportingTimeZone => TimeZoneInfo.FindSystemTimeZoneById(current?.General.TimeZone ?? "UTC");
+
   public bool RestartRequired => current != null && current.Reporting.MaxConcurrentRequests != startupConcurrentRequests;
 
   public string ContentRoot => contentRoot;

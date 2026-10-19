@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Text.RegularExpressions;
 using ZoneTree.Analytics;
 using ZoneTree.Analytics.AspNetCore;
@@ -31,6 +32,7 @@ static partial class SettingsMapper
     foreach (var section in typeof(DashboardSettings).GetProperties())
       if (section.GetValue(settings) == null)
         throw new SettingsValidationException($"The {SettingsSchema.Camel(section.Name)} section is missing.", SettingsSchema.Camel(section.Name));
+    NormalizeCollections(settings);
     ValidateNumbers(settings);
     ValidateGeneral(settings, contentRoot, systemDirectory);
     ValidateSites(settings.Sites);
@@ -45,6 +47,43 @@ static partial class SettingsMapper
     catch (ArgumentException error)
     {
       throw new SettingsValidationException(error.Message);
+    }
+  }
+
+  // A missing list or map means an empty one; a missing group or an empty entry is an error,
+  // reported with its field instead of failing while the options are built.
+  static void NormalizeCollections(DashboardSettings settings)
+  {
+    foreach (var section in typeof(DashboardSettings).GetProperties())
+      Normalize(section.GetValue(settings), SettingsSchema.Camel(section.Name));
+
+    static void Normalize(object owner, string prefix)
+    {
+      foreach (var property in owner.GetType().GetProperties())
+      {
+        var setting = property.GetCustomAttribute<SettingAttribute>();
+        if (setting == null || !property.CanWrite) continue;
+        var key = prefix + "." + SettingsSchema.Camel(property.Name);
+        var type = property.PropertyType;
+        var value = property.GetValue(owner);
+        if (typeof(System.Collections.IEnumerable).IsAssignableFrom(type) && type != typeof(string))
+        {
+          if (value == null)
+          {
+            property.SetValue(owner, Activator.CreateInstance(type));
+            continue;
+          }
+          var items = value is System.Collections.IDictionary map ? map.Values : (System.Collections.IEnumerable)value;
+          foreach (var item in items)
+            if (item == null)
+              throw new SettingsValidationException($"{setting.Label} contains an empty entry.", key);
+        }
+        else if (type.IsClass && type != typeof(string))
+        {
+          if (value == null) throw new SettingsValidationException($"{setting.Label} is required.", key);
+          Normalize(value, key);
+        }
+      }
     }
   }
 

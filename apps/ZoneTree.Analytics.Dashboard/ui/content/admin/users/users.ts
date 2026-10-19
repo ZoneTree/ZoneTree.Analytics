@@ -61,8 +61,12 @@ const template = html`<div class="page-heading">
       </label>
       <FormInputField id="user-password" :label="draft.id ? 'New password' : 'Password'" type="password"
         :model="draft.password" :required="!draft.id" autocomplete="new-password"
-        :placeholder="draft.id ? 'Leave empty to keep the current password' : 'At least 10 characters'"/>
+        :placeholder="draft.id ? 'Leave empty to keep the current password' : 'At least 10 characters'"
+        r-if="!draft.administrator"/>
     </div>
+    <p class="field-hint" r-if="draft.administrator">
+      Change your own password in <a href="/account/settings/">Account settings</a>.
+    </p>
     <fieldset class="site-access" r-if="!draft.administrator">
       <legend>Sites</legend>
       <label class="check">

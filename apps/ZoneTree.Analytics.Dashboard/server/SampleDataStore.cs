@@ -2,7 +2,7 @@ using ZoneTree.Analytics;
 
 // This engine owns only generated data. Reporting leases protect it while a
 // reset closes the engine and removes all raw events, rollups and metadata.
-sealed class SampleDataStore(IWebHostEnvironment environment, SettingsService settings, TimeZoneInfo timeZone,
+sealed class SampleDataStore(IWebHostEnvironment environment, SettingsService settings,
     ILogger<SampleDataStore> logger) : IAsyncDisposable
 {
   public const string Site = DashboardAnalyticsOptions.PerformanceSite;
@@ -45,7 +45,7 @@ sealed class SampleDataStore(IWebHostEnvironment environment, SettingsService se
   {
     var path = Path.Combine(directory, TimeZoneFile);
     if (File.Exists(path)) return TimeZoneInfo.FindSystemTimeZoneById(File.ReadAllText(path).Trim());
-    var zone = Directory.Exists(Path.Combine(directory, "meta")) ? TimeZoneInfo.Utc : timeZone;
+    var zone = Directory.Exists(Path.Combine(directory, "meta")) ? TimeZoneInfo.Utc : settings.ReportingTimeZone;
     File.WriteAllText(path, zone.Id);
     return zone;
   }
