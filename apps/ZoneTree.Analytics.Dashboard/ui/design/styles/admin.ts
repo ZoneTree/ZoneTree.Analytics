@@ -473,9 +473,10 @@ function registerAdminResponsiveStyles({ root }: DashboardStyleContext) {
     .css({ gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' })
   tablet.select('.admin-columns').css({ gridTemplateColumns: 'minmax(0, 1fr)' })
   const narrow = root.media('max-width: 850px')
-  narrow
-    .select('.auth-shell')
-    .css({ gridTemplateColumns: 'minmax(0, 1fr)', gridTemplateRows: 'auto 1fr' })
+  narrow.select('.auth-shell').css({
+    gridTemplateColumns: 'minmax(0, 1fr)',
+    gridTemplateRows: 'auto 1fr',
+  })
   narrow
     .select('.auth-aside')
     .css({ position: 'static', height: 'auto', padding: '24px', gap: '16px' })
