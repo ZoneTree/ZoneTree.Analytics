@@ -23,11 +23,13 @@ Then run the server from the repository root:
 
 Open **http://127.0.0.1:5088/**. The development profile starts the UI watcher automatically, so page and style changes update in the browser.
 
-## 2. Connect your reports
+## 2. Set up the server
 
-The included server supplies API connection settings. To connect another reporting API, open **Connection** and choose its URL, sites, reporting time zone, and refresh interval.
+The first visit opens the setup wizard. When startup output settles, the server's console ends with a setup link that carries a one-time **setup key**. Open the link, or type the key into the wizard; it proves you control the server, changes on every start, and stops working once setup is complete.
 
-The default reporting prefix is `/_analytics/api`. Site IDs in the dashboard must match those used to collect events.
+The wizard creates the administrator account, then asks for your sites and their domains, the reporting time zone, and a collection preset: **Privacy first**, **Standard**, or **Full detail**. Every other option has a default; open **Advanced settings** on the last step to change any of them. The time zone, data directory, write-ahead-log directory, and visitor sketch precision are stored with the data and cannot change after setup.
+
+The last step shows the tracking snippet. Add it to every page of your sites; the server assigns each page view to the site whose domain matches the page.
 
 ## 3. Explore your data
 
@@ -44,13 +46,30 @@ The default reporting prefix is `/_analytics/api`. Site IDs in the dashboard mus
 
 Choose a site and date range, then add filters or comparisons to explore a specific audience. Export reports when you need to work with the results elsewhere.
 
-## 4. Try sample datasets
+## 4. Invite people and manage the server
 
-In Development mode, open **Tools → Sample data** to generate reporting data or run an ingestion benchmark.
+The administrator manages everything under **Administration** in the sidebar:
+
+| Page | Purpose |
+| --- | --- |
+| Server status | Engine state, background index work, and storage partitions |
+| Sites | Websites, their domains, and the tracking snippet |
+| Users | Accounts, roles, site access, and signed-in browsers |
+| Indexes & rollups | Pre-aggregated reports and secondary indexes |
+| Settings | Collection, privacy, retention, sessions, ingestion, queries, storage, and sign-in security |
+| Audit log | Sign-ins, setting changes, and user management |
+
+The dashboard has one administrator. Other users are **analysts**, who read reports and run ad-hoc queries, or **viewers**, who read reports. Each sees all sites or only the sites assigned to them.
+
+Saving settings shows the changes and when each applies: at once, after the engine reopens for a few seconds, or after a server restart. Changes that delete data, such as a shorter retention, need an extra confirmation. Index changes are built from retained data in the background.
+
+## 5. Try sample datasets
+
+In Development mode, the administrator can open **Tools → Sample data** to generate reporting data or run an ingestion benchmark.
 
 | Dataset | Purpose |
 | --- | --- |
-| Default site | Traffic collected by the running application |
+| Your sites | Traffic collected by the running application |
 | Performance samples | Generated traffic for exploring report behavior |
 | Latest benchmark | The retained dataset from a successful ingestion benchmark |
 
@@ -70,9 +89,9 @@ Generate the static UI:
 
 The server serves the published output from `ui/dist/publish`. Use `Dashboard:Watch=false` for static serving in Development, or `Dashboard:Path` for another output directory.
 
-The application listens on all network interfaces by default. Apply your host's authorization policy before giving others access to reports.
+The application listens on all network interfaces by default. Every report, page, and setting requires signing in; only the tracker script and beacon endpoint are public. Serve the dashboard over HTTPS so session cookies are sent only on secure connections.
 
-Shared engine settings live in `DashboardAnalyticsOptions.cs`. Its settings apply to the primary, sample, and benchmark engines, and differ from the library defaults. See [configuration](../../operations/configuration/configuration.mdx) before changing an existing dataset.
+Users, sessions, settings, and the audit log live in one ZoneTree under `data/system`; set `Dashboard:SystemDirectory` to store them elsewhere. After setup, the stored settings configure the analytics engine. `DashboardAnalyticsOptions.cs` configures only the Development sample and benchmark engines. See [configuration](../../operations/configuration/configuration.mdx) before changing an existing dataset.
 
 ## Related pages
 

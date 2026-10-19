@@ -6,7 +6,7 @@ import {
   parameters,
   postScope,
 } from '../content/lib/api'
-import { parseSites, validateConfig } from '../content/lib/config'
+import { validateConfig } from '../content/lib/config'
 import {
   type Breakdown,
   defaultConfig,
@@ -65,10 +65,6 @@ test('configuration validates endpoints, sites, timezone and refresh intervals',
     '/api?token=secret',
   ])
     assert.throws(() => normalizeApiUrl(invalid))
-  assert.deepEqual(parseSites(' | Default site\nstore | Store'), [
-    { id: '', name: 'Default site' },
-    { id: 'store', name: 'Store' },
-  ])
   assert.throws(() =>
     validateConfig({
       ...defaultConfig,

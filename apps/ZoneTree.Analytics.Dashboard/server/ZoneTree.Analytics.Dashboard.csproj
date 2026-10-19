@@ -7,6 +7,14 @@
     <ServerGarbageCollection>true</ServerGarbageCollection>
   </PropertyGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="ZoneTree.Analytics.UnitTests" />
+  </ItemGroup>
+  <!-- Local datasets are not build content: the Web SDK would copy their metadata JSON files. -->
+  <ItemGroup>
+    <Content Remove="data/**" />
+    <None Remove="data/**" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="../../../src/ZoneTree.Analytics.AspNetCore/ZoneTree.Analytics.AspNetCore.csproj" />
   </ItemGroup>
 </Project>

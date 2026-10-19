@@ -62,8 +62,8 @@
       ><Icon name="tabler:robot"/>Bot traffic</a
     >
   </nav>
-  <span class="nav-label">TOOLS</span>
-  <nav class="nav-list">
+  <span class="nav-label query-only">TOOLS</span>
+  <nav class="nav-list query-only">
     <a
       class="nav-explorer"
       href="/explorer/"
@@ -71,16 +71,49 @@
       ><Icon name="tabler:terminal-2"/>Query explorer</a
     >
     <a
-      class="nav-sample-data"
+      class="nav-sample-data admin-only"
       href="/sample-data/"
       :aria-current="section === 'sample-data' ? 'page' : undefined"
       ><Icon name="tabler:database"/>Sample data</a
     >
+  </nav>
+  <span class="nav-label admin-only">ADMINISTRATION</span>
+  <nav class="nav-list admin-only" :context="pageInfo.frontmatter">
     <a
-      class="nav-settings"
-      href="/connection/"
-      :aria-current="section === 'settings' ? 'page' : undefined"
-      ><Icon name="tabler:settings"/>Connection</a
+      class="nav-admin"
+      href="/admin/"
+      :aria-current="section === 'admin' ? 'page' : undefined"
+      ><Icon name="tabler:server"/>Server status</a
+    >
+    <a
+      class="nav-admin-sites"
+      href="/admin/sites/"
+      :aria-current="section === 'admin-sites' ? 'page' : undefined"
+      ><Icon name="tabler:world"/>Sites</a
+    >
+    <a
+      class="nav-admin-users"
+      href="/admin/users/"
+      :aria-current="section === 'admin-users' ? 'page' : undefined"
+      ><Icon name="tabler:users"/>Users</a
+    >
+    <a
+      class="nav-admin-indexes"
+      href="/admin/indexes/"
+      :aria-current="section === 'admin-indexes' ? 'page' : undefined"
+      ><Icon name="tabler:stack-2"/>Indexes &amp; rollups</a
+    >
+    <a
+      class="nav-admin-settings"
+      href="/admin/settings/"
+      :aria-current="section === 'admin-settings' ? 'page' : undefined"
+      ><Icon name="tabler:settings"/>Settings</a
+    >
+    <a
+      class="nav-admin-audit"
+      href="/admin/audit/"
+      :aria-current="section === 'admin-audit' ? 'page' : undefined"
+      ><Icon name="tabler:history"/>Audit log</a
     >
   </nav>
   <div class="sidebar-bottom">

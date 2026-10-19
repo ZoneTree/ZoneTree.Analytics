@@ -16,7 +16,11 @@
   "pageToc": { "enabled": false },
   "pagefind": { "enabled": false },
   "sitemap": { "enabled": false, "robots": { "enabled": false } },
-  "auth": { "enabled": false },
+  "auth": {
+    "enabled": true,
+    "signUp": false,
+    "signedInStorageKey": "signed-in-hint"
+  },
   "consent": { "enabled": false },
   "style": {
     "themes": ["light", "dark"],

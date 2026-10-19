@@ -11,7 +11,7 @@ Use this page to locate a setting, check its default, and understand its depende
 
 ## Configuration rules
 
-Set group members and add to collections in place. Groups are created by `AnalyticsOptions`; they are not replaced wholesale. Options are cloned when an engine opens, so edits afterward do not reconfigure it.
+Set group members and add to collections in place. Groups are created by `AnalyticsOptions`; they are not replaced wholesale. Options are cloned when an engine opens, so edits afterward do not reconfigure it. `options.Validate()` runs the engine's option checks without opening storage, for example before applying settings edited in an admin screen; dataset compatibility and ZoneTree store settings are checked when an engine opens.
 
 Reporting time zone, sketch precision, and the chosen separate write-ahead-log directory are persisted dataset choices. Reopening incompatible settings fails. Index changes can trigger background backfills; ordinary rollup and aggregate changes can introduce activation boundaries.
 

@@ -1,5 +1,6 @@
 import { normalizeApiUrl } from './api'
 import { type Config, dashboardConfigPath, defaultConfig } from './contracts'
+import { applyUser, redirectToSignIn } from './session'
 
 export function validateConfig(input: Partial<Config>): Config {
   const value = { ...defaultConfig, ...input }
@@ -20,7 +21,9 @@ export function validateConfig(input: Partial<Config>): Config {
         !site.name.trim(),
     )
   )
-    throw new Error('Add at least one site with an ID and display name.')
+    throw new Error(
+      'Your account has no sites yet. Ask the administrator for access.',
+    )
   if (new Set(value.sites.map((site) => site.id)).size !== value.sites.length)
     throw new Error('Each site ID must be unique.')
   if (value.sampleData) {
@@ -51,20 +54,6 @@ export function validateConfig(input: Partial<Config>): Config {
   }
   return value
 }
-export function parseSites(text: string): Config['sites'] {
-  return text
-    .split('\n')
-    .filter((line) => line.trim())
-    .map((line) => {
-      const separator = line.indexOf('|')
-      if (separator < 0)
-        throw new Error('Use site ID | display name on each line.')
-      return {
-        id: line.slice(0, separator).trim(),
-        name: line.slice(separator + 1).trim(),
-      }
-    })
-}
 export function readStorage(key: string, session = false): unknown {
   try {
     return JSON.parse(
@@ -90,24 +79,17 @@ export async function loadConfig(): Promise<Config> {
     cache: 'no-store',
     credentials: 'same-origin',
   })
+  if (response.status === 401) {
+    redirectToSignIn()
+    throw new Error('Your session ended. Sign in again.')
+  }
   if (!response.ok)
     throw new Error(
       `Cannot load dashboard configuration (${response.status}). Check the host's ${dashboardConfigPath} endpoint.`,
     )
-  const supplied = validateConfig((await response.json()) as Partial<Config>)
-  const stored = readStorage('zt-dashboard-connection-v1')
-  if (stored && typeof stored === 'object') {
-    try {
-      return validateConfig({
-        ...supplied,
-        ...stored,
-        sampleData: supplied.sampleData,
-      })
-    } catch {
-      /* Ignore old or invalid browser settings. */
-    }
-  }
-  return supplied
+  const supplied = (await response.json()) as Partial<Config>
+  applyUser(supplied.user)
+  return validateConfig(supplied)
 }
 export function assetUrl(path: string): URL {
   const basePath = document.body.dataset.basePath || '/'

@@ -127,6 +127,15 @@ export interface Config {
   sites: { id: string; name: string }[]
   refreshSeconds: number
   sampleData?: SampleDataCapability | null
+  user?: SessionUser | null
+}
+export type UserRole = 'Administrator' | 'Analyst' | 'Viewer'
+export interface SessionUser {
+  id: string
+  userName: string
+  displayName: string
+  role: UserRole
+  canQuery?: boolean
 }
 export interface SampleDataCapability {
   siteId: string

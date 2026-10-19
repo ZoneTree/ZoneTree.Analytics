@@ -9,14 +9,14 @@ public sealed class DashboardAnalyticsOptionsTests : DirectoryTest
   public void ProfilesShareRetentionAndIndexCoverageWithoutSharingMutableOptions()
   {
     var zone = TimeZoneInfo.FindSystemTimeZoneById("Europe/Berlin");
-    var primary = new AnalyticsOptions();
-    DashboardAnalyticsOptions.ConfigurePrimary(primary, "primary", zone);
+    var primary = Primary("primary", zone.Id);
     var samples = DashboardAnalyticsOptions.CreatePerformanceSamples("samples", zone, 4, NullLogger.Instance);
     var benchmark = DashboardAnalyticsOptions.CreateBenchmark("benchmark", zone, 20, false, true, NullLogger.Instance);
     var reports = DashboardAnalyticsOptions.CreateBenchmarkReport("retained", zone.Id, true, true, NullLogger.Instance);
     foreach (var options in new[] { primary, samples, benchmark, reports })
     {
-      Assert.That(options.Retention.RawEvents, Is.EqualTo(TimeSpan.FromDays(365 * 3)));
+      // The primary engine keeps what its settings say: a year of raw events by default.
+      Assert.That(options.Retention.RawEvents, Is.EqualTo(TimeSpan.FromDays(options == primary ? 365 : 365 * 3)));
       Assert.That(options.TimeZone.Id, Is.EqualTo(zone.Id));
       Assert.That(options.Web.Bots, Is.EqualTo(BotTraffic.TrackSeparately));
       Assert.That(options.Web.GeoLocator, Is.Null, "real traffic must never get invented countries");
@@ -28,7 +28,7 @@ public sealed class DashboardAnalyticsOptionsTests : DirectoryTest
     }
     Assert.Multiple(() =>
     {
-      Assert.That(primary.DataDirectory, Is.EqualTo("primary"));
+      Assert.That(primary.DataDirectory, Is.EqualTo(Path.GetFullPath(Path.Combine(directory, "primary"))));
       Assert.That(samples.DataDirectory, Is.EqualTo("samples"));
       Assert.That(benchmark.DataDirectory, Is.EqualTo("benchmark"));
       Assert.That(reports.DataDirectory, Is.EqualTo("retained"));
@@ -56,7 +56,7 @@ public sealed class DashboardAnalyticsOptionsTests : DirectoryTest
     samples.Rollups.ValueAggregates.Clear();
     foreach (var options in new[] { primary, benchmark, reports })
     {
-      Assert.That(options.Retention.RawEvents, Is.EqualTo(TimeSpan.FromDays(365 * 3)));
+      Assert.That(options.Retention.RawEvents, Is.EqualTo(TimeSpan.FromDays(options == primary ? 365 : 365 * 3)));
       Assert.That(options.Storage.RollupIndexes.Definitions, Has.Count.EqualTo(12));
       Assert.That(options.Storage.DimensionIndexes.Dimensions, Has.Count.EqualTo(4));
     }
@@ -73,9 +73,8 @@ public sealed class DashboardAnalyticsOptionsTests : DirectoryTest
     {
       "samples" => DashboardAnalyticsOptions.CreatePerformanceSamples(directory, TimeZoneInfo.Utc, 1, NullLogger.Instance),
       "benchmark" => DashboardAnalyticsOptions.CreateBenchmark(directory, TimeZoneInfo.Utc, 1, false, true, NullLogger.Instance),
-      _ => new AnalyticsOptions()
+      _ => Primary(directory, "UTC")
     };
-    if (profile == "primary") DashboardAnalyticsOptions.ConfigurePrimary(options, directory, TimeZoneInfo.Utc);
     options.Retention.CheckInterval = null;
     options.Ingestion.FlushInterval = TimeSpan.FromHours(1);
     options.Storage.Logger ??= new RecordingLogger();
@@ -93,5 +92,14 @@ public sealed class DashboardAnalyticsOptionsTests : DirectoryTest
     }
     using var reopened = new AnalyticsEngine(options);
     Assert.That(reopened.Web.GetSummary(new() { Range = Day(at.Date) }).Summary.PageViews, Is.EqualTo(1));
+  }
+
+  // The primary engine as the setup wizard's default settings configure it.
+  AnalyticsOptions Primary(string dataDirectory, string timeZone)
+  {
+    var settings = SettingsService.CreateDefaults();
+    settings.General.TimeZone = timeZone;
+    settings.General.DataDirectory = dataDirectory;
+    return SettingsMapper.ToOptions(settings, directory, null);
   }
 }

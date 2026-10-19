@@ -1,6 +1,7 @@
 import { styleBuilder, themes } from '@purestack/ts-style'
 import { registerDashboardLogoStyles } from './logo'
 import { registerAccessibilityStyles } from './styles/accessibility'
+import { registerAdminStyles } from './styles/admin'
 import { registerBaseStyles } from './styles/base'
 import { registerChartsStyles } from './styles/charts'
 import { createDashboardStyleContext } from './styles/context'
@@ -30,6 +31,7 @@ export function registerDashboardStyles() {
     registerTablesStyles(context)
     registerFormsStyles(context)
     registerDialogsStyles(context)
+    registerAdminStyles(context)
     // Visibility utilities override control display; breakpoints override them.
     registerAccessibilityStyles(context)
     registerResponsiveStyles(context)

@@ -138,7 +138,12 @@ export function registerNavigationStyles(context: DashboardStyleContext) {
     'bots',
     'explorer',
     'sample-data',
-    'settings',
+    'admin',
+    'admin-sites',
+    'admin-users',
+    'admin-indexes',
+    'admin-settings',
+    'admin-audit',
   ]) {
     root
       .select(`body[data-section="${section}"] .nav-list .nav-${section}`)

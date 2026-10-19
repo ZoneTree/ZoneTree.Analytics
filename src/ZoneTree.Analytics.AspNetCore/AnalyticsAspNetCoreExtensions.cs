@@ -30,11 +30,7 @@ public static class AnalyticsServiceCollectionExtensions
     ArgumentNullException.ThrowIfNull(services);
     var options = new AnalyticsOptions();
     configure?.Invoke(options);
-    var webOptions = new AnalyticsWebOptions();
-    configureWeb?.Invoke(webOptions);
-    webOptions.Validate();
-    services.AddSingleton(webOptions);
-    services.AddSingleton<ReportingRequestLimiter>();
+    services.AddZoneTreeAnalyticsWeb(configureWeb);
     services.AddSingleton(provider =>
     {
       var environment = provider.GetService<IHostEnvironment>();
@@ -45,6 +41,26 @@ public static class AnalyticsServiceCollectionExtensions
       return new AnalyticsEngine(options);
     });
     services.AddSingleton<IAnalyticsTracker>(provider => provider.GetRequiredService<AnalyticsEngine>());
+    return services;
+  }
+
+  /// <summary>
+  /// Registers the web integration options and reporting limits without an engine. The tracker
+  /// and reporting endpoints resolve <see cref="AnalyticsEngine"/> from the request services, so
+  /// a host that opens, replaces or closes engines at runtime supplies one per request, for example
+  /// by replacing <see cref="HttpContext.RequestServices"/> with a provider that returns the engine
+  /// it leased. A scoped registration would let the request scope dispose the engine.
+  /// </summary>
+  public static IServiceCollection AddZoneTreeAnalyticsWeb(
+      this IServiceCollection services,
+      Action<AnalyticsWebOptions> configureWeb = null)
+  {
+    ArgumentNullException.ThrowIfNull(services);
+    var webOptions = new AnalyticsWebOptions();
+    configureWeb?.Invoke(webOptions);
+    webOptions.Validate();
+    services.AddSingleton(webOptions);
+    services.AddSingleton<ReportingRequestLimiter>();
     return services;
   }
 }

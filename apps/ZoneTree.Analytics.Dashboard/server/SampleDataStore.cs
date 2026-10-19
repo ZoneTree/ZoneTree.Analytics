@@ -2,7 +2,7 @@ using ZoneTree.Analytics;
 
 // This engine owns only generated data. Reporting leases protect it while a
 // reset closes the engine and removes all raw events, rollups and metadata.
-sealed class SampleDataStore(IWebHostEnvironment environment, IConfiguration configuration, TimeZoneInfo timeZone,
+sealed class SampleDataStore(IWebHostEnvironment environment, SettingsService settings, TimeZoneInfo timeZone,
     ILogger<SampleDataStore> logger) : IAsyncDisposable
 {
   public const string Site = DashboardAnalyticsOptions.PerformanceSite;
@@ -15,6 +15,7 @@ sealed class SampleDataStore(IWebHostEnvironment environment, IConfiguration con
   bool resetting;
   TaskCompletionSource drained = new(TaskCreationOptions.RunContinuationsAsynchronously);
   const string Marker = ".zonetree-generated-samples";
+  const string TimeZoneFile = "time-zone.txt";
 
   public bool HasRetainedData => File.Exists(Path.Combine(directory, Marker));
 
@@ -35,7 +36,18 @@ sealed class SampleDataStore(IWebHostEnvironment environment, IConfiguration con
   AnalyticsEngine Open()
   {
     EnsureOwnedDirectory();
-    return new AnalyticsEngine(DashboardAnalyticsOptions.CreatePerformanceSamples(directory, timeZone, workerCount, logger));
+    return new AnalyticsEngine(DashboardAnalyticsOptions.CreatePerformanceSamples(directory, DatasetTimeZone(), workerCount, logger));
+  }
+
+  // A dataset keeps the reporting time zone it was created with; a new one takes the dashboard's.
+  // Datasets that predate this record were created in UTC, the dashboard's earlier default.
+  TimeZoneInfo DatasetTimeZone()
+  {
+    var path = Path.Combine(directory, TimeZoneFile);
+    if (File.Exists(path)) return TimeZoneInfo.FindSystemTimeZoneById(File.ReadAllText(path).Trim());
+    var zone = Directory.Exists(Path.Combine(directory, "meta")) ? TimeZoneInfo.Utc : timeZone;
+    File.WriteAllText(path, zone.Id);
+    return zone;
   }
 
   public async Task PrepareGenerationAsync(int workers, CancellationToken cancellationToken)
@@ -63,7 +75,7 @@ sealed class SampleDataStore(IWebHostEnvironment environment, IConfiguration con
 
   void EnsureOwnedDirectory()
   {
-    var primary = configuration["Analytics:DataDirectory"] ?? DashboardAnalyticsOptions.DefaultDataDirectory;
+    var primary = settings.Current == null ? DashboardAnalyticsOptions.DefaultDataDirectory : settings.Current.General.DataDirectory;
     if (!Path.IsPathRooted(primary)) primary = Path.Combine(environment.ContentRootPath, primary);
     primary = Path.TrimEndingDirectorySeparator(Path.GetFullPath(primary));
     if (string.Equals(primary, directory, StringComparison.OrdinalIgnoreCase)

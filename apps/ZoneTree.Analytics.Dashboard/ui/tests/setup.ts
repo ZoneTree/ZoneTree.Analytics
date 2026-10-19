@@ -12,6 +12,8 @@ declare module 'vitest' {
   interface ProvidedContext {
     dashboardSiteRoot: string
     dashboardTestUrl: string
+    // The one-time key a fresh host prints until setup creates the administrator.
+    dashboardSetupKey: string
   }
 }
 
@@ -61,6 +63,10 @@ export default async function setup(project: TestProject) {
     if (process.env.ZT_DASHBOARD_TEST_URL) {
       const url = new URL(process.env.ZT_DASHBOARD_TEST_URL)
       project.provide('dashboardTestUrl', url.href)
+      project.provide(
+        'dashboardSetupKey',
+        process.env.ZT_DASHBOARD_SETUP_KEY ?? '',
+      )
       return teardown
     }
 
@@ -92,8 +98,6 @@ export default async function setup(project: TestProject) {
         '--Dashboard:Watch=false',
         '--Dashboard:Path',
         site,
-        '--Analytics:DataDirectory',
-        join(temporary, 'data/analytics'),
         '--Urls=http://127.0.0.1:0',
         '--Logging:LogLevel:Microsoft.Hosting.Lifetime=Information',
       ],
@@ -127,8 +131,10 @@ export default async function setup(project: TestProject) {
       const url = output.match(
         /Now listening on: (http:\/\/127\.0\.0\.1:\d+)/,
       )?.[1]
-      if (url) {
+      const key = output.match(/Setup key: ([A-Z0-9-]+)/)?.[1]
+      if (url && key) {
         project.provide('dashboardTestUrl', `${url}/`)
+        project.provide('dashboardSetupKey', key)
         console.log(`Dashboard test host ready at ${url}`)
         return teardown
       }

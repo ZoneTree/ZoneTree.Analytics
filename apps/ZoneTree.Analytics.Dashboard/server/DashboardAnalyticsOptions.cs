@@ -3,15 +3,17 @@ using ZoneTree.Analytics;
 using ZoneTree.Analytics.AspNetCore;
 using ZoneTree.Analytics.Web;
 
-// Edit engine configuration here. Every engine gets its own options and collections.
+// Engine configuration of the Development sample and benchmark datasets. Every engine gets its
+// own options and collections. The primary engine is configured from the stored dashboard
+// settings (see SettingsMapper).
 static class DashboardAnalyticsOptions
 {
   public const string DefaultDataDirectory = "data/analytics";
   public const string PerformanceSite = "performance-samples";
   public const string BenchmarkSite = "benchmark-results";
 
-  // Shared defaults for actual traffic, generated samples and benchmark datasets.
-  // Set retention, storage, rollups, query and ingestion tuning here for all engines.
+  // Shared defaults for generated samples and benchmark datasets.
+  // Set retention, storage, rollups, query and ingestion tuning here for both.
   static void ConfigureCommon(AnalyticsOptions options)
   {
     options.Retention.RawEvents = TimeSpan.FromDays(365 * 3);
@@ -19,15 +21,6 @@ static class DashboardAnalyticsOptions
     // No geolocator: real traffic needs a real one (see WebOptions.GeoLocator). Generated
     // samples carry their country as a dimension.
     ConfigureIndexes(options);
-  }
-
-  public static void ConfigurePrimary(AnalyticsOptions options, string directory, TimeZoneInfo timeZone)
-  {
-    ConfigureCommon(options);
-    options.DataDirectory = directory;
-    options.TimeZone = timeZone;
-    options.Rollups.ValueAggregates["load_time"] = ValueAggregates.Percentiles;
-    // ASP.NET Core registration supplies the primary engine's host logger.
   }
 
   public static AnalyticsOptions CreatePerformanceSamples(string directory, TimeZoneInfo timeZone,

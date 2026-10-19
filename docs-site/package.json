@@ -8,7 +8,7 @@
     "build": "purestack build --content ./content --clean",
     "serve": "purestack serve --content ./content --port 4900 --clean",
     "publish": "purestack publish --content ./content",
-    "deploy": "pgdeploy deploy --host https://analytics.zonetree.dev --package ./dist/web --allow-path 'pagefind/*,.ts-ssg/manifest.json' --skip-path 'docs/*.json,*.cs,*.http,*.ps1,*.sh'"
+    "deploy": "pgdeploy deploy --host https://analytics.zonetree.dev --package ./dist/web --allow-path 'pagefind/*,.ts-ssg/manifest.json,docs/**/*.json'"
   },
   "dependencies": {
     "@purestack/ts-style": "^1.1.15",

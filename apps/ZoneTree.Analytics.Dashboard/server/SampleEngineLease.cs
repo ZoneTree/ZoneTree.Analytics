@@ -9,8 +9,3 @@ sealed class SampleEngineLease(AnalyticsEngine engine, Action release) : IDispos
 
 sealed class SampleDataBusyException : Exception;
 sealed class BenchmarkDataUnavailableException : Exception;
-
-sealed class SampleRequestServices(IServiceProvider original, AnalyticsEngine engine) : IServiceProvider
-{
-  public object GetService(Type serviceType) => serviceType == typeof(AnalyticsEngine) ? engine : original.GetService(serviceType);
-}
