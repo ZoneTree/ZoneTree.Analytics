@@ -10,13 +10,13 @@
     "publish": "purestack publish --content ./content"
   },
   "dependencies": {
-    "@purestack/ts-components": "^1.1.16",
-    "@purestack/ts-css": "^1.1.16",
-    "@purestack/ts-html": "^1.1.16",
-    "@purestack/ts-style": "^1.1.16",
-    "@purestack/ts-svg-icons": "^1.1.16",
-    "@purestack/ts-util": "^1.1.16",
-    "purestack": "^1.1.16",
+    "@purestack/ts-components": "^1.1.17",
+    "@purestack/ts-css": "^1.1.17",
+    "@purestack/ts-html": "^1.1.17",
+    "@purestack/ts-style": "^1.1.17",
+    "@purestack/ts-svg-icons": "^1.1.17",
+    "@purestack/ts-util": "^1.1.17",
+    "purestack": "^1.1.17",
     "regor": "^1.7.6"
   },
   "devDependencies": {

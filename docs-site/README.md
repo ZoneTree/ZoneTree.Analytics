@@ -46,7 +46,8 @@ to apply fixes. `yarn check` includes both checks.
 - Place each named page in its own folder, such as `querying/querying.mdx`.
 - Keep imported examples, media, and partials beside the page that uses them.
 - Keep folder index pages as `index.mdx` in the directory they describe.
-- Show code through `<import-codeblock>` with a local source such as `./query.cs`.
+- Put short code snippets (50 lines or fewer) in fenced blocks in the MDX page.
+- Keep larger examples in local files and show them through `<import-codeblock>`.
 - Use SVG for diagrams and real dashboard captures for product screenshots.
 - Use PureStack components for layout, tabs, callouts, navigation, and search.
 - Keep custom Regor templates and logic together and export component interfaces.

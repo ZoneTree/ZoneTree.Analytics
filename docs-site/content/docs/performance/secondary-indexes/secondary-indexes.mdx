@@ -24,7 +24,11 @@ The [5M-event query benchmark](../query-benchmarks/query-benchmarks.mdx#what-the
 
 Configure dimension indexes before opening the engine:
 
-<import-codeblock src="./dimension-indexes.cs"/>
+```csharp
+options.Storage.DimensionIndexes.Dimensions.AddRange(
+    [StandardDimensions.Source, StandardDimensions.Country]);
+options.Storage.DimensionIndexes.RecordsPerPartition = 10_000_000;
+```
 
 Each event carrying a configured dimension gets a full indexed copy. A source equality condition can narrow the event history considered, while other filters and grouping operate on those matching payloads.
 
@@ -34,7 +38,14 @@ Dimension indexes require raw-event storage. A popular source can still match a 
 
 Select the equality-leading dimension and the additional dimensions required by the report:
 
-<import-codeblock src="./rollup-indexes.cs"/>
+```csharp
+options.Storage.RollupIndexes.Definitions.Add(
+    new RollupIndexDefinition(
+        StandardDimensions.Source, StandardDimensions.Country));
+options.Storage.RollupIndexes.Definitions.Add(
+    new RollupIndexDefinition(
+        StandardDimensions.Country, StandardDimensions.Source));
+```
 
 The first definition provides a source-leading path for country grouping. The second provides the reverse country-leading path. They share the joint rollup definition but have different ordered keys.
 
@@ -42,7 +53,15 @@ An index over source does not automatically provide the same selective ordering 
 
 With those options applied to the open engine, query the countries represented in GitHub traffic:
 
-<import-codeblock src="./index-query.cs"/>
+```csharp
+var result = await analytics.QueryAsync(new AnalyticsQuery
+{
+    Range = DateRange.LastDays(30),
+    GroupBy = { StandardDimensions.Country },
+    Filters = { Filter.Equal(StandardDimensions.Source, "GitHub") },
+    Metrics = { Metric.Visitors, Metric.PageViews },
+});
+```
 
 The source-leading definition can answer this report from matching aggregate rows. To ask for sources within US traffic, swap grouping to source and the equality filter to country; that uses the country-leading definition.
 
@@ -80,7 +99,21 @@ Plans expose dimension-index use through `UsedDimensionIndexes` and covering rol
 
 Read the plan from the preceding `result`:
 
-<import-codeblock src="./query-plan.cs"/>
+```csharp
+Console.WriteLine($"Complete coverage: {result.Plan.IsComplete}");
+Console.WriteLine($"Rollup index used: {result.Plan.UsedRollupIndexes}");
+Console.WriteLine($"Dimension index used: {result.Plan.UsedDimensionIndexes}");
+
+foreach (var step in result.Plan.Steps)
+    Console.WriteLine($"{step.Event}: {step.Source}, " +
+        $"{step.From:O} to {step.To:O}, index: {step.IndexDimension ?? "none"}");
+
+foreach (var warning in result.Plan.Warnings)
+    Console.WriteLine($"Warning: {warning}");
+
+foreach (var notice in result.Plan.Notices)
+    Console.WriteLine($"Notice: {notice}");
+```
 
 A covering index step keeps its time-tier source, such as `DayRollups`, and adds `IndexDimension=source`. A dimension-index step reports `Source=DimensionIndex`. Check warnings and all steps rather than assuming the entire request takes one path.
 

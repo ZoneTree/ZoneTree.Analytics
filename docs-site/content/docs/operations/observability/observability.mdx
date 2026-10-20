@@ -26,7 +26,13 @@ Start with the affected dataset. The dashboard's primary traffic, performance sa
 
 ## Monitor collection
 
-<import-codeblock src="./statistics.cs"/>
+```csharp
+var stats = analytics.GetStatistics(includePartitions: false);
+Console.WriteLine($"Accepted: {stats.EventsAccepted}");
+Console.WriteLine($"Processed: {stats.EventsProcessed}");
+Console.WriteLine($"Queued: {stats.QueueLength}");
+Console.WriteLine($"Dropped: {stats.EventsDropped}; Errors: {stats.Errors}");
+```
 
 Statistics cover the current engine instance. Lightweight polling with `includePartitions:false` avoids storage inspection.
 
@@ -48,11 +54,26 @@ Enable Information logging for `ZoneTree.Analytics` in an ASP.NET Core host to s
 
 Merge this logging section into the host's `appsettings.json`, or the environment-specific settings used for the investigation:
 
-<import-codeblock src="./analytics-logging.json"/>
+```json
+{
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft.AspNetCore": "Warning",
+      "ZoneTree.Analytics": "Information"
+    }
+  }
+}
+```
 
 For a standalone engine, set its logger before opening it:
 
-<import-codeblock src="./core-logging.cs"/>
+```csharp
+options.Storage.Logger = new ZoneTree.Logger.ConsoleLogger
+{
+    LogLevel = ZoneTree.Logger.LogLevel.Info,
+};
+```
 
 An engine opened outside dependency injection in an ASP.NET Core host can also use the integration's `UseLogger` extension to forward engine and storage messages to a host logger.
 

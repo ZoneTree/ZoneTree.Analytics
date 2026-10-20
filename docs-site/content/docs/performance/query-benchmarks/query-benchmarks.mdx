@@ -117,7 +117,16 @@ These reports answer recurring questions from aggregate state. They do not repla
 
 The settings used by the dashboard include four raw dimension indexes and twelve directed rollup-index combinations:
 
-<import-codeblock src="./index-configuration.cs"/>
+```csharp
+options.Storage.DimensionIndexes.Dimensions.AddRange(
+    ["source", "country", "device", "page"]);
+options.Storage.RollupIndexes.Definitions.AddRange([
+    new("source", "country"), new("source", "device"), new("source", "page"),
+    new("country", "source"), new("country", "device"), new("country", "page"),
+    new("device", "source"), new("device", "country"), new("device", "page"),
+    new("page", "source"), new("page", "country"), new("page", "device")
+]);
+```
 
 See [rollup planning](../rollups/rollups.mdx) and [secondary indexes](../secondary-indexes/secondary-indexes.mdx) for matching rules, storage costs, and backfilling. Segments, funnels, and unsupported aggregate combinations can require event-level reads and have a different cost.
 
@@ -157,7 +166,22 @@ The result contains **120 measured overview loads** and **720 measured requests*
 
 These are representative requests with fixed dates for reproducing the recorded scope:
 
-<import-codeblock src="./requests.http"/>
+```http
+### Annual summary with the previous calendar-year comparison
+GET http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/summary?site=benchmark-results&tz=UTC&from=2026-01-01&to=2026-12-31&compare=previous-period
+Accept: application/json
+Cache-Control: no-cache
+
+### Country breakdown for GitHub traffic, using the source-leading rollup index
+GET http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/breakdown?site=benchmark-results&tz=UTC&from=2026-01-01&to=2026-12-31&compare=previous-period&dimension=country&limit=5&includeSessionMetrics=false&filter=source%3D%3DGitHub
+Accept: application/json
+Cache-Control: no-cache
+
+### Source breakdown for /blog, using the page-leading rollup index
+GET http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/breakdown?site=benchmark-results&tz=UTC&from=2026-01-01&to=2026-12-31&compare=previous-period&dimension=source&limit=5&includeSessionMetrics=false&filter=page%3D%3D%2Fblog
+Accept: application/json
+Cache-Control: no-cache
+```
 
 The summary and time series retain their default session-metric requests. Top pages use `limit=5` and `includePageFlowMetrics=false`. Source and country breakdowns use `limit=5`; devices use `limit=10`. All three breakdowns set `includeSessionMetrics=false`, matching the overview UI.
 

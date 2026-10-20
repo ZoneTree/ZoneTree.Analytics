@@ -30,7 +30,20 @@ Indexes follow the retention of their source data. Increasing retention or addin
 
 ## Configure cleanup
 
-<import-codeblock src="./retention.cs"/>
+```csharp
+var options = new AnalyticsOptions
+{
+    Retention =
+    {
+        RawEvents = TimeSpan.FromDays(30),
+        HourRollups = TimeSpan.FromDays(180),
+        DayRollups = null,
+    },
+};
+
+await using var analytics = new AnalyticsEngine(options);
+// Scheduled cleanup remains enabled with its default interval.
+```
 
 This keeps detailed events for 30 days, hourly aggregates for 180 days, and daily aggregates indefinitely. Scheduled cleanup stays enabled.
 
@@ -40,7 +53,10 @@ For a host that deliberately owns its maintenance schedule, `CheckInterval=null`
 
 ## Erase an identified visitor
 
-<import-codeblock src="./visitor-erasure.cs"/>
+```csharp
+long removed = await analytics.EraseVisitorAsync(
+    "customer-42", site: "shop", cancellationToken: cancellationToken);
+```
 
 Supply the same explicit visitor ID and site used for collection. Erasure removes retained raw events, their configured dimension-index copies, and active session state. Its return value counts deleted raw events.
 

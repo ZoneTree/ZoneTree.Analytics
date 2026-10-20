@@ -17,7 +17,22 @@ For a complete application workflow, see [product analytics](../product-analytic
 
 This report compares traffic and conversion by source:
 
-<import-codeblock src="./guides-querying-1.cs"/>
+```csharp
+var result = await analytics.QueryAsync(new AnalyticsQuery
+{
+    Range = DateRange.LastDays(30),
+    GroupBy = { StandardDimensions.Source },
+    Metrics = { Metric.Visitors, Metric.BounceRate, Metric.ConversionRate("purchase") },
+    OrderBy = { Order.By(Metric.Visitors) },
+    Limit = 10,
+});
+
+foreach (var row in result.Rows)
+    Console.WriteLine($"{row[StandardDimensions.Source]}: {row[Metric.Visitors]} visitors, " +
+        $"{row[Metric.BounceRate]:P0} bounce, {row[Metric.ConversionRate("purchase")]:P1} converted");
+
+Console.WriteLine($"{result.Totals[Metric.Visitors]} visitors in total");
+```
 
 `Event` selects the base activity, page views by default. `Metrics` selects the measures, and `GroupBy` determines one or more categories in each result row.
 
@@ -27,7 +42,20 @@ For purchases, set `Event="purchase"` and choose purchase counts or revenue metr
 
 Add event filters to select the audience or activity your report should cover. Filters in the list combine with AND; use a nested group when an OR condition is needed:
 
-<import-codeblock src="./query-audience.cs"/>
+```csharp
+var report = await analytics.QueryAsync(new AnalyticsQuery
+{
+    Range = DateRange.LastDays(30),
+    GroupBy = { StandardDimensions.Source },
+    Filters =
+    {
+        Filter.AnyOf(
+            Filter.Equal(StandardDimensions.Country, "DE"),
+            Filter.Equal(StandardDimensions.Country, "AT")),
+    },
+    Metrics = { Metric.Visitors, Metric.PageViews },
+});
+```
 
 A filter selects matching events. A [behavioral segment](../segments-and-funnels/segments-and-funnels.mdx) instead selects visitors or sessions based on another action.
 
@@ -35,7 +63,23 @@ A filter selects matching events. A [behavioral segment](../segments-and-funnels
 
 Set an interval to return a time series. This purchase report combines average order value, cumulative revenue, a moving average, and purchase rate:
 
-<import-codeblock src="./guides-querying-3.cs"/>
+```csharp
+var averageOrder = Metric.Sum("revenue") / Metric.Events;
+
+var result = await analytics.QueryAsync(new AnalyticsQuery
+{
+    Event = "purchase",
+    Range = DateRange.ThisMonth,
+    Interval = TimeInterval.Day,                              // or TimeInterval.Minutes(5), TimeInterval.Hours(6)
+    Metrics =
+    {
+        averageOrder,
+        Metric.Cumulative(Metric.Sum("revenue")),             // month to date
+        Metric.MovingAverage(Metric.Visitors, 7),             // 7-day moving average
+        Metric.Rate(Metric.Events, TimeSpan.FromHours(1)),    // purchases per hour
+    },
+});
+```
 
 Choose an interval that matches the decision: hourly for recent activity, daily for trends, or monthly for longer comparisons. Calendar buckets follow the report's time zone.
 
@@ -43,7 +87,15 @@ Choose an interval that matches the decision: hourly for recent activity, daily 
 
 A conditional metric measures only matching contributions while retaining the surrounding report context. For example, an error rate can combine all requests with the subset carrying an error status.
 
-<import-codeblock src="./conditional-metrics.cs"/>
+```csharp
+var errors = Metric.Events.Where(Filter.GreaterThanOrEqual("status", 500));
+var report = await analytics.QueryAsync(new AnalyticsQuery
+{
+    Event = "request_completed",
+    GroupBy = { "route" },
+    Metrics = { Metric.Events, errors, errors / Metric.Events },
+});
+```
 
 Here `status` is a dimension containing a numeric HTTP status. The query's base event is `request_completed`, so both the numerator and denominator measure requests. See [service telemetry](../telemetry/telemetry.mdx) for collection and rollup configuration.
 
@@ -55,7 +107,17 @@ Use `OrderBy`, `Limit`, and `Offset` for sorted, paged reports. Use `Having` whe
 
 For the page with the highest recorded load time on each day, use `LimitPerBucket`. The events must carry a numeric `load_time` value in a consistent unit:
 
-<import-codeblock src="./guides-querying-4.cs"/>
+```csharp
+var slowestPages = await analytics.QueryAsync(new AnalyticsQuery
+{
+    Range = DateRange.LastDays(30),
+    Interval = TimeInterval.Day,
+    GroupBy = { StandardDimensions.Page },
+    Metrics = { Metric.Max("load_time") },
+    OrderBy = { Order.ByBucket(), Order.By(Metric.Max("load_time")) },
+    LimitPerBucket = 1,
+});
+```
 
 Pagination limits returned rows. It does not reduce every group the engine must aggregate.
 
@@ -63,7 +125,15 @@ Pagination limits returned rows. It does not reduce every group the engine must 
 
 Rows contain the selected grouping values and metrics. `Totals` covers the full report before pagination, including de-duplicated visitors. This example reads the `result` from the acquisition-source recipe:
 
-<import-codeblock src="./guides-querying-8.cs"/>
+```csharp
+foreach (var row in result.Rows)
+{
+    Console.WriteLine($"{row[StandardDimensions.Source]}: {row[Metric.Visitors]} visitors");
+    if (row.Previous is { } previous)
+        Console.WriteLine($"Previous: {previous[Metric.Visitors]} visitors");
+}
+Console.WriteLine($"Total: {result.Totals[Metric.Visitors]} visitors");
+```
 
 With a comparison, rows can carry `Previous` values. A missing comparison is different from a measured zero.
 

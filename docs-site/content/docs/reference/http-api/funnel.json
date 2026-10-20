@@ -1,9 +1,0 @@
-{
-  "range": "30d",
-  "windowMinutes": 60,
-  "steps": [
-    { "name": "Pricing", "event": "pageview", "filters": ["page==/pricing"] },
-    { "name": "Signup", "event": "signup" },
-    { "name": "Purchase", "event": "purchase" }
-  ]
-}

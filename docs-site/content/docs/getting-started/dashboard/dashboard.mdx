@@ -15,11 +15,15 @@ Use the dashboard to explore website traffic, acquisition, audience, events, and
 
 Install UI dependencies from the repository root:
 
-<import-codeblock src="./dashboard-install.sh"/>
+```bash
+yarn install
+```
 
 Then run the server from the repository root:
 
-<import-codeblock src="./dashboard-run.sh"/>
+```bash
+dotnet run --project apps/ZoneTree.Analytics.Dashboard/server
+```
 
 Open **http://127.0.0.1:5088/**. The development profile starts the UI watcher automatically, so page and style changes update in the browser.
 
@@ -85,7 +89,9 @@ Sample tools operate on their own datasets. They do not replace your primary tra
 
 Generate the static UI:
 
-<import-codeblock src="./dashboard-publish.sh"/>
+```bash
+yarn workspace zonetree-analytics-dashboard publish
+```
 
 The server serves the published output from `ui/dist/publish`. Use `Dashboard:Watch=false` for static serving in Development, or `Dashboard:Path` for another output directory.
 

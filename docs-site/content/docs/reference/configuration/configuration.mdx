@@ -176,7 +176,23 @@ The dashboard extends raw retention and enables selected aggregates and indexes.
 
 Capture a custom session attribute from the first event and add a rollup when its reports should use aggregates:
 
-<import-codeblock src="./concepts-data-model-1.cs"/>
+```csharp
+using ZoneTree.Analytics;
+using ZoneTree.Analytics.Web;
+
+var options = new AnalyticsOptions();
+options.Sessions.Dimensions.Add("ab_variant");
+options.Rollups.Definitions.Add(new RollupDefinition("ab_variant"));
+
+await using var analytics = new AnalyticsEngine(options);
+analytics.Track(AnalyticsEvent.PageView(
+    "https://example.com/pricing",
+    ipAddress: "203.0.113.7",
+    userAgent: "Mozilla/5.0").WithDimension("ab_variant", "B"));
+
+var variants = await analytics.Web.GetBreakdownAsync(
+    new WebReportRequest(), "ab_variant");
+```
 
 Track the attribute as an event dimension, such as an experiment variant. Later values do not replace the session's original attribution, and the name must be allowed by the privacy policy.
 

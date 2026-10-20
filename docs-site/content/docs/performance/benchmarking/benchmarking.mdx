@@ -27,11 +27,17 @@ The dashboard generates varied sessions, sources, geography, devices, conversion
 
 Run the playground from the repository root:
 
-<import-codeblock src="./playground-benchmark.ps1"/>
+```powershell
+$env:DOTNET_TieredCompilation = '0'
+dotnet run -c Release --project src/ZoneTree.Analytics.Playground -- 1000000 30 1
+```
 
 For dashboard benchmarks, publish its UI and start the server:
 
-<import-codeblock src="./dashboard-benchmark.ps1"/>
+```powershell
+$env:DOTNET_TieredCompilation = '0'
+dotnet run -c Release --project apps/ZoneTree.Analytics.Dashboard/server -- --Dashboard:Watch=false
+```
 
 Use the same Release build, runtime, GC mode, compilation settings, and disk conditions across comparisons. The supplied commands disable tiered compilation to reduce timing variation.
 

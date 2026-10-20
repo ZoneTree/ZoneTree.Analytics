@@ -13,13 +13,31 @@ Add analytics to an ASP.NET Core application with a registered engine, a collect
 
 Create a minimal web project and install the package:
 
-<import-codeblock src="./create-web-host.sh"/>
+```bash
+dotnet new web -n AnalyticsHost
+cd AnalyticsHost
+dotnet add package ZoneTree.Analytics.AspNetCore
+```
 
 ## 2. Register tracking and reports
 
 Replace `Program.cs` with this development example:
 
-<import-codeblock src="./aspnet-host.cs"/>
+```csharp
+using ZoneTree.Analytics.AspNetCore;
+
+var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddZoneTreeAnalytics(
+    options => options.DataDirectory = "data/analytics");
+
+var app = builder.Build();
+app.UseZoneTreeAnalytics();
+app.MapGet("/", () => Results.Content(
+    "<!doctype html><html><body><h1>Hello analytics</h1></body></html>",
+    "text/html"));
+app.MapZoneTreeAnalyticsApi();
+await app.RunAsync();
+```
 
 `AddZoneTreeAnalytics` registers a shared engine with dependency injection. Your application can inject `IAnalyticsTracker` to record custom actions or `AnalyticsEngine` to read reports.
 
@@ -31,7 +49,9 @@ Host shutdown saves remaining work and closes the engine automatically.
 
 ## 3. Run and read a report
 
-<import-codeblock src="./run-web-host.sh"/>
+```bash
+dotnet run -- --urls http://localhost:5000
+```
 
 Open **http://localhost:5000/** to collect a visit, then **http://localhost:5000/_analytics/api/summary?range=30d** to read the report. On a fresh dataset, `summary.pageViews` becomes one after background processing. Refresh the report to see new activity.
 
@@ -58,7 +78,10 @@ Collection rules and excluded paths can limit which requests are tracked. Applic
 
 The example exposes reports for local development. In your deployed application, apply the host's authorization policy to the reporting route group:
 
-<import-codeblock src="./authorized-reporting.cs"/>
+```csharp
+// The host must register and configure authentication and authorization.
+app.MapZoneTreeAnalyticsApi().RequireAuthorization();
+```
 
 Register that policy in your host first. For multiple sites, also configure `AuthorizeSite` to restrict which site's data a caller can read.
 

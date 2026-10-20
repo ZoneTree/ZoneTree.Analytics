@@ -98,7 +98,35 @@ rollups are partitioned: list the partition names, then acquire a disposable lea
 closed partition opens it; listing names does not. A lease keeps the partition open and defers
 retention deletion until it is released.
 
-<import-codeblock src="./reference-engine-1.cs"/>
+```csharp
+using ZoneTree.Analytics.Storage;
+
+var raw = analytics.Storage.RawEvents; // null when raw event storage is disabled
+if (raw != null)
+{
+    foreach (var name in raw.GetPartitions())
+    {
+        using var partition = await raw.AcquireAsync(name);
+        if (partition == null) continue; // retention removed it after the list was read
+
+        var tree = partition.ZoneTree; // IZoneTree<Memory<byte>, Memory<byte>>
+        var maintainer = partition.Maintainer; // the engine's existing IMaintainer
+        using var iterator = tree.CreateIterator();
+        while (iterator.Next())
+        {
+            var stored = RawEventCodec.Decode(iterator.CurrentKey.Span, iterator.CurrentValue.Span);
+            if (stored == null) continue; // deletion marker
+            Console.WriteLine($"{stored.Site}: {stored.Timestamp:u} {stored.Name}");
+            if (stored.TryGetDimension("page", out var page)) Console.WriteLine(page);
+        }
+    }
+}
+
+var hourly = analytics.Storage.GetRollups(Granularity.Hour); // null when disabled
+// hourly.Acquire(name).ZoneTree is IZoneTree<Memory<byte>, RollupValue>.
+var sessions = analytics.Storage.Sessions; // IZoneTree<ulong, SessionState>, null when disabled
+var sessionsMaintainer = analytics.Storage.SessionsMaintainer;
+```
 
 `Acquire` and `AcquireAsync` accept a cancellation token and return null for a missing partition;
 they never create partitions. `GetRollups` takes exactly one of `Minute`, `Hour` or `Day`.
@@ -119,7 +147,25 @@ the rollup's site, event, bucket and a dictionary of named dimensions. Missing d
 to null and explicitly empty values to `""`. `EncodeRawEvent(key)` and `EncodeRollup(key)` convert
 the decoded keys back to bytes, ordering rollup dimensions canonically.
 
-<import-codeblock src="./reference-engine-2.cs"/>
+```csharp
+var hourly = analytics.Storage.GetRollups(Granularity.Hour);
+if (hourly != null)
+{
+    foreach (var name in hourly.GetPartitions())
+    {
+        using var partition = await hourly.AcquireAsync(name);
+        if (partition == null) continue;
+
+        using var iterator = partition.ZoneTree.CreateIterator();
+        while (iterator.Next())
+        {
+            var key = StorageKeyCodec.DecodeRollup(iterator.CurrentKey.Span);
+            var bucketStart = key.GetBucketStart(Granularity.Hour, analytics.TimeZone);
+            Console.WriteLine($"{bucketStart:u}: {key.Site} / {key.Event}");
+        }
+    }
+}
+```
 
 The rollup key does not contain its granularity: pass the tier's granularity and the engine's
 time zone to `GetBucketStart`. Minute and hour buckets store UTC ticks; daily buckets store a

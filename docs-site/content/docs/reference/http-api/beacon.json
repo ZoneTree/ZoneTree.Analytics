@@ -1,7 +1,0 @@
-{
-  "n": "purchase",
-  "u": "https://example.com/checkout",
-  "r": "https://example.com/pricing",
-  "p": { "plan": "pro" },
-  "m": { "revenue": 49.0 }
-}

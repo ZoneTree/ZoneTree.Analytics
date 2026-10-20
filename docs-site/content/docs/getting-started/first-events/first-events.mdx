@@ -11,13 +11,54 @@ Record website activity and a business event, then read traffic and revenue repo
 
 ## 1. Create the application
 
-<import-codeblock src="./create-console.sh"/>
+```bash
+dotnet new console -n MyAnalyticsApp
+cd MyAnalyticsApp
+dotnet add package ZoneTree.Analytics
+```
 
 ## 2. Track events and read reports
 
 Replace `Program.cs` with:
 
-<import-codeblock src="./first-events.cs"/>
+```csharp
+using ZoneTree.Analytics;
+using ZoneTree.Analytics.Web;
+
+await using var analytics = AnalyticsEngine.Open("data/analytics");
+var pageView = AnalyticsEvent.PageView(
+    url: "https://example.com/pricing",
+    referrer: "https://www.google.com/",
+    ipAddress: "203.0.113.7",
+    userAgent: "Mozilla/5.0");
+pageView.VisitorId = "customer-42";
+await analytics.TrackAsync(pageView);
+
+await analytics.TrackAsync(new AnalyticsEvent("purchase")
+{
+    VisitorId = "customer-42",
+    Dimensions = { ["plan"] = "pro" },
+    Values = { ["revenue"] = 49.0 },
+});
+
+Console.WriteLine("Two events accepted. Press Enter to read reports, or q to close.");
+while (Console.ReadLine() is { } input && !input.Equals("q", StringComparison.OrdinalIgnoreCase))
+{
+    var summary = await analytics.Web.GetSummaryAsync(new WebReportRequest
+    {
+        Range = DateRange.LastDays(30),
+    });
+    Console.WriteLine($"{summary.Summary.PageViews} page views");
+
+    var purchases = await analytics.QueryAsync(new AnalyticsQuery
+    {
+        Event = "purchase",
+        Metrics = { Metric.Events, Metric.Sum("revenue") },
+    });
+    Console.WriteLine($"Revenue: {purchases.Totals[Metric.Sum("revenue")]:F2}");
+    Console.WriteLine("Press Enter to refresh, or q to close.");
+}
+```
 
 The page view contributes to website reports. The purchase records a customer action, its plan, and its revenue amount. Both carry the same example customer ID so they belong to the same visitor.
 
@@ -25,7 +66,9 @@ Both use the same engine. Reports update automatically as events are processed, 
 
 ## 3. Run the program
 
-<import-codeblock src="./run-console.sh"/>
+```bash
+dotnet run
+```
 
 Press **Enter** to read the reports, and press it again to refresh. On a fresh dataset, the page-view total becomes **1** and revenue becomes **49.00** as the accepted events are processed. If you read immediately, a first report may still show zero; refresh after the next automatic update.
 

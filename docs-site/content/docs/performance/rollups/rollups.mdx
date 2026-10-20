@@ -17,11 +17,23 @@ Separate source and country totals cannot reconstruct the relationship between t
 
 Here is the report we want to accelerate:
 
-<import-codeblock src="./rollup-query.cs"/>
+```csharp
+var result = await analytics.QueryAsync(new AnalyticsQuery
+{
+    Range = DateRange.LastDays(30),
+    GroupBy = { StandardDimensions.Source },
+    Filters = { Filter.Equal(StandardDimensions.Country, "US") },
+    Metrics = { Metric.Visitors, Metric.PageViews },
+});
+```
 
 Add the matching joint definition to the options before opening the engine:
 
-<import-codeblock src="./performance-rollups-1.cs"/>
+```csharp
+options.Rollups.Definitions.Add(new RollupDefinition(
+    StandardDimensions.Source, StandardDimensions.Country));
+options.Rollups.Definitions.Add(new RollupDefinition("plan") { Events = ["purchase"] });
+```
 
 Configure definitions before opening the engine. Ordinary definitions added later cover new data; earlier ranges can still use retained raw events.
 
@@ -46,7 +58,21 @@ Each step names an event, a time range, and a source. Indexed steps also identif
 
 Inspect the `result` returned by the report:
 
-<import-codeblock src="./query-plan.cs"/>
+```csharp
+Console.WriteLine($"Complete coverage: {result.Plan.IsComplete}");
+Console.WriteLine($"Rollup index used: {result.Plan.UsedRollupIndexes}");
+Console.WriteLine($"Dimension index used: {result.Plan.UsedDimensionIndexes}");
+
+foreach (var step in result.Plan.Steps)
+    Console.WriteLine($"{step.Event}: {step.Source}, " +
+        $"{step.From:O} to {step.To:O}, index: {step.IndexDimension ?? "none"}");
+
+foreach (var warning in result.Plan.Warnings)
+    Console.WriteLine($"Warning: {warning}");
+
+foreach (var notice in result.Plan.Notices)
+    Console.WriteLine($"Notice: {notice}");
+```
 
 `UsedRawEvents` also includes dimension-index reads because those still aggregate individual event payloads. `UsedRollupIndexes` identifies the aggregate-index path. These flags can both be true when different parts of a report use different sources.
 
@@ -54,7 +80,28 @@ Inspect the `result` returned by the report:
 
 When automatic execution falls back because a suitable dimension set is missing, the plan can suggest a definition:
 
-<import-codeblock src="./performance-rollups-2.cs"/>
+```csharp
+// Apply to the options used to open the next engine.
+foreach (var group in result.Plan.RollupSuggestions.GroupBy(x => x.Definition.Id))
+{
+    var index = options.Rollups.Definitions.FindIndex(x => x.Id == group.Key);
+    var current = index >= 0 ? options.Rollups.Definitions[index] : null;
+    if (current != null && current.Events == null)
+        continue; // This dimension set already covers every event.
+
+    var definition = new RollupDefinition(group.First().Definition.Dimensions.ToArray())
+    {
+        Events = group.Select(x => x.Event)
+            .Concat(current?.Events ?? [])
+            .Distinct(StringComparer.Ordinal)
+            .ToArray(),
+    };
+    if (index < 0)
+        options.Rollups.Definitions.Add(definition);
+    else
+        options.Rollups.Definitions[index] = definition;
+}
+```
 
 Apply a suggestion to the configuration used to open the next engine. It accelerates newly tracked activity; an ordinary added definition does not rebuild expired or existing history.
 
@@ -66,7 +113,11 @@ Suggestions are advisory. They do not resolve every cause of raw execution, such
 
 Counts and standard numeric aggregates are stored in rollups. Percentiles, first and last values, and distinct dimension counts require additional state:
 
-<import-codeblock src="./performance-rollups-3.cs"/>
+```csharp
+options.Rollups.ValueAggregates["load_time"] = ValueAggregates.Percentiles;
+options.Rollups.ValueAggregates["temperature"] = ValueAggregates.FirstAndLast;
+options.Rollups.DistinctDimensions.Add("tenant");
+```
 
 Without the required aggregate state, the engine uses retained raw events where available. A query that needs unavailable history or disabled raw storage can produce a warning or fail, depending on the request.
 

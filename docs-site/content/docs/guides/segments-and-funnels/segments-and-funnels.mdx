@@ -21,7 +21,32 @@ Examples use an existing engine and retained event history.
 
 A visitor segment includes considered events from matching visitor identities. A session segment includes considered events from matching sessions. An ordinary event filter only selects individual matching events.
 
-<import-codeblock src="./guides-segments-and-funnels-1.cs"/>
+```csharp
+var buyers = new AnalyticsQuery
+{
+    Metrics = { Metric.Visitors },
+    Segments = { Segment.VisitorsWho("purchase") },
+};
+
+var pricingVisits = new AnalyticsQuery
+{
+    Metrics = { Metric.Visitors },
+    Segments =
+    {
+        Segment.SessionsWith(
+            StandardEvents.PageView,
+            Filter.Equal(StandardDimensions.Page, "/pricing")),
+    },
+};
+
+var nonBuyers = new AnalyticsQuery
+{
+    Metrics = { Metric.Visitors },
+    Segments = { Segment.VisitorsWho("purchase").Exclude() },
+};
+
+var report = await analytics.QueryAsync(buyers);
+```
 
 Use one segment at a time when comparing these audiences. Adding several segments to a query requires membership in all of them.
 
@@ -29,7 +54,22 @@ Use one segment at a time when comparing these audiences. Adding several segment
 
 A funnel matches required steps in order, allowing other actions between them:
 
-<import-codeblock src="./guides-segments-and-funnels-2.cs"/>
+```csharp
+var funnel = await analytics.QueryAsync(new FunnelQuery
+{
+    Range = DateRange.LastDays(30),
+    Steps =
+    {
+        FunnelStep.Page("Pricing", "/pricing"),
+        FunnelStep.Page("Signup form", "/signup"),
+        FunnelStep.Goal("signup"),
+    },
+    Window = TimeSpan.FromDays(1),   // null: all steps within one session
+});
+
+foreach (var step in funnel.Steps)
+    Console.WriteLine($"{step.Name}: {step.Visitors} ({step.ConversionRate:P0}, drop-off {step.DropOff})");
+```
 
 The result shows visitors reaching each step, conversion from the first step, conversion from the previous step, and drop-off.
 

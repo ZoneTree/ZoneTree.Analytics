@@ -35,7 +35,9 @@ Startup checks configuration and index coverage. Adding indexes to a large retai
 
 Use initialization logs to follow the backfill. To delay readiness until background index work finishes, await:
 
-<import-codeblock src="./wait-for-indexes.cs"/>
+```csharp
+await analytics.WaitForIndexesAsync(cancellationToken);
+```
 
 The wait includes index builds, repairs, and reconstruction of indexed rollup history. It raises `AnalyticsStorageException` if an index cannot be built in this engine instance; queries continue using the available sources, and reopening the engine resumes the build. Canceling the token stops waiting without stopping background work.
 

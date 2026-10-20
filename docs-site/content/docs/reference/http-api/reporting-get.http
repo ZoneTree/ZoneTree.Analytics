@@ -1,7 +1,0 @@
-### Traffic totals for the last 30 calendar days
-GET http://localhost:5000/_analytics/api/summary?range=30d&tz=UTC
-Accept: application/json
-
-### Countries represented in GitHub traffic
-GET http://localhost:5000/_analytics/api/breakdown?range=30d&tz=UTC&dimension=country&filter=source%3D%3DGitHub&includeSessionMetrics=false
-Accept: application/json

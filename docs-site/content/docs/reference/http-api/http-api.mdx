@@ -11,7 +11,10 @@ The ASP.NET Core integration exposes browser collection and reporting routes. Th
 
 ## Register routes
 
-<import-codeblock src="./http-routes.cs"/>
+```csharp
+app.MapZoneTreeAnalytics();
+app.MapZoneTreeAnalyticsApi().RequireAuthorization();
+```
 
 The host configures its authentication and authorization policies. Override collection paths through `AnalyticsWebOptions.PathPrefix` and reporting paths through `MapZoneTreeAnalyticsApi`.
 
@@ -35,7 +38,15 @@ Automation identified through `navigator.webdriver` is excluded by the script. R
 
 ### Beacon payload
 
-<import-codeblock src="./beacon.json"/>
+```json
+{
+  "n": "purchase",
+  "u": "https://example.com/checkout",
+  "r": "https://example.com/pricing",
+  "p": { "plan": "pro" },
+  "m": { "revenue": 49.0 }
+}
+```
 
 | Field | Meaning |
 | --- | --- |
@@ -73,8 +84,39 @@ List reports contain from, to, totalRows, rows, and plan. Summary reports contai
 These examples use HTTP-file syntax. Replace `http://localhost:5000` with your reporting host and supply its authentication credentials when required. The local address matches the [ASP.NET Core quick start](../../getting-started/aspnet-core/aspnet-core.mdx).
 
 <Tabs group="reporting-http" selectedTab="reporting-get" ariaLabel="Reporting request examples" tone="neutral" variant="none">
-  <TabPane id="reporting-get" label="GET reports"><import-codeblock src="./reporting-get.http"/></TabPane>
-  <TabPane id="reporting-post" label="POST a query"><import-codeblock src="./reporting-post.http"/></TabPane>
+  <TabPane id="reporting-get" label="GET reports">
+
+```http
+### Traffic totals for the last 30 calendar days
+GET http://localhost:5000/_analytics/api/summary?range=30d&tz=UTC
+Accept: application/json
+
+### Countries represented in GitHub traffic
+GET http://localhost:5000/_analytics/api/breakdown?range=30d&tz=UTC&dimension=country&filter=source%3D%3DGitHub&includeSessionMetrics=false
+Accept: application/json
+```
+
+</TabPane>
+  <TabPane id="reporting-post" label="POST a query">
+
+```http
+### Daily purchase count and revenue for the shop site
+POST http://localhost:5000/_analytics/api/query
+Content-Type: application/json
+Accept: application/json
+
+{
+  "site": "shop",
+  "event": "purchase",
+  "range": "30d",
+  "tz": "UTC",
+  "interval": "day",
+  "metrics": ["events", "sum:revenue_usd"],
+  "fill": "none"
+}
+```
+
+</TabPane>
 </Tabs>
 
 The second GET URL encodes `source==GitHub` and groups the matching traffic by country. The POST uses the event fields from the [product analytics guide](../../guides/product-analytics/product-analytics.mdx); a different site or value name must match your own collection.
@@ -101,7 +143,18 @@ Date-only bounds include both calendar days in `tz`. Date-time bounds include th
 
 ### General query
 
-<import-codeblock src="./reference-http-api-1.json"/>
+```json
+{
+  "range": "30d",
+  "groupBy": ["source"],
+  "metrics": ["visitors", "bounce_rate", "conversion_rate:signup"],
+  "filters": ["country==DE|AT"],
+  "having": ["visitors>10"],
+  "orderBy": ["-visitors"],
+  "limit": 10,
+  "compare": "previous-period"
+}
+```
 
 Post this JSON object to `/query` to compare source traffic and signup conversion within Germany and Austria. It assumes the corresponding page views and signup events carry matching visitor identity and geography. The `having` condition keeps groups with more than ten visitors; omit it to include smaller audiences.
 
@@ -111,7 +164,17 @@ Source chooses Auto, Rollups, or RawEvents. Fill chooses none, zero, previous, o
 
 ### Funnel
 
-<import-codeblock src="./funnel.json"/>
+```json
+{
+  "range": "30d",
+  "windowMinutes": 60,
+  "steps": [
+    { "name": "Pricing", "event": "pageview", "filters": ["page==/pricing"] },
+    { "name": "Signup", "event": "signup" },
+    { "name": "Purchase", "event": "purchase" }
+  ]
+}
+```
 
 Each step requires an event and can supply a name and filters. Omit windowMinutes for a single-session funnel; a supplied window must be positive.
 
@@ -127,7 +190,40 @@ Both default to true. Disabled fields are null, including comparison fields. Exi
 
 A general query returns metric-keyed objects. Here is an example response for a daily purchase report with no grouping or gap filling:
 
-<import-codeblock src="./query-response.json"/>
+```json
+{
+  "from": "2026-06-16T00:00:00+00:00",
+  "to": "2026-07-16T00:00:00+00:00",
+  "timeZone": "UTC",
+  "interval": "day",
+  "groupBy": [],
+  "metrics": ["events", "sum:revenue_usd"],
+  "totalRows": 1,
+  "totals": {
+    "values": { "events": 2, "sum:revenue_usd": 98 }
+  },
+  "rows": [
+    {
+      "bucket": "2026-07-15T00:00:00+00:00",
+      "values": { "events": 2, "sum:revenue_usd": 98 }
+    }
+  ],
+  "plan": {
+    "complete": true,
+    "warnings": [],
+    "notices": [],
+    "steps": [
+      {
+        "event": "purchase",
+        "source": "DayRollups",
+        "from": "2026-06-16T00:00:00+00:00",
+        "to": "2026-07-16T00:00:00+00:00"
+      }
+    ],
+    "rollupSuggestions": []
+  }
+}
+```
 
 | Field | How to use it |
 | --- | --- |

@@ -23,7 +23,17 @@ Events describe what happened. Dimensions describe its context. Numeric values m
 
 Only the event name is required. Names beginning with `$` are reserved for engine-maintained events.
 
-<import-codeblock src="./event-model.cs"/>
+```csharp
+var purchase = new AnalyticsEvent("purchase")
+{
+    Site = "shop",
+    VisitorId = "customer-42",
+    Url = "https://example.com/checkout",
+    Dimensions = { ["plan"] = "pro" },
+    Values = { ["revenue"] = 49.0 },
+};
+analytics.Track(purchase);
+```
 
 An event can also describe a completed job with a queue dimension and duration value, without a visitor or URL.
 

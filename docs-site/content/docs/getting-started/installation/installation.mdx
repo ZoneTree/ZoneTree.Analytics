@@ -18,7 +18,10 @@ Add analytics to an existing .NET application or start with a small example. The
 
 Both packages support .NET 8, 9, and 10. The ASP.NET Core package includes the core engine as a dependency.
 
-<import-codeblock src="./getting-started-installation-1.sh"/>
+```bash
+dotnet add package ZoneTree.Analytics
+dotnet add package ZoneTree.Analytics.AspNetCore   # optional: middleware, tracker, reporting API
+```
 
 Install the packages into the application that will collect or report on your data.
 

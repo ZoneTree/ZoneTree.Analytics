@@ -24,7 +24,24 @@ Keep units explicit. This example records revenue in US dollars; a report must n
 
 ## Record the completed actions
 
-<import-codeblock src="./product-events.cs"/>
+```csharp
+const string customerId = "customer-42";
+
+await analytics.TrackAsync(new AnalyticsEvent("checkout_started")
+{
+    Site = "shop",
+    VisitorId = customerId,
+    Dimensions = { ["plan"] = "pro" },
+});
+
+await analytics.TrackAsync(new AnalyticsEvent("purchase")
+{
+    Site = "shop",
+    VisitorId = customerId,
+    Dimensions = { ["plan"] = "pro" },
+    Values = { ["revenue_usd"] = 49.0 },
+});
+```
 
 Replace the sample customer and amounts with values from your application. Emit a purchase from the business operation that confirms the order, rather than every time a confirmation page is rendered.
 
@@ -32,7 +49,26 @@ Events are counted as submitted. A visitor ID joins activity; it does not dedupl
 
 ## Compare purchases and revenue by plan
 
-<import-codeblock src="./product-revenue.cs"/>
+```csharp
+var revenue = Metric.Sum("revenue_usd");
+var averageOrder = revenue / Metric.Events;
+var sales = await analytics.QueryAsync(new AnalyticsQuery
+{
+    Site = "shop",
+    Event = "purchase",
+    Range = DateRange.LastDays(30),
+    GroupBy = { "plan" },
+    Metrics = { Metric.Events, Metric.Visitors, revenue, averageOrder },
+    OrderBy = { Order.By(revenue) },
+});
+
+foreach (var row in sales.Rows)
+    Console.WriteLine($"{row["plan"]}: {row[Metric.Events]} purchases, " +
+        $"{row[Metric.Visitors]} buyers, USD {row[revenue]:F2} revenue, " +
+        $"USD {row[averageOrder]:F2} average order");
+
+Console.WriteLine($"Total buyers: {sales.Totals[Metric.Visitors]}");
+```
 
 The report answers four different questions:
 
@@ -47,7 +83,23 @@ One customer buying twice contributes two purchases and one buyer. Overall disti
 
 ## Measure checkout completion
 
-<import-codeblock src="./product-funnel.cs"/>
+```csharp
+var checkout = await analytics.QueryAsync(new FunnelQuery
+{
+    Site = "shop",
+    Range = DateRange.LastDays(30),
+    Window = TimeSpan.FromDays(1),
+    Steps =
+    {
+        FunnelStep.Goal("checkout_started"),
+        FunnelStep.Goal("purchase"),
+    },
+});
+
+Console.WriteLine($"Checkout completion: {checkout.ConversionRate:P1}");
+foreach (var step in checkout.Steps)
+    Console.WriteLine($"{step.Name}: {step.Visitors} customers");
+```
 
 This funnel counts customers who start checkout and later purchase within one day. Other actions may occur between the two steps. It measures completion of that path, rather than dividing unrelated event totals.
 
@@ -57,7 +109,12 @@ A one-day window can span sessions. The explicit customer ID keeps the identity 
 
 For a frequently used plan report, add its rollup before opening the engine:
 
-<import-codeblock src="./product-rollup.cs"/>
+```csharp
+options.Rollups.Definitions.Add(new RollupDefinition("plan")
+{
+    Events = ["purchase"],
+});
+```
 
 The purchase report can then use pre-aggregated plan rows for eligible ranges. A new ordinary definition starts coverage at activation; it does not rebuild existing purchases automatically.
 

@@ -13,7 +13,21 @@ The .NET examples on this page use an existing `analytics` engine. Keep that eng
 
 ## Record visits and business actions
 
-<import-codeblock src="./tracking.cs"/>
+```csharp
+var pageView = AnalyticsEvent.PageView(
+    "https://example.com/pricing?utm_source=newsletter",
+    "https://www.google.com/",
+    "203.0.113.7",
+    "Mozilla/5.0");
+pageView.VisitorId = "customer-42";
+analytics.Track(pageView);
+
+bool accepted = await analytics.TrackAsync(
+    new AnalyticsEvent("purchase") { VisitorId = "customer-42" }
+        .WithDimension("plan", "pro")
+        .WithValue("revenue", 49.0),
+    cancellationToken);
+```
 
 Page views provide website context. Named custom events describe product activity, and numeric values provide measurements such as revenue or duration.
 
@@ -39,7 +53,16 @@ Use an explicit timestamp when importing historical events. Retention determines
 
 Map the tracker endpoints in your ASP.NET Core host, then add the script and record a custom action:
 
-<import-codeblock src="./browser-tracker.html"/>
+```html
+<script defer src="/_analytics/script.js"></script>
+<script>
+  window.zta = window.zta || function () {
+    window.zta.q = window.zta.q || [];
+    window.zta.q.push(arguments);
+  };
+  zta('signup', { plan: 'pro' });
+</script>
+```
 
 The browser tracker records page views automatically. Use one collection method for each visit: server middleware or automatic browser page views. See [ASP.NET Core integration](../../getting-started/aspnet-core/aspnet-core.mdx) for the choice.
 
@@ -55,7 +78,22 @@ Daily anonymous rotation is appropriate for website traffic; explicit or persist
 
 Bots are excluded by default. Enable `BotTraffic.TrackSeparately` to report automated hits alongside human traffic:
 
-<import-codeblock src="./guides-tracking-1.cs"/>
+```csharp
+options.Web.Bots = BotTraffic.TrackSeparately;
+
+var summary = (await analytics.Web.GetSummaryAsync(request)).Summary;   // BotHits next to PageViews
+var pages   = await analytics.Web.GetPagesAsync(request);     // PageStats.BotHits per page
+var bots    = await analytics.Web.GetBotsAsync(request);      // name, category, hits and share
+
+// Which pages do AI crawlers read?
+var ai = await analytics.QueryAsync(new AnalyticsQuery
+{
+    Event = StandardEvents.Bot,
+    GroupBy = { StandardDimensions.Page },
+    Filters = { Filter.Equal(StandardDimensions.BotCategory, BotCategories.AI) },
+    Metrics = { Metric.Events },
+});
+```
 
 Bot hits do not count as human visitors, sessions, or conversions. Browser tracking sees only automated clients that execute the script; server tracking can observe clients requesting HTML.
 

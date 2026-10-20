@@ -23,7 +23,19 @@ The dashboard's defaults are application choices. They are not automatically app
 
 This complete program chooses a default site, reporting time zone, and raw-event retention:
 
-<import-codeblock src="./operations-configuration-1.cs"/>
+```csharp
+using ZoneTree.Analytics;
+
+var options = new AnalyticsOptions
+{
+    DataDirectory = "data/analytics",
+    DefaultSite = "shop",
+    TimeZone = TimeZoneInfo.Utc,
+    Retention = { RawEvents = TimeSpan.FromDays(90) },
+};
+
+await using var analytics = new AnalyticsEngine(options);
+```
 
 Set members of existing option groups in place. Add to collections rather than replacing getter-only groups.
 

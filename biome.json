@@ -44,10 +44,7 @@
   },
   "overrides": [
     {
-      "includes": [
-        "src/ZoneTree.Analytics.AspNetCore/tracker.js",
-        "docs-site/content/docs/guides/tracking/browser-tracker.html"
-      ],
+      "includes": ["src/ZoneTree.Analytics.AspNetCore/tracker.js"],
       "linter": {
         "rules": {
           "complexity": {

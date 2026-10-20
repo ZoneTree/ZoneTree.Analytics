@@ -1,6 +1,15 @@
 {
   "mode": "merge",
   "pageLinks": true,
+  "icons": {
+    "/docs/": "iconoir:home",
+    "/docs/getting-started/": "iconoir:rocket",
+    "/docs/concepts/": "iconoir:book",
+    "/docs/guides/": "iconoir:compass",
+    "/docs/performance/": "iconoir:stats-report",
+    "/docs/operations/": "iconoir:tools",
+    "/docs/reference/": "iconoir:code"
+  },
   "sequence": [
     "index",
     "getting-started",

@@ -13,7 +13,31 @@ The examples use `ZoneTree.Analytics`. Configuration applies before opening the 
 
 ## Configure a telemetry dataset
 
-<import-codeblock src="./telemetry-options.cs"/>
+```csharp
+var options = new AnalyticsOptions
+{
+    DataDirectory = "data/telemetry",
+    DefaultSite = "service",
+};
+options.Privacy.VisitorIdentification = VisitorIdentification.None;
+options.Sessions.Enabled = false;
+options.Rollups.Definitions.Clear();
+options.Rollups.Definitions.Add(new RollupDefinition()
+{
+    Events = ["request_completed"],
+});
+options.Rollups.Definitions.Add(new RollupDefinition("route")
+{
+    Events = ["request_completed"],
+});
+options.Rollups.Definitions.Add(new RollupDefinition("route", "status")
+{
+    Events = ["request_completed"],
+});
+options.Rollups.ValueAggregates["duration_ms"] = ValueAggregates.Percentiles;
+
+await using var analytics = new AnalyticsEngine(options);
+```
 
 This configuration is for a **separate telemetry engine**, with its own directory. It disables visitor identity and session tracking, replaces website rollups with the dimension sets needed here, and enables percentile state for `duration_ms`.
 
@@ -21,7 +45,18 @@ If your application also collects website traffic, keep its identity and session
 
 ## Record one completed request
 
-<import-codeblock src="./telemetry-event.cs"/>
+```csharp
+await analytics.TrackAsync(new AnalyticsEvent("request_completed")
+{
+    Site = "service",
+    Dimensions =
+    {
+        ["route"] = "/orders/:id",
+        ["status"] = "503",
+    },
+    Values = { ["duration_ms"] = 182.5 },
+});
+```
 
 Record the final status and elapsed duration when the request completes. Replace the illustrative values with measurements from your application.
 
@@ -35,7 +70,26 @@ Keep the value unit consistent across producers. The engine stores the number yo
 
 ## Compare volume, errors, and latency
 
-<import-codeblock src="./telemetry-report.cs"/>
+```csharp
+var errors = Metric.Events.Where(Filter.GreaterThanOrEqual("status", 500));
+var errorRate = errors / Metric.Events;
+var average = Metric.Average("duration_ms");
+var p95 = Metric.Percentile("duration_ms", 95);
+
+var health = await analytics.QueryAsync(new AnalyticsQuery
+{
+    Site = "service",
+    Event = "request_completed",
+    Range = DateRange.LastDays(7),
+    GroupBy = { "route" },
+    Metrics = { Metric.Events, errors, errorRate, average, p95 },
+    OrderBy = { Order.By(p95) },
+});
+
+foreach (var row in health.Rows)
+    Console.WriteLine($"{row["route"]}: {row[Metric.Events]} requests, " +
+        $"{row[errorRate]:P1} errors, avg {row[average]:F1} ms, p95 {row[p95]:F1} ms");
+```
 
 The error metric includes statuses of 500 or higher, while total requests includes all statuses. Filtering the entire query to errors would remove successful requests from the denominator.
 
@@ -43,7 +97,22 @@ The error rate is a fraction; percentage formatting makes it readable. Average a
 
 ## Follow changes over time
 
-<import-codeblock src="./telemetry-timeseries.cs"/>
+```csharp
+var throughput = await analytics.QueryAsync(new AnalyticsQuery
+{
+    Site = "service",
+    Event = "request_completed",
+    Range = DateRange.Last(TimeSpan.FromHours(1)),
+    Interval = TimeInterval.Minutes(5),
+    Filters = { Filter.Equal("route", "/orders/:id") },
+    Metrics =
+    {
+        Metric.Rate(Metric.Events, TimeSpan.FromMinutes(1)),
+        Metric.Average("duration_ms"),
+    },
+    Fill = FillMode.None,
+});
+```
 
 The time series reports requests per minute and average duration for one route. `FillMode.None` leaves missing buckets absent rather than presenting an interval with no measurements as a zero-millisecond average.
 

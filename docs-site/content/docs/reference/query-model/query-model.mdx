@@ -57,7 +57,15 @@ Metrics that read different events execute as separate sub-queries and join by b
 
 The engine runs sub-queries for the events and metric-local conditions needed by a request, then joins results by bucket and group values. By default, any metric can contribute a result row. Set `OnlyRowsWithBaseEvent=true` to keep only groups with base-event activity. Query filters apply to every sub-query.
 
-<import-codeblock src="./conditional-metrics.cs"/>
+```csharp
+var errors = Metric.Events.Where(Filter.GreaterThanOrEqual("status", 500));
+var report = await analytics.QueryAsync(new AnalyticsQuery
+{
+    Event = "request_completed",
+    GroupBy = { "route" },
+    Metrics = { Metric.Events, errors, errors / Metric.Events },
+});
+```
 
 A conditional metric is answered from rollups when a rollup definition covers the group-by and filter dimensions together with the dimensions of its conditions, otherwise from raw events; on a formula, the conditions apply to every aggregate in it. Histograms and `CountBetween` read the percentile sketches, so they need `ValueAggregates.Percentiles` to be answered from rollups.
 
@@ -114,13 +122,35 @@ Conditions in a query's filter list are combined with AND. Alternative values in
 
 Histogram returns one metric per adjacent pair of edges. Add those metrics to a query to report a distribution:
 
-<import-codeblock src="./histogram.cs"/>
+```csharp
+var query = new AnalyticsQuery
+{
+    Range = DateRange.LastDays(30),
+    GroupBy = { StandardDimensions.Page },
+};
+query.Metrics.AddRange(Metric.Histogram(
+    "load_time", [0, 100, 250, 500, 1000, double.PositiveInfinity]));
+var report = await analytics.QueryAsync(query);
+```
 
 Configure percentile aggregate state for rollup execution; retained raw events can supply the measurement when that state is unavailable.
 
 ## Ranges, intervals, and comparisons
 
-<import-codeblock src="./concepts-time-and-accuracy-1.cs"/>
+```csharp
+var today = DateRange.Today;
+var completedWeek = DateRange.LastDays(7, includeToday: false);
+var recentActivity = DateRange.Last(TimeSpan.FromMinutes(30));
+var calendarPeriod = DateRange.Days(
+    new DateOnly(2026, 6, 14), new DateOnly(2026, 7, 15));
+
+var query = new AnalyticsQuery
+{
+    Range = calendarPeriod,
+    TimeZone = TimeZoneInfo.FindSystemTimeZoneById("Europe/Berlin"),
+    Compare = ComparisonPeriod.PreviousPeriod,
+};
+```
 
 **Text forms.** Ranges, comparison periods, filters, metrics, conditions, sort keys, segments and intervals each have a text form: `Parse` reads it, `TryParse` tries to, and `ToString()` writes it back. The reporting API uses the same syntax.
 
@@ -154,7 +184,16 @@ Queries and funnels that run longer than `Queries.Timeout` (30 seconds by defaul
 
 `StandardDimensions.HourOfDay` (`$hour_of_day`) and `DayOfWeek` (`$day_of_week`) are computed in the query's time zone. Hours are two digits, `00`–`23`, so they sort in time order; weekdays are Monday=1 through Sunday=7.
 
-<import-codeblock src="./guides-querying-7.cs"/>
+```csharp
+var byHour = new AnalyticsQuery
+{
+    Range = DateRange.LastDays(30),
+    TimeZone = TimeZoneInfo.FindSystemTimeZoneById("Europe/Berlin"),
+    GroupBy = { StandardDimensions.DayOfWeek, StandardDimensions.HourOfDay },
+    Filters = { Filter.LessThanOrEqual(StandardDimensions.DayOfWeek, 5) },
+    Metrics = { Metric.Events, Metric.Visitors },
+};
+```
 
 Use them in grouping, filters, and conditional metrics. They are computed rather than stored dimensions, so omit them from rollup definitions.
 
