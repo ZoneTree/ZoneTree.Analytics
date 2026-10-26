@@ -36,6 +36,7 @@ static partial class SettingsMapper
     ValidateNumbers(settings);
     ValidateGeneral(settings, contentRoot, systemDirectory);
     ValidateSites(settings.Sites);
+    ValidateLocation(settings.Location);
     if (settings.Rollups.Granularities.Count == 0)
       throw new SettingsValidationException("Choose at least one rollup granularity.", "rollups.granularities");
     if (settings.Indexes.Dimensions.Count > 0 && !settings.Storage.StoreRawEvents)
@@ -155,6 +156,17 @@ static partial class SettingsMapper
         || second.StartsWith(first + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
   }
 
+  static void ValidateLocation(LocationSettings location)
+  {
+    if (location.Database is not (LocationSettings.Off or LocationSettings.UserCountry or LocationSettings.DbIpCity or LocationSettings.Custom))
+      throw new SettingsValidationException("Choose an IP location database.", "location.database");
+    if (location.Database == LocationSettings.Custom && location.Urls.Count == 0)
+      throw new SettingsValidationException("Add the URLs of the custom database files.", "location.urls");
+    foreach (var url in location.Urls)
+      if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https"))
+        throw new SettingsValidationException($"{url} is not an HTTP or HTTPS URL.", "location.urls");
+  }
+
   static void ValidateSites(SitesSettings sites)
   {
     if (sites.Items.Count == 0)
@@ -198,8 +210,7 @@ static partial class SettingsMapper
     return value.TrimEnd('/', '.');
   }
 
-  public static AnalyticsOptions ToOptions(DashboardSettings settings, string contentRoot, ILogger logger,
-      IGeoLocator geoLocator = null)
+  public static AnalyticsOptions ToOptions(DashboardSettings settings, string contentRoot, ILogger logger)
   {
     var options = new AnalyticsOptions
     {
@@ -212,11 +223,20 @@ static partial class SettingsMapper
 
     var tracking = settings.Tracking;
     options.Web.Bots = tracking.Bots;
-    options.Web.GeoLocator = geoLocator;
     options.Web.TrimTrailingSlash = tracking.TrimTrailingSlash;
     options.Web.LowercasePaths = tracking.LowercasePaths;
     foreach (var host in tracking.InternalHosts) options.Web.InternalHosts.Add(host);
     foreach (var (host, source) in tracking.ReferrerSources) options.Web.ReferrerSources[host] = source;
+
+    var location = settings.Location;
+    options.Web.IpLocation.Sources.AddRange(location.Database switch
+    {
+      LocationSettings.UserCountry => IpLocationSources.UserCountry,
+      LocationSettings.DbIpCity => IpLocationSources.DbIpCity,
+      LocationSettings.Custom => location.Urls.Select(url => new IpLocationSource(url)),
+      _ => []
+    });
+    options.Web.IpLocation.UpdateInterval = location.AutoUpdate ? TimeSpan.FromDays(location.UpdateIntervalDays) : null;
 
     var privacy = settings.Privacy;
     options.Privacy.VisitorIdentification = privacy.VisitorIdentification;

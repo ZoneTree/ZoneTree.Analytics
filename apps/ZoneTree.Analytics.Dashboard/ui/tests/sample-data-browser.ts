@@ -16,6 +16,7 @@ export async function checkSampleDataTools(page: Page, base: string) {
     percentiles: false,
     indexes: true,
     geolocation: false,
+    cities: false,
     preparationMs: 100,
     submissionMs: 200,
     ingestionMs: 500,
@@ -52,7 +53,9 @@ export async function checkSampleDataTools(page: Page, base: string) {
       percentiles: false,
       indexes: true,
       geolocation: false,
+      cities: false,
       geolocationAvailable: true,
+      citiesAvailable: true,
       error: null,
       result,
       ingested: 0,
@@ -151,8 +154,16 @@ export async function checkSampleDataTools(page: Page, base: string) {
     false,
     'Benchmarks measure without geolocation by default',
   )
+  assert.equal(
+    await page.getByLabel('Also resolve regions and cities').isDisabled(),
+    true,
+    'Cities need geolocation',
+  )
   await page
     .getByText('Resolve visitor countries from IP addresses', { exact: true })
+    .click()
+  await page
+    .getByText('Also resolve regions and cities', { exact: true })
     .click()
   assert.equal(
     await page
@@ -170,6 +181,7 @@ export async function checkSampleDataTools(page: Page, base: string) {
       percentiles: true,
       indexes: false,
       geolocation: true,
+      cities: true,
     },
   ])
   assert.equal(
@@ -231,6 +243,7 @@ export async function checkSampleDataTools(page: Page, base: string) {
         percentiles: true,
         indexes: false,
         geolocation: true,
+        cities: true,
       },
     },
   }
@@ -249,7 +262,7 @@ export async function checkSampleDataTools(page: Page, base: string) {
   )
   await page
     .getByText(
-      '17 events · 7 days · 2 workers · Percentiles on · Indexes off · Geolocation on',
+      '17 events · 7 days · 2 workers · Percentiles on · Indexes off · Geolocation cities',
       {
         exact: true,
       },

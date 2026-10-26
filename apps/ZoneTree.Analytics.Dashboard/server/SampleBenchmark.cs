@@ -5,32 +5,35 @@ using Microsoft.Extensions.Logging;
 using ZoneTree.Analytics;
 
 sealed record SampleBenchmarkRequest(int Events = 5_000_000, int Days = 365, int Workers = 20, bool Percentiles = false,
-    bool Indexes = true, bool Geolocation = false);
+    bool Indexes = true, bool Geolocation = false, bool Cities = false);
 sealed record SampleBenchmarkResult(int Events, int Days, int Workers, bool Percentiles,
     double PreparationMs, double SubmissionMs, double IngestionMs, double EventsPerSecond,
     long Ingested, long Errors, long Dropped, long Rejected, string Build, string GarbageCollection, string TieredCompilation,
-    string FromDate = "", string ToDate = "", bool Indexes = true, bool Geolocation = false);
+    string FromDate = "", string ToDate = "", bool Indexes = true, bool Geolocation = false, bool Cities = false);
 sealed record SampleBenchmarkStatus(string State = "idle", int Requested = 0, int Prepared = 0, int Submitted = 0,
     int Workers = 20, int Days = 365, bool Percentiles = false, bool Indexes = true, string Error = null, SampleBenchmarkResult Result = null,
     long Ingested = 0, double ElapsedMs = 0, double EventsPerSecond = 0, bool Geolocation = false,
-    bool GeolocationAvailable = false);
+    bool Cities = false, bool GeolocationAvailable = false, bool CitiesAvailable = false);
 sealed record SampleBenchmarkProgress(string State, int Prepared = 0, int Submitted = 0,
     long Ingested = 0, double ElapsedMs = 0, double EventsPerSecond = 0);
 
 // Preparation uses the same realistic generator. The measured interval contains
 // submission and the final flush; store creation, statistics and cleanup are outside it.
 // Each run takes the reporting time zone current when it starts. With geolocation, visitors carry
-// addresses the engine resolves to their countries instead of country dimensions, so the two
-// kinds of run differ only by the lookups.
+// addresses the engine resolves to their countries, and with cities also to regions and cities,
+// instead of country dimensions, so the kinds of run differ only by the lookups. A run loads the
+// database files of the IP location provider current when it starts, to the precision it measures.
 sealed class SampleBenchmark(string contentRoot, Func<TimeZoneInfo> currentTimeZone, ILogger logger = null,
-    IGeoLocator geoLocator = null) : IAsyncDisposable
+    Func<IpLocationProvider> currentIpLocation = null) : IAsyncDisposable
 {
-  public SampleBenchmark(string contentRoot, TimeZoneInfo timeZone, ILogger logger = null, IGeoLocator geoLocator = null)
-      : this(contentRoot, () => timeZone, logger, geoLocator) { }
+  public SampleBenchmark(string contentRoot, TimeZoneInfo timeZone, ILogger logger = null, IpLocationProvider ipLocation = null)
+      : this(contentRoot, () => timeZone, logger, () => ipLocation) { }
 
   public BenchmarkReportStore Reports { get; } = new(contentRoot, logger);
 
-  public bool CanGeolocate => geoLocator != null;
+  // The most precise location a run can resolve: none without a database.
+  public GeoPrecision AvailableGeoPrecision =>
+      currentIpLocation?.Invoke()?.Database?.AvailablePrecision ?? GeoPrecision.None;
 
   public static AnalyticsEvent[] PrepareEvents(SampleBenchmarkRequest request, TimeZoneInfo timeZone,
       Action<int> progress, DateTimeOffset? endingAt = null, CancellationToken cancellationToken = default,
@@ -55,16 +58,26 @@ sealed class SampleBenchmark(string contentRoot, Func<TimeZoneInfo> currentTimeZ
     var timeZone = currentTimeZone();
     var preparation = Stopwatch.StartNew();
     var end = DateTimeOffset.UtcNow.AddSeconds(-1);
-    if (request.Geolocation && geoLocator == null)
-      throw new InvalidOperationException("Geolocation needs the IP location database.");
-    var addresses = request.Geolocation ? SampleTraffic.FindAddresses(geoLocator) : null;
+    var precision = !request.Geolocation ? GeoPrecision.None : request.Cities ? GeoPrecision.City : GeoPrecision.Country;
+    IpLocationDatabase geoLocator = null;
+    if (precision != GeoPrecision.None)
+    {
+      var ipLocation = currentIpLocation?.Invoke();
+      if ((ipLocation?.Database?.AvailablePrecision ?? GeoPrecision.None) < precision)
+        throw new InvalidOperationException(request.Cities
+            ? "Resolving cities needs an IP location database with cities."
+            : "Geolocation needs an IP location database.");
+      // Loaded to the measured precision: a country run does not search city ranges.
+      geoLocator = IpLocationDatabase.Load(ipLocation.Paths, precision);
+    }
+    var addresses = geoLocator == null ? null : SampleTraffic.FindAddresses(geoLocator);
     var events = PrepareEvents(request, timeZone, count => progress(new("preparing", Prepared: count)), end, cancellationToken,
         addresses);
     preparation.Stop();
     var directory = Reports.CreateRunDirectory();
     try
     {
-      var result = await MeasureAsync(directory, events, request, end, timeZone, preparation.Elapsed.TotalMilliseconds,
+      var result = await MeasureAsync(directory, events, request, geoLocator, precision, end, timeZone, preparation.Elapsed.TotalMilliseconds,
           progress, cancellationToken, applicationStopping);
       if (result == null) return null;
       progress(new("publishing", events.Length, events.Length, result.Ingested, result.IngestionMs, result.EventsPerSecond));
@@ -74,11 +87,12 @@ sealed class SampleBenchmark(string contentRoot, Func<TimeZoneInfo> currentTimeZ
     finally { Reports.RemoveUnpublishedRun(directory); }
   }
 
-  async Task<SampleBenchmarkResult> MeasureAsync(string directory, AnalyticsEvent[] events, SampleBenchmarkRequest request, DateTimeOffset end,
+  async Task<SampleBenchmarkResult> MeasureAsync(string directory, AnalyticsEvent[] events, SampleBenchmarkRequest request,
+      IGeoLocator geoLocator, GeoPrecision geoPrecision, DateTimeOffset end,
       TimeZoneInfo timeZone, double preparationMs, Action<SampleBenchmarkProgress> progress, CancellationToken cancellationToken, CancellationToken applicationStopping)
   {
     var options = DashboardAnalyticsOptions.CreateBenchmark(directory, timeZone, request.Workers, request.Percentiles, request.Indexes, logger,
-        request.Geolocation ? geoLocator : null);
+        geoLocator, geoPrecision);
     await using var engine = new AnalyticsEngine(options);
     progress(new("running", Prepared: events.Length));
     var stopwatch = Stopwatch.StartNew();
@@ -127,7 +141,7 @@ sealed class SampleBenchmark(string contentRoot, Func<TimeZoneInfo> currentTimeZ
           build, GCSettings.IsServerGC ? "Server" : "Workstation", tiered == "0" ? "Disabled" : tiered == "1" ? "Enabled" : "Default",
           TimeZoneInfo.ConvertTime(end.AddDays(-request.Days), timeZone).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
           TimeZoneInfo.ConvertTime(end, timeZone).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), request.Indexes,
-          request.Geolocation);
+          request.Geolocation, request.Geolocation && request.Cities);
     }
     catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
     {

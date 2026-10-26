@@ -50,7 +50,7 @@ The engine derives useful dimensions from the event context:
 | Audience | Country, region, city, browser, operating system, device |
 | Automated traffic | Bot name, category, and original event |
 
-The core library ships a user-agent classifier but no geography database. Supply a geolocation adapter or trusted geography dimensions when those reports are needed.
+The core library ships a user-agent classifier. For geography, add IP location sources and the engine downloads and updates the database, or supply a geolocation adapter or trusted geography dimensions. See [Resolve visitor locations](../../guides/extensibility/extensibility.mdx#resolve-visitor-locations).
 
 Standard dimension values supplied on an event can override derived context.
 

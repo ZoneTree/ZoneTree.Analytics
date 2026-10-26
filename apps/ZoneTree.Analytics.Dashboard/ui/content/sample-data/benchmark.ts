@@ -19,6 +19,7 @@ export interface SampleBenchmarkPanel {
   percentiles: SRef<boolean>
   indexes: SRef<boolean>
   geolocation: SRef<boolean>
+  cities: SRef<boolean>
   benchmark: ComputedRef<SampleBenchmarkStatus | null>
   run: (event: Event) => Promise<void>
   seconds: (milliseconds: number) => string
@@ -81,8 +82,19 @@ const template = html`<Panel class="form-panel sample-benchmark-panel">
       :checked="geolocation"
       :disabled="jobs.busy || !(benchmark && benchmark.geolocationAvailable)"/>
     <p class="field-hint" r-if="benchmark && !benchmark.geolocationAvailable">
-      Needs the IP location database: run <code>yarn get-ip-location-db</code>
-      and restart the server.
+      Needs an IP location database: choose one in the Location settings and
+      wait for its download.
+    </p>
+    <FormCheck
+      id="benchmark-cities"
+      label="Also resolve regions and cities"
+      :checked="cities"
+      :disabled="jobs.busy || !geolocation || !(benchmark && benchmark.citiesAvailable)"/>
+    <p
+      class="field-hint"
+      r-if="benchmark && benchmark.geolocationAvailable && !benchmark.citiesAvailable"
+    >
+      Needs a database with cities: choose DB-IP Lite in the Location settings.
     </p>
     <div
       class="sample-job-status"
@@ -185,7 +197,7 @@ const template = html`<Panel class="form-panel sample-benchmark-panel">
       {{ dashboard.number(benchmark.result.events) }} events · {{ benchmark.result.days }} days ·
       {{ benchmark.result.workers }} workers · Percentiles
       {{ benchmark.result.percentiles ? 'on' : 'off' }} · Indexes {{ benchmark.result.indexes ? 'on' : 'off' }} ·
-      Geolocation {{ benchmark.result.geolocation ? 'on' : 'off' }}
+      Geolocation {{ benchmark.result.geolocation ? (benchmark.result.cities ? 'cities' : 'countries') : 'off' }}
     </p>
     <dl class="sample-ingestion-metrics">
       <div>
@@ -239,6 +251,7 @@ export function defineSampleBenchmarkPanel() {
       const percentiles = sref(false)
       const indexes = sref(true)
       const geolocation = sref(false)
+      const cities = sref(false)
       return {
         ...head.props,
         count,
@@ -247,6 +260,7 @@ export function defineSampleBenchmarkPanel() {
         percentiles,
         indexes,
         geolocation,
+        cities,
         benchmark: computed(() => jobs.status()?.benchmark ?? null),
         viewUrl: computed(() => {
           const model = unref(head.props.dashboard)
@@ -289,6 +303,7 @@ export function defineSampleBenchmarkPanel() {
             percentiles: percentiles(),
             indexes: indexes(),
             geolocation: geolocation(),
+            cities: geolocation() && cities(),
           })
         },
       }

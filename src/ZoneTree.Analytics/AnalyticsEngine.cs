@@ -151,6 +151,13 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
 
       visitorHasher = new VisitorHasher(
           options.Privacy.VisitorIdentification, options.Privacy.VisitorIdSecret, meta);
+      if (options.Web.GeoLocator == null && options.Web.IpLocation.Sources.Count > 0
+          && options.Privacy.GeoPrecision != GeoPrecision.None)
+      {
+        IpLocation = new IpLocationProvider(options.Web.IpLocation, options.Privacy.GeoPrecision, root, logger);
+        ownedStores.Add(IpLocation);
+        options.Web.GeoLocator = IpLocation;
+      }
       enricher = new EnrichmentPipeline(options, visitorHasher, logger, counters);
       // Invalid store options fail here, not when a partition opens on an ingestion thread.
       factory.Validate(enricher.Schema);
@@ -349,6 +356,13 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
   /// Web analytics reports: summaries, time series and breakdowns.
   /// </summary>
   public WebAnalytics Web { get; }
+
+  /// <summary>
+  /// The IP location provider the engine runs for <see cref="WebOptions.IpLocation"/>: its
+  /// database, last update check and last failure. Null without sources, with a
+  /// <see cref="WebOptions.GeoLocator"/>, or when <see cref="PrivacyOptions.GeoPrecision"/> is none.
+  /// </summary>
+  public IpLocationProvider IpLocation { get; }
 
   /// <summary>
   /// Advanced access to the engine's ZoneTrees and their existing maintainers.

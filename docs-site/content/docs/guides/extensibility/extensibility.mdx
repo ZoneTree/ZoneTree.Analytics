@@ -19,7 +19,7 @@ Configure extensions before opening the engine.
 | IEventEnricher | Adding, changing, or removing dimensions |
 | IBotDetector | Recognizing automated clients |
 | IUserAgentParser | Browser, operating-system, and device classification |
-| IGeoLocator | Country, region, and city lookup; `IpCountryDatabase` resolves countries |
+| IGeoLocator | Country, region, and city lookup; the engine has a built-in one for MMDB databases |
 
 Each interface has a helper factory, such as `EventFilter.Create` or `EventEnricher.Create`, for a lambda implementation.
 
@@ -41,20 +41,35 @@ options.Enrichers.Add(EventEnricher.Create(context =>
 
 This example turns numeric path segments into `/:id`. Choose a normalization rule that matches your route structure.
 
-## Resolve visitor countries
+## Resolve visitor locations
 
-`IpCountryDatabase` resolves IP addresses to ISO country codes from a MaxMind DB (MMDB) country database, such as the free [ip-location-db](https://github.com/sapics/ip-location-db) user-country database (PDDL, updated daily). The library ships no database; download one on demand:
+The engine resolves countries, regions and cities from visitor IP addresses with MaxMind DB (MMDB) files that it downloads and keeps current. The library ships no database; add sources:
 
 ```csharp
-var path = "data/user-country.mmdb";
-options.Web.GeoLocator = File.Exists(path)
-    ? IpCountryDatabase.Load(path)
-    : await IpCountryDatabase.DownloadAsync(path);
+options.Web.IpLocation.Sources.AddRange(IpLocationSources.UserCountry);
 ```
 
-`DownloadAsync` defaults to the latest user-country database and replaces the file only with a valid one. DB-IP Lite Country and GeoLite2 Country files load too. Loading flattens the database into sorted address ranges; lookups take tens of nanoseconds and do not allocate. A loaded database does not change, so load the file again to use a newer one.
+The file is saved under `ip-location` in the data directory. Opening the engine does not wait for it: existing files load and missing files download in the background, and until then addresses are not located. Every day a conditional request checks for a newer file, which downloads nothing when the database did not change. A download replaces its file only after it loads, and the new database is swapped in without pausing lookups. Failures are logged and retried a day later while the current database stays in use; `engine.IpLocation.UpdateAsync` retries at once. `engine.IpLocation` reports the database in use, the last check and the last failure, and `WaitForDatabaseAsync` waits for the first database.
 
-For region or city, adapt another provider through `GeoLocator.Create`, or pass geography as event dimensions, for example from a CDN header.
+| Sources | Locations | License | Size |
+| --- | --- | --- | --- |
+| `IpLocationSources.UserCountry` | Country | PDDL: no attribution | 8 MB file, about 10 MB in memory |
+| `IpLocationSources.DbIpCity` | Country, region, city | CC BY 4.0: show "IP Geolocation by DB-IP" with a link to db-ip.com | 130 MB in two files; about 10 MB in memory for countries, 60 MB for regions and 120 MB for cities |
+
+Locations are kept to `Privacy.GeoPrecision`: a city database used for countries merges its ranges by country. Other MMDB files work too, in the ip-location-db layout or the MaxMind layout (GeoLite2, DB-IP); add their URLs as sources. IPv4 and IPv6 can come in one file or in separate files.
+
+Lookups take tens of nanoseconds and do not allocate: loading flattens the database into sorted address ranges.
+
+To share one database between engines, create the provider yourself, set it as `Web.GeoLocator` of each engine, and dispose it after them:
+
+```csharp
+var locationOptions = new IpLocationOptions();
+locationOptions.Sources.AddRange(IpLocationSources.DbIpCity);
+await using var ipLocation = new IpLocationProvider(locationOptions, GeoPrecision.City, baseDirectory: "data");
+options.Web.GeoLocator = ipLocation;
+```
+
+`IpLocationDatabase.Load` loads files without downloads or updates. To use a provider that is not file based, implement `IGeoLocator`, or pass geography as event dimensions, for example from a CDN header.
 
 ## Apply collection rules
 

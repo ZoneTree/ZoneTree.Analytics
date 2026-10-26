@@ -99,6 +99,8 @@ public sealed class DashboardAnalyticsOptionsTests : DirectoryTest
   {
     var settings = SettingsService.CreateDefaults();
     settings.General.TimeZone = timeZone;
+    // Tests download nothing.
+    settings.Location.Database = LocationSettings.Off;
     settings.General.DataDirectory = dataDirectory;
     return SettingsMapper.ToOptions(settings, directory, null);
   }

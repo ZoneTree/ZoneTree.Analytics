@@ -37,23 +37,33 @@ public sealed class SampleBenchmarkTests : DirectoryTest
     Assert.That(options.Storage.RollupIndexes.Definitions, indexes ? Is.Not.Empty : Is.Empty);
   }
 
-  // A /8 per sample country, except the skipped ones.
-  static IpCountryDatabase SampleCountries(params string[] skipped)
+  // A provider of a local database with a /8 per sample country, except the skipped ones: with a
+  // region and a city in each, or only countries.
+  IpLocationProvider SampleCountries(bool cities = true, params string[] skipped)
   {
     var writer = new MmdbWriter(6);
     var block = 1;
     foreach (var country in SampleTraffic.CountryCodes)
       if (!skipped.Contains(country))
-        writer.Insert($"{block++}.0.0.0/8", writer.CountryCode(country));
-    return IpCountryDatabase.Load(new MemoryStream(writer.ToArray()));
+        writer.Insert($"{block++}.0.0.0/8", cities
+            ? writer.SapicsCity(country, $"{country} region", $"{country} city")
+            : writer.CountryCode(country));
+    var path = Path.Combine(directory, "geo", cities ? "cities.mmdb" : "countries.mmdb");
+    Directory.CreateDirectory(Path.GetDirectoryName(path));
+    File.WriteAllBytes(path, writer.ToArray());
+    var options = new IpLocationOptions();
+    options.Sources.Add(new(null, path));
+    var provider = new IpLocationProvider(options);
+    provider.WaitForDatabaseAsync().Wait(TimeSpan.FromSeconds(10));
+    return provider;
   }
 
   [Test]
-  public void GeolocatedVisitorsCarryAddressesOfTheirCountries()
+  public async Task GeolocatedVisitorsCarryAddressesOfTheirCountries()
   {
     var end = new DateTimeOffset(2026, 10, 13, 0, 0, 0, TimeSpan.Zero);
     var request = new SampleBenchmarkRequest(3000, 7, 4);
-    var database = SampleCountries(skipped: "KE");
+    await using var database = SampleCountries(skipped: "KE");
     var plain = SampleBenchmark.PrepareEvents(request, TimeZoneInfo.Utc, _ => { }, end);
     var located = SampleBenchmark.PrepareEvents(request, TimeZoneInfo.Utc, _ => { }, end,
         addresses: SampleTraffic.FindAddresses(database));
@@ -82,37 +92,53 @@ public sealed class SampleBenchmarkTests : DirectoryTest
   }
 
   [Test]
-  public async Task GeolocatedBenchmarkReportsTheSameCountriesAsDimensions()
+  public async Task GeolocatedBenchmarksReportTheSameCountriesAsDimensionsAndCitiesOnRequest()
   {
-    var database = SampleCountries();
-    await using var benchmark = new SampleBenchmark(directory, TimeZoneInfo.Utc, geoLocator: database);
-    Assert.That(benchmark.CanGeolocate, Is.True);
-    async Task<Dictionary<string, long>> Countries(bool geolocation)
+    await using var database = SampleCountries();
+    await using var benchmark = new SampleBenchmark(directory, TimeZoneInfo.Utc, ipLocation: database);
+    Assert.That(benchmark.AvailableGeoPrecision, Is.EqualTo(GeoPrecision.City));
+    async Task<(Dictionary<string, long> Countries, Dictionary<string, long> Cities)> Run(bool geolocation, bool cities)
     {
-      var result = await benchmark.RunAsync(new(400, 7, 2, Geolocation: geolocation), _ => { },
+      var result = await benchmark.RunAsync(new(400, 7, 2, Geolocation: geolocation, Cities: cities), _ => { },
           CancellationToken.None, CancellationToken.None);
       Assert.That(result.Geolocation, Is.EqualTo(geolocation));
+      Assert.That(result.Cities, Is.EqualTo(cities));
       using var lease = benchmark.Reports.Acquire();
-      var report = lease.Engine.Web.GetBreakdown(new() { Site = BenchmarkReportStore.Site, Range = DateRange.LastDays(8), Limit = 100 },
-          StandardDimensions.Country);
-      return report.Rows.ToDictionary(row => row.Value ?? "", row => row.Visitors);
+      Dictionary<string, long> Breakdown(string dimension) => lease.Engine.Web
+          .GetBreakdown(new() { Site = BenchmarkReportStore.Site, Range = DateRange.LastDays(8), Limit = 100 }, dimension)
+          .Rows.Where(row => !string.IsNullOrEmpty(row.Value)).ToDictionary(row => row.Value, row => row.Visitors);
+      return (Breakdown(StandardDimensions.Country), Breakdown(StandardDimensions.City));
     }
-    var dimensions = await Countries(false);
-    var located = await Countries(true);
-    Assert.That(dimensions, Has.Count.GreaterThan(10));
-    Assert.That(located, Is.EquivalentTo(dimensions));
+    var dimensions = await Run(false, false);
+    var countries = await Run(true, false);
+    var cities = await Run(true, true);
+    Assert.Multiple(() =>
+    {
+      Assert.That(dimensions.Countries, Has.Count.GreaterThan(10));
+      Assert.That(countries.Countries, Is.EquivalentTo(dimensions.Countries));
+      Assert.That(cities.Countries, Is.EquivalentTo(dimensions.Countries));
+      // A country run keeps no cities, although the database has them.
+      Assert.That(countries.Cities, Is.Empty);
+      Assert.That(cities.Cities, Is.EquivalentTo(dimensions.Countries.ToDictionary(country => $"{country.Key} city", country => country.Value)));
+    });
   }
 
   [Test]
-  public void GeolocationNeedsADatabase()
+  public async Task GeolocationNeedsADatabaseAndCitiesADatabaseWithCities()
   {
     var options = DashboardAnalyticsOptions.CreateBenchmark(directory, TimeZoneInfo.Utc, 1, false, true);
     Assert.That(options.Web.GeoLocator, Is.Null);
-    Assert.ThrowsAsync<InvalidOperationException>(async () =>
+    await using (var benchmark = new SampleBenchmark(directory, TimeZoneInfo.Utc))
     {
-      await using var benchmark = new SampleBenchmark(directory, TimeZoneInfo.Utc);
-      await benchmark.RunAsync(new(17, 7, 1, Geolocation: true), _ => { }, CancellationToken.None, CancellationToken.None);
-    });
+      Assert.That(benchmark.AvailableGeoPrecision, Is.EqualTo(GeoPrecision.None));
+      Assert.ThrowsAsync<InvalidOperationException>(() =>
+          benchmark.RunAsync(new(17, 7, 1, Geolocation: true), _ => { }, CancellationToken.None, CancellationToken.None));
+    }
+    await using var countries = SampleCountries(cities: false);
+    await using var countryBenchmark = new SampleBenchmark(directory, TimeZoneInfo.Utc, ipLocation: countries);
+    Assert.That(countryBenchmark.AvailableGeoPrecision, Is.EqualTo(GeoPrecision.Country));
+    Assert.ThrowsAsync<InvalidOperationException>(() =>
+        countryBenchmark.RunAsync(new(17, 7, 1, Geolocation: true, Cities: true), _ => { }, CancellationToken.None, CancellationToken.None));
   }
 
   [Test]

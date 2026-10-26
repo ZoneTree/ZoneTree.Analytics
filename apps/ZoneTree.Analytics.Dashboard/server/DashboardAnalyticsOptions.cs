@@ -34,12 +34,17 @@ static class DashboardAnalyticsOptions
   }
 
   // Without indexes, ingestion writes only raw events, sessions and rollups. With a geolocator,
-  // sessions resolve their country from the visitor address.
+  // sessions resolve their location from the visitor address, to the precision.
   public static AnalyticsOptions CreateBenchmark(string directory, TimeZoneInfo timeZone,
-      int workers, bool percentiles, bool indexes, ILogger logger = null, IGeoLocator geoLocator = null)
+      int workers, bool percentiles, bool indexes, ILogger logger = null, IGeoLocator geoLocator = null,
+      GeoPrecision geoPrecision = GeoPrecision.Country)
   {
     var options = Create(directory, BenchmarkSite, timeZone, logger);
-    options.Web.GeoLocator = geoLocator;
+    if (geoLocator != null)
+    {
+      options.Web.GeoLocator = geoLocator;
+      options.Privacy.GeoPrecision = geoPrecision;
+    }
     SetWorkers(options, workers);
     options.Ingestion.QueueFullBehavior = QueueFullBehavior.Wait;
     if (percentiles) options.Rollups.ValueAggregates["load_time"] = ValueAggregates.Percentiles;

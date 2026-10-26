@@ -3,7 +3,7 @@ using System.Numerics;
 namespace ZoneTree.Analytics.Geo;
 
 /// <summary>
-/// Sorted address ranges and their countries. A search reads a prefix index over 65,536 equal
+/// Sorted address ranges and their locations. A search reads a prefix index over 65,536 equal
 /// slices of the occupied address span; in a crowded slice, every 16th range start narrows it to
 /// 16 ranges, so a search touches a few cache lines however unevenly ranges are spread.
 /// </summary>
@@ -15,7 +15,7 @@ sealed class AddressRanges<T> where T : struct, IBinaryInteger<T>, IUnsignedNumb
   const int Block = 16;
 
   readonly T[] starts;
-  readonly ushort[] countries;
+  readonly int[] locations;
   // samples[j] is starts[j * Block].
   readonly T[] samples;
   // index[s] is the first range starting at or after indexBase + (s << shift).
@@ -24,11 +24,11 @@ sealed class AddressRanges<T> where T : struct, IBinaryInteger<T>, IUnsignedNumb
   readonly int shift;
 
   /// <param name="starts">Sorted range starts, the first at address zero.</param>
-  /// <param name="countries">The country of each range.</param>
-  public AddressRanges(T[] starts, ushort[] countries)
+  /// <param name="locations">The location of each range.</param>
+  public AddressRanges(T[] starts, int[] locations)
   {
     this.starts = starts;
-    this.countries = countries;
+    this.locations = locations;
     samples = new T[(starts.Length + Block - 1) / Block];
     for (var j = 0; j < samples.Length; j++)
       samples[j] = starts[j * Block];
@@ -54,9 +54,9 @@ sealed class AddressRanges<T> where T : struct, IBinaryInteger<T>, IUnsignedNumb
   public int Count => starts.Length;
 
   /// <summary>
-  /// The country of the range of an address: the last range starting at or before it.
+  /// The location of the range of an address: the last range starting at or before it.
   /// </summary>
-  public ushort Find(T address)
+  public int Find(T address)
   {
     int low, high;
     if (address < indexBase)
@@ -95,7 +95,7 @@ sealed class AddressRanges<T> where T : struct, IBinaryInteger<T>, IUnsignedNumb
         high = Math.Min(high, after * Block);
       }
     }
-    return countries[UpperBound(starts, low, high, address) - 1];
+    return locations[UpperBound(starts, low, high, address) - 1];
   }
 
   // The first position in [low, high) whose key is greater than the address, or high.

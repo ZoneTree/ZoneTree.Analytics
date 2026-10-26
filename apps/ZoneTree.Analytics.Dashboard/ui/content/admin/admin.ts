@@ -36,6 +36,12 @@ const template = html`<div class="page-heading">
 <FormStatus tone="danger" r-if="status && status.engine.error">
   The engine could not open: {{ status.engine.error }}
 </FormStatus>
+<FormStatus
+  tone="warning"
+  r-if="status && status.engine.ipLocation && status.engine.ipLocation.lastError"
+>
+  IP location database: {{ status.engine.ipLocation.lastError }}
+</FormStatus>
 <div class="status-cards" r-if="status">
   <Panel class="status-card">
     <span>Engine</span>
@@ -81,6 +87,17 @@ const template = html`<div class="page-heading">
       <div>
         <dt>Users and settings</dt>
         <dd><code>{{ status.systemDirectory }}</code></dd>
+      </div>
+      <div>
+        <dt>IP location</dt>
+        <dd r-if="!status.engine.ipLocation">Off</dd>
+        <dd r-else-if="!status.engine.ipLocation.databaseType">Downloading…</dd>
+        <dd r-else>
+          {{ status.engine.ipLocation.databaseType }} · {{ status.engine.ipLocation.precision }} precision ·
+          built {{ formatDate(status.engine.ipLocation.buildTime) }}
+          <small r-if="status.engine.ipLocation.lastChecked"
+            >· checked {{ formatDate(status.engine.ipLocation.lastChecked) }}</small>
+        </dd>
       </div>
     </dl>
   </Panel>

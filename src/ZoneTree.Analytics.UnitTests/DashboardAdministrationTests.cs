@@ -35,7 +35,7 @@ public sealed class DashboardAdministrationTests : DirectoryTest
       Store = new SystemStore(Path.Combine(root, "system"));
       Users = new UserStore(Store);
       Audit = new AuditLog(Store);
-      Engines = new EngineHost(environment, NullLoggerFactory.Instance, IpLocation.None);
+      Engines = new EngineHost(environment, NullLoggerFactory.Instance);
       Settings = new SettingsService(Store, Engines, Web, Users, Audit, environment);
       Sessions = new SessionStore(Store, Users, Settings);
     }
@@ -51,6 +51,8 @@ public sealed class DashboardAdministrationTests : DirectoryTest
   {
     var settings = SettingsService.CreateDefaults();
     settings.General.TimeZone = timeZone;
+    // Tests download nothing.
+    settings.Location.Database = LocationSettings.Off;
     settings.Sites.Items = [new() { Id = "shop", Name = "Shop", Domains = ["shop.example.com"] },
         new() { Id = "blog", Name = "Blog", Domains = ["*.blog.example.com"] }];
     settings.Sites.PrimarySite = "shop";
@@ -184,6 +186,39 @@ public sealed class DashboardAdministrationTests : DirectoryTest
         foreach (var key in preset.Values.Keys)
           Assert.That(keys, Does.Contain(key), $"{preset.Key} sets {key}");
     });
+  }
+
+  [Test]
+  public void LocationSettingsMapToIpLocationSources()
+  {
+    var settings = SettingsService.CreateDefaults();
+    var defaults = SettingsMapper.ToOptions(settings, directory, null).Web.IpLocation;
+    settings.Location.Database = LocationSettings.DbIpCity;
+    settings.Location.UpdateIntervalDays = 7;
+    var city = SettingsMapper.ToOptions(settings, directory, null).Web.IpLocation;
+    settings.Location.Database = LocationSettings.Custom;
+    settings.Location.Urls = ["https://geo.example.com/countries.mmdb"];
+    settings.Location.AutoUpdate = false;
+    var custom = SettingsMapper.ToOptions(settings, directory, null).Web.IpLocation;
+    settings.Location.Database = LocationSettings.Off;
+    var off = SettingsMapper.ToOptions(settings, directory, null).Web.IpLocation;
+    Assert.Multiple(() =>
+    {
+      Assert.That(defaults.Sources, Is.EqualTo(IpLocationSources.UserCountry));
+      Assert.That(defaults.UpdateInterval, Is.EqualTo(TimeSpan.FromDays(1)));
+      Assert.That(city.Sources, Is.EqualTo(IpLocationSources.DbIpCity));
+      Assert.That(city.UpdateInterval, Is.EqualTo(TimeSpan.FromDays(7)));
+      Assert.That(custom.Sources.Single().Url, Is.EqualTo("https://geo.example.com/countries.mmdb"));
+      Assert.That(custom.UpdateInterval, Is.Null);
+      Assert.That(off.Sources, Is.Empty);
+    });
+    settings.Location.Database = LocationSettings.Custom;
+    settings.Location.Urls = [];
+    Assert.That(Assert.Throws<SettingsValidationException>(() => SettingsMapper.Validate(settings, directory, Path.Combine(directory, "data/system"))).Key,
+        Is.EqualTo("location.urls"));
+    settings.Location.Urls = ["file:///etc/passwd"];
+    Assert.That(Assert.Throws<SettingsValidationException>(() => SettingsMapper.Validate(settings, directory, Path.Combine(directory, "data/system"))).Key,
+        Is.EqualTo("location.urls"));
   }
 
   [Test]

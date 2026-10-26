@@ -23,7 +23,11 @@ sealed class SampleDataJobs(SampleDataStore store, SampleBenchmark benchmark, IH
       lock (sync) return status with
       {
         ActiveOperation = operation.IsCompleted ? null : activeOperation,
-        Benchmark = benchmarkStatus with { GeolocationAvailable = benchmark.CanGeolocate }
+        Benchmark = benchmarkStatus with
+        {
+          GeolocationAvailable = benchmark.AvailableGeoPrecision != GeoPrecision.None,
+          CitiesAvailable = benchmark.AvailableGeoPrecision == GeoPrecision.City
+        }
       };
     }
   }
@@ -62,8 +66,12 @@ sealed class SampleDataJobs(SampleDataStore store, SampleBenchmark benchmark, IH
   {
     if (request.Events is < 1 or > 10_000_000 || request.Days is < 1 or > 365 || request.Workers is < 1 or > 64)
       throw new ArgumentException("Choose 1–10,000,000 events, 365 days, and 1–64 workers.");
-    if (request.Geolocation && !benchmark.CanGeolocate)
-      throw new ArgumentException("Geolocation needs the IP location database. Run yarn get-ip-location-db and restart the server.");
+    if (request.Cities && !request.Geolocation)
+      throw new ArgumentException("Resolving cities needs geolocation.");
+    if (request.Geolocation && benchmark.AvailableGeoPrecision == GeoPrecision.None)
+      throw new ArgumentException("Geolocation needs an IP location database: choose one in the Location settings and wait for its download.");
+    if (request.Cities && benchmark.AvailableGeoPrecision != GeoPrecision.City)
+      throw new ArgumentException("Resolving cities needs a database with cities: choose DB-IP Lite in the Location settings.");
     lock (sync)
     {
       if (!operation.IsCompleted) return false;
@@ -72,7 +80,7 @@ sealed class SampleDataJobs(SampleDataStore store, SampleBenchmark benchmark, IH
       var token = cancellation.Token;
       activeOperation = "benchmark";
       benchmarkStatus = new("preparing", request.Events, Workers: request.Workers, Days: request.Days,
-          Percentiles: request.Percentiles, Indexes: request.Indexes, Geolocation: request.Geolocation, Result: benchmarkStatus.Result);
+          Percentiles: request.Percentiles, Indexes: request.Indexes, Geolocation: request.Geolocation, Cities: request.Cities, Result: benchmarkStatus.Result);
       operation = Task.Run(async () =>
       {
         try

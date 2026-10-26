@@ -132,6 +132,14 @@ export interface EngineStatus {
   errors: number
   openPartitions: number
   partitions: { directory: string; records: number | null }[]
+  ipLocation: {
+    databaseType: string | null
+    buildTime: string | null
+    ranges: number
+    precision: string | null
+    lastChecked: string | null
+    lastError: string | null
+  } | null
 }
 export interface AdminStatus {
   engine: EngineStatus

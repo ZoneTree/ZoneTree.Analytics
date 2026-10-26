@@ -207,9 +207,9 @@ public sealed record GeoLocation(string Country, string Region = null, string Ci
 /// Resolves IP addresses to locations.
 /// </summary>
 /// <remarks>
-/// <see cref="IpCountryDatabase"/> resolves countries from a downloadable MMDB database. For region
-/// or city, adapt another provider, or pass geography through event dimensions, for example from
-/// a CDN header.
+/// <see cref="IpLocationProvider"/> resolves countries, regions and cities from MMDB databases it
+/// downloads and keeps current; configure it with <see cref="WebOptions.IpLocation"/>. Adapt
+/// another provider, or pass geography through event dimensions, for example from a CDN header.
 /// </remarks>
 public interface IGeoLocator
 {

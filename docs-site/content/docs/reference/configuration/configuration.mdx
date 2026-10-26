@@ -47,7 +47,7 @@ Group members are configured in place. See the [configuration guide](../../opera
 | Query timeout / raw parallelism | 30 seconds / processor count |
 | Partition targets | 10 million rows per tier or shared index store |
 | Dimension and rollup indexes | None configured |
-| Bots / geolocation | Exclude / no supplied geolocation database |
+| Bots / geolocation | Exclude / no IP location sources |
 | Anonymous identity | Daily rotating hash |
 | Reporting admission / POST / response | 4 concurrent / 64 KiB / 16 MiB |
 
@@ -237,7 +237,8 @@ Track the attribute as an event dimension, such as an experiment variant. Later 
 
 | Setting | Type | Behavior and default |
 | --- | --- | --- |
-| `GeoLocator` | `IGeoLocator` | Resolves IP addresses to locations. Default is null: no geolocation. `IpCountryDatabase` resolves countries from a downloadable MMDB database; or adapt another provider, or pass geography through event dimensions, for example from a CDN header. |
+| `GeoLocator` | `IGeoLocator` | Resolves IP addresses to locations. Default is null: the engine uses `IpLocation` when it has sources, and otherwise locates nothing. Set it to adapt another provider or to share an `IpLocationProvider` between engines. |
+| `IpLocation` | `IpLocationOptions` | IP location databases the engine downloads, keeps current and resolves locations with. No sources by default. See [IpLocationOptions](#iplocationoptions). |
 | `UserAgentParser` | `IUserAgentParser` | Parses user agents into browser, operating system and device. Default is `UserAgentParser.Default`. |
 | `Bots` | `BotTraffic` | What happens to bot traffic. Default is `BotTraffic.Exclude`. |
 | `BotDetectors` | `List<IBotDetector>` | Bot detectors, in order; the first that recognizes a bot wins. Default is `BotDetector.UserAgent`. Add detectors (for example based on IP ranges) or clear the list to treat all traffic as human. |
@@ -245,6 +246,21 @@ Track the attribute as an event dimension, such as an experiment variant. Later 
 | `LowercasePaths` | `bool` | Lowercases page paths. Default is false. |
 | `ReferrerSources` | `IDictionary<string, string>` | Additional referrer host to source name mappings, for example "news.ycombinator.com" to "Hacker News". Hosts match exactly or as a parent domain, ignoring case. Empty by default. |
 | `InternalHosts` | `ISet<string>` | Hosts treated as internal, ignoring case. Referrers from these hosts, or from the page host itself, count as direct traffic. Empty by default. |
+
+## IpLocationOptions
+
+With sources and no `Web.GeoLocator`, the engine runs an `IpLocationProvider` and keeps locations to `Privacy.GeoPrecision`. `engine.IpLocation` reports its database, last check and last failure.
+
+| Setting | Type | Behavior and default |
+| --- | --- | --- |
+| `Sources` | `List<IpLocationSource>` | The MMDB files: one with IPv4 and IPv6, or one for each. A source has a `Url`, a `Path`, or both. `IpLocationSources.UserCountry` and `IpLocationSources.DbIpCity` are ready-made. Empty by default. |
+| `Directory` | `string` | The directory of files whose source has no absolute path, relative to the data directory. Default is "ip-location". |
+| `DownloadMissing` | `bool` | Downloads missing files that have a URL. Default is true. |
+| `UpdateInterval` | `TimeSpan?` | How often URLs are checked for a newer file with a conditional request. At least one day. Null disables updates. Default is one day. |
+| `RetryInterval` | `TimeSpan` | The wait before retrying a failed download or load. At least one day. `UpdateAsync` retries at once. Default is one day. |
+| `DownloadTimeout` | `TimeSpan` | How long one download may take. Default is ten minutes. |
+| `MaxDownloadBytes` | `long` | The largest file downloaded. Default is 1 GiB. |
+| `HttpClient` | `HttpClient` | The client for downloads, for example with a proxy. Default creates one. |
 
 ## Validation and dependencies
 

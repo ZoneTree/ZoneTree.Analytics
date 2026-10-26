@@ -7,7 +7,7 @@ using ZoneTree.Analytics.Web;
 
 namespace ZoneTree.Analytics.UnitTests;
 
-public sealed class IpCountryDatabaseTests : DirectoryTest
+public sealed class IpLocationDatabaseTests : DirectoryTest
 {
   // ip-location-db records ({country_code}) and MaxMind records ({country: {iso_code}}).
   static byte[] Database(int ipVersion = 6, bool aliasSixToFour = false)
@@ -27,7 +27,7 @@ public sealed class IpCountryDatabaseTests : DirectoryTest
     return writer.ToArray();
   }
 
-  static IpCountryDatabase Load(byte[] file) => IpCountryDatabase.Load(new MemoryStream(file));
+  static IpLocationDatabase Load(byte[] file) => IpLocationDatabase.Load(new MemoryStream(file));
 
   [TestCase("81.2.69.0", "GB")]
   [TestCase("81.2.69.160", "GB")]
@@ -199,26 +199,88 @@ public sealed class IpCountryDatabaseTests : DirectoryTest
     });
   }
 
-  [Test]
-  public async Task DownloadSavesOnlyValidDatabases()
+  // Cities in both record layouts: Berlin and Hamburg share a region, Munich does not.
+  static byte[] Cities(int ipVersion = 6, bool ipv4 = true, bool ipv6 = true)
   {
-    var path = Path.Combine(directory, "geo", "countries.mmdb");
-    var valid = Database();
-    using (var client = new HttpClient(new StaticHandler(valid)))
+    var writer = new MmdbWriter(ipVersion);
+    if (ipv4)
     {
-      var database = await IpCountryDatabase.DownloadAsync(path, "https://example.test/countries.mmdb", client);
-      Assert.That(database.Locate("81.2.69.160")?.Country, Is.EqualTo("GB"));
+      writer.Insert("5.1.0.0/16", writer.SapicsCity("DE", "Berlin", "Berlin"));
+      writer.Insert("5.2.0.0/16", writer.SapicsCity("DE", "Berlin", "Spandau"));
+      writer.Insert("5.3.0.0/16", writer.SapicsCity("DE", "Hamburg", "Hamburg"));
+      writer.Insert("5.4.0.0/16", writer.MaxMindCity("DE", "Bavaria", "Munich"));
+      writer.Insert("5.5.0.0/16", writer.SapicsCity("FR", "", ""));
     }
-    Assert.That(File.ReadAllBytes(path), Is.EqualTo(valid));
+    if (ipv6)
+    {
+      writer.Insert("2a02:1::/32", writer.SapicsCity("DE", "Berlin", "Berlin"));
+      writer.Insert("2a02:2::/32", writer.MaxMindCity("DE", "Bavaria", "Munich"));
+    }
+    return writer.ToArray();
+  }
 
-    using (var client = new HttpClient(new StaticHandler(Encoding.UTF8.GetBytes("<html>Not found</html>"))))
-      Assert.ThrowsAsync<InvalidDataException>(() => IpCountryDatabase.DownloadAsync(path, "https://example.test/countries.mmdb", client));
+  [TestCase(GeoPrecision.City, "5.2.0.1", "DE", "Berlin", "Spandau")]
+  [TestCase(GeoPrecision.City, "5.4.0.1", "DE", "Bavaria", "Munich")]
+  [TestCase(GeoPrecision.City, "2a02:2::1", "DE", "Bavaria", "Munich")]
+  [TestCase(GeoPrecision.City, "5.5.0.1", "FR", null, null)]
+  [TestCase(GeoPrecision.Region, "5.2.0.1", "DE", "Berlin", null)]
+  [TestCase(GeoPrecision.Region, "5.3.0.1", "DE", "Hamburg", null)]
+  [TestCase(GeoPrecision.Country, "5.4.0.1", "DE", null, null)]
+  [TestCase(GeoPrecision.Country, "2a02:1::1", "DE", null, null)]
+  public void ResolvesRegionsAndCitiesToThePrecision(GeoPrecision precision, string address, string country, string region, string city)
+  {
+    var database = IpLocationDatabase.Load(new MemoryStream(Cities()), precision);
     Assert.Multiple(() =>
     {
-      Assert.That(File.ReadAllBytes(path), Is.EqualTo(valid));
-      Assert.That(Directory.GetFiles(Path.GetDirectoryName(path)), Has.Length.EqualTo(1));
-      Assert.That(IpCountryDatabase.Load(path).Locate("2a01:4f8::1")?.Country, Is.EqualTo("DE"));
+      Assert.That(database.Precision, Is.EqualTo(precision));
+      Assert.That(database.Locate(address), Is.EqualTo(new GeoLocation(country, region, city)));
     });
+  }
+
+  [Test]
+  public void LowerPrecisionMergesRanges()
+  {
+    var city = IpLocationDatabase.Load(new MemoryStream(Cities()), GeoPrecision.City);
+    var region = IpLocationDatabase.Load(new MemoryStream(Cities()), GeoPrecision.Region);
+    var country = IpLocationDatabase.Load(new MemoryStream(Cities()), GeoPrecision.Country);
+    Assert.Multiple(() =>
+    {
+      // Berlin, Spandau, Hamburg, Munich and France; Berlin twice from both families.
+      Assert.That(city.LocationCount, Is.EqualTo(5));
+      Assert.That(region.LocationCount, Is.EqualTo(4));
+      Assert.That(country.LocationCount, Is.EqualTo(2));
+      Assert.That(region.RangeCount, Is.LessThan(city.RangeCount));
+      Assert.That(country.RangeCount, Is.LessThan(region.RangeCount));
+      // The four German /16s are one range at country precision.
+      Assert.That(country.Locate("5.1.0.0"), Is.SameAs(country.Locate("5.4.255.255")));
+      // The files have cities whatever is kept.
+      Assert.That(country.AvailablePrecision, Is.EqualTo(GeoPrecision.City));
+      Assert.That(Load(Database()).AvailablePrecision, Is.EqualTo(GeoPrecision.Country));
+      Assert.Throws<ArgumentOutOfRangeException>(() => IpLocationDatabase.Load(new MemoryStream(Cities()), GeoPrecision.None));
+    });
+  }
+
+  [TestCase(false)]
+  [TestCase(true)]
+  public void CombinesSeparateIpv4AndIpv6Files(bool ipv6First)
+  {
+    var ipv4 = Path.Combine(directory, "city-ipv4.mmdb");
+    var ipv6 = Path.Combine(directory, "city-ipv6.mmdb");
+    Directory.CreateDirectory(directory);
+    File.WriteAllBytes(ipv4, Cities(ipVersion: 4, ipv6: false));
+    File.WriteAllBytes(ipv6, Cities(ipv4: false));
+    var database = IpLocationDatabase.Load(ipv6First ? [ipv6, ipv4] : [ipv4, ipv6], GeoPrecision.City);
+    Assert.Multiple(() =>
+    {
+      Assert.That(database.Locate("5.4.0.1")?.City, Is.EqualTo("Munich"));
+      Assert.That(database.Locate("::ffff:5.1.0.1")?.City, Is.EqualTo("Berlin"));
+      Assert.That(database.Locate("2a02:1::1")?.City, Is.EqualTo("Berlin"));
+      // One location for Berlin from both files.
+      Assert.That(database.Locate("5.1.0.1"), Is.SameAs(database.Locate("2a02:1::1")));
+      Assert.That(database.DatabaseType, Is.EqualTo("test-country"));
+    });
+    var ipv4Only = IpLocationDatabase.Load(ipv4, GeoPrecision.City);
+    Assert.That(ipv4Only.Locate("2a02:1::1"), Is.Null);
   }
 
   [Test]
@@ -238,168 +300,5 @@ public sealed class IpCountryDatabaseTests : DirectoryTest
     // 192.0.2.1 has no country.
     Assert.That(countries.Rows.Where(row => !string.IsNullOrEmpty(row.Value)).ToDictionary(row => row.Value, row => row.Visitors),
         Is.EquivalentTo(new Dictionary<string, long> { ["GB"] = 2, ["DE"] = 1 }));
-  }
-
-  sealed class StaticHandler(byte[] content) : HttpMessageHandler
-  {
-    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
-        Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(content) });
-  }
-}
-
-/// <summary>
-/// Writes small MaxMind DB files with 24-bit records. In an IPv6 file, IPv4 networks are under ::/96.
-/// </summary>
-sealed class MmdbWriter(int ipVersion)
-{
-  public static readonly DateTimeOffset BuildTime = new(2026, 10, 25, 23, 38, 2, TimeSpan.Zero);
-
-  const long Empty = -1;
-
-  // A record is a node index, Empty, or data at offset -(record + 2).
-  readonly List<long[]> nodes = [[Empty, Empty]];
-  readonly List<byte> data = [];
-  readonly Dictionary<string, int> strings = [];
-
-  public int RecordSize { get; init; } = 24;
-
-  public int MajorVersion { get; init; } = 2;
-
-  public long CountryCode(string code)
-  {
-    var record = Record();
-    Map(1);
-    // Keys repeat through pointers, as real files store them.
-    Key("country_code");
-    String(code);
-    return record;
-  }
-
-  public long MaxMindCountry(string country, string registered)
-  {
-    var record = Record();
-    Map(country == null ? 2 : 3);
-    Key("continent");
-    Map(1);
-    Key("code");
-    String("EU");
-    if (country != null)
-    {
-      Key("country");
-      Map(3);
-      Key("geoname_id");
-      data.AddRange([0xC4, 0, 0x2C, 0x2B, 0x63]);
-      Key("iso_code");
-      String(country);
-      Key("names");
-      Map(1);
-      Key("en");
-      String("Country");
-    }
-    Key("registered_country");
-    Map(1);
-    Key("iso_code");
-    String(registered);
-    return record;
-  }
-
-  public void Insert(string network, long record)
-  {
-    var (prefix, length) = Network(network);
-    var node = 0;
-    for (var depth = 0; depth < length - 1; depth++)
-    {
-      var bit = Bit(prefix, depth);
-      if (nodes[node][bit] == Empty)
-      {
-        nodes[node][bit] = nodes.Count;
-        nodes.Add([Empty, Empty]);
-      }
-      node = (int)nodes[node][bit];
-    }
-    nodes[node][Bit(prefix, length - 1)] = record;
-  }
-
-  // Points an IPv6 network at the IPv4 subtree, as MaxMind files do for 6to4 and Teredo.
-  public void AliasToIpv4(string network)
-  {
-    var ipv4 = 0;
-    for (var depth = 0; depth < 96; depth++)
-      ipv4 = (int)nodes[ipv4][0];
-    Insert(network, ipv4);
-  }
-
-  public byte[] ToArray()
-  {
-    var file = new List<byte>();
-    long nodeCount = nodes.Count;
-    foreach (var node in nodes)
-      foreach (var record in node)
-      {
-        var value = record == Empty ? nodeCount : record >= 0 ? record : nodeCount + 16 + -(record + 2);
-        file.AddRange([(byte)(value >> 16), (byte)(value >> 8), (byte)value]);
-      }
-    file.AddRange(new byte[16]);
-    file.AddRange(data);
-    file.AddRange([0xAB, 0xCD, 0xEF, .. "MaxMind.com"u8.ToArray()]);
-    data.Clear();
-    strings.Clear();
-    Map(9);
-    Key("binary_format_major_version"); UInt16(MajorVersion);
-    Key("binary_format_minor_version"); UInt16(0);
-    Key("build_epoch"); data.AddRange([0x08, 0x02, .. BigEndian((ulong)BuildTime.ToUnixTimeSeconds())]);
-    Key("database_type"); String("test-country");
-    Key("description"); Map(1); Key("en"); String("Test");
-    Key("ip_version"); UInt16(ipVersion);
-    Key("languages"); data.AddRange([0x01, 0x04]); String("en");
-    Key("node_count"); data.AddRange([0xC4, .. BigEndian((ulong)nodeCount)[4..]]);
-    Key("record_size"); UInt16(RecordSize);
-    file.AddRange(data);
-    return [.. file];
-  }
-
-  long Record() => -(data.Count + 2);
-
-  (UInt128 Prefix, int Length) Network(string network)
-  {
-    var parts = network.Split('/');
-    var bytes = IPAddress.Parse(parts[0]).GetAddressBytes();
-    var length = int.Parse(parts[1], CultureInfo.InvariantCulture);
-    if (bytes.Length == 4)
-      return ipVersion == 6
-          ? (BinaryPrimitives.ReadUInt32BigEndian(bytes), 96 + length)
-          : ((UInt128)BinaryPrimitives.ReadUInt32BigEndian(bytes) << 96, length);
-    return (BinaryPrimitives.ReadUInt128BigEndian(bytes), length);
-  }
-
-  static int Bit(UInt128 prefix, int depth) => (int)(prefix >> (127 - depth)) & 1;
-
-  static byte[] BigEndian(ulong value)
-  {
-    var bytes = new byte[8];
-    BinaryPrimitives.WriteUInt64BigEndian(bytes, value);
-    return bytes;
-  }
-
-  void Map(int size) => data.Add((byte)(0xE0 | size));
-
-  void UInt16(int value) => data.AddRange([0xA2, (byte)(value >> 8), (byte)value]);
-
-  void String(string value)
-  {
-    var bytes = Encoding.UTF8.GetBytes(value);
-    data.Add((byte)(0x40 | bytes.Length));
-    data.AddRange(bytes);
-  }
-
-  void Key(string key)
-  {
-    if (strings.TryGetValue(key, out var offset))
-    {
-      data.AddRange([(byte)(0x20 | offset >> 8), (byte)offset]);
-      return;
-    }
-    strings[key] = data.Count;
-    String(key);
   }
 }

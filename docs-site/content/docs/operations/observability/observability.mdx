@@ -17,7 +17,7 @@ Use engine statistics, initialization logs, and query plans to understand collec
 | One visit appears twice | Both server and browser page-view collection enabled | [Choose one collection method](../../getting-started/aspnet-core/aspnet-core.mdx#4-choose-how-to-collect-page-views) |
 | Live visitors decrease | Identities leaving the recent sliding window | [Time and freshness](../../concepts/time-and-accuracy/time-and-accuracy.mdx#report-freshness) |
 | A filtered report is much slower | Plan sources and required joint dimensions | [Explain a slow report](#explain-a-slow-report) |
-| Country rows are missing | Geolocation adapter or trusted country dimensions | [Website context](../../concepts/data-model/data-model.mdx#standard-website-context) |
+| Country rows are missing | IP location sources and `engine.IpLocation.LastError`, a geolocation adapter, or trusted country dimensions | [Website context](../../concepts/data-model/data-model.mdx#standard-website-context) |
 | Reports are slower after an index change | Plan notices and backfill progress | [Explain index work](#explain-index-work) |
 | Reporting returns 403 | Host policy and AuthorizeSite for the normalized site | [Sites and tenants](../../guides/sites-and-tenants/sites-and-tenants.mdx) |
 | Reporting returns 503 | Error body, concurrency, timeout, and response-size limits | [HTTP limits](../../reference/http-api/http-api.mdx#limits-and-authorization) |

@@ -12,7 +12,6 @@
   },
   "scripts": {
     "bump-version": "tsx scripts/bump-version.ts",
-    "get-ip-location-db": "tsx scripts/get-ip-location-db.ts",
     "check-dependencies": "tsx scripts/check-dependencies.ts && yarn dedupe --check",
     "check:scripts": "tsc --project scripts/tsconfig.json",
     "check:workspaces": "yarn workspaces foreach --all --exclude zonetree-analytics-repo run check",

@@ -18,6 +18,9 @@ sealed class DashboardSettings
   [Section("Privacy", Help = "Visitor identification and data minimization.")]
   public PrivacySettings Privacy { get; set; } = new();
 
+  [Section("Location", Help = "Visitor countries, regions and cities from IP addresses.")]
+  public LocationSettings Location { get; set; } = new();
+
   [Section("Sessions", Help = "Visits, bounce rate, duration, entry and exit pages.")]
   public SessionSettings Sessions { get; set; } = new();
 
@@ -161,6 +164,32 @@ sealed class PrivacySettings
 
   [Setting("Maximum value length", Advanced = true, Unit = "characters", Min = 16, Max = 65536)]
   public int MaxValueLength { get; set; } = CoreDefaults.Options.Privacy.MaxValueLength;
+}
+
+sealed class LocationSettings
+{
+  public const string Off = "off";
+  public const string UserCountry = "userCountry";
+  public const string DbIpCity = "dbIpCity";
+  public const string Custom = "custom";
+
+  [Setting("IP location database", Options = Off + ":Off|" +
+      UserCountry + ":Countries: ip-location-db user-country (public domain, daily)|" +
+      DbIpCity + ":Countries, regions and cities: DB-IP Lite (CC BY 4.0, monthly)|" +
+      Custom + ":Custom MMDB files",
+      Help = "Downloaded into the data directory and kept current. Location precision under Privacy limits what is kept. " +
+          "DB-IP Lite requires showing \"IP Geolocation by DB-IP\" with a link to db-ip.com where locations are shown.")]
+  public string Database { get; set; } = UserCountry;
+
+  [Setting("Database URLs", Editor = "tags", Advanced = true,
+      Help = "For custom MMDB files: one file with IPv4 and IPv6, or one file for each.")]
+  public List<string> Urls { get; set; } = [];
+
+  [Setting("Update automatically", Help = "Check for a newer database regularly. A check downloads nothing when it did not change.")]
+  public bool AutoUpdate { get; set; } = true;
+
+  [Setting("Update interval", Unit = "days", Min = 1, Max = 365, Advanced = true)]
+  public int UpdateIntervalDays { get; set; } = 1;
 }
 
 sealed class SessionSettings

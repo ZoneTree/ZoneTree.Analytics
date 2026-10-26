@@ -8,12 +8,18 @@ namespace ZoneTree.Analytics;
 public sealed class WebOptions
 {
   /// <summary>
-  /// Resolves IP addresses to locations. Default is null: no geolocation.
-  /// <see cref="IpCountryDatabase"/> resolves countries from a downloadable MMDB database; or
-  /// adapt another provider, or pass geography through event dimensions, for example from a
-  /// CDN header.
+  /// Resolves IP addresses to locations. Default is null: the engine uses
+  /// <see cref="IpLocation"/> when it has sources, and otherwise locates nothing. Set it to adapt
+  /// another provider, or to share an <see cref="IpLocationProvider"/> between engines. Geography
+  /// can also come as event dimensions, for example from a CDN header.
   /// </summary>
   public IGeoLocator GeoLocator { get; set; }
+
+  /// <summary>
+  /// IP location databases the engine downloads, keeps current and resolves locations with.
+  /// No sources by default.
+  /// </summary>
+  public IpLocationOptions IpLocation { get; private set; } = new();
 
   /// <summary>
   /// Parses user agents into browser, operating system and device.
@@ -63,7 +69,15 @@ public sealed class WebOptions
     clone.BotDetectors = [.. BotDetectors];
     clone.ReferrerSources = Copies.Of(ReferrerSources);
     clone.InternalHosts = Copies.Of(InternalHosts);
+    clone.IpLocation = IpLocation.Clone();
     return clone;
+  }
+
+  internal void Validate()
+  {
+    IpLocation.Validate();
+    if (GeoLocator != null && IpLocation.Sources.Count > 0)
+      throw new ArgumentException("Set either Web.GeoLocator or Web.IpLocation sources, not both.");
   }
 }
 

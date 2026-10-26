@@ -6,13 +6,17 @@ sealed class EngineUnavailableException(string message) : Exception(message);
 
 sealed record PartitionView(string Directory, long? Records);
 
+// The IP location database of the engine: null fields until one is loaded.
+sealed record IpLocationView(string DatabaseType, DateTimeOffset? BuildTime, int Ranges, string Precision,
+    DateTimeOffset? LastChecked, string LastError);
+
 sealed record EngineStatus(EngineState State, string Error, DateTime? OpenedAt, string IndexMaintenance,
     long EventsAccepted, long EventsProcessed, long EventsDropped, long QueueLength, long Errors,
-    int OpenPartitions, IReadOnlyList<PartitionView> Partitions);
+    int OpenPartitions, IReadOnlyList<PartitionView> Partitions, IpLocationView IpLocation = null);
 
 // Owns the primary analytics engine. Requests hold a lease while they use it; reopening waits
 // for the leases to end, closes the engine (which flushes it) and opens it with new options.
-sealed class EngineHost(IWebHostEnvironment environment, ILoggerFactory loggers, IpLocation ipLocation) : IAsyncDisposable
+sealed class EngineHost(IWebHostEnvironment environment, ILoggerFactory loggers) : IAsyncDisposable
 {
   static readonly TimeSpan AcquireTimeout = TimeSpan.FromSeconds(30);
   readonly Lock sync = new();
@@ -36,6 +40,9 @@ sealed class EngineHost(IWebHostEnvironment environment, ILoggerFactory loggers,
   }
 
   public EngineState State { get { lock (sync) return state; } }
+
+  // The IP location provider of the primary engine now, or null.
+  public IpLocationProvider IpLocation { get { lock (sync) return engine?.IpLocation; } }
 
   public async Task<EngineLease> AcquireAsync(CancellationToken cancellationToken)
   {
@@ -132,7 +139,7 @@ sealed class EngineHost(IWebHostEnvironment environment, ILoggerFactory loggers,
   {
     try
     {
-      var options = SettingsMapper.ToOptions(settings, environment.ContentRootPath, engineLogger, ipLocation.Locator);
+      var options = SettingsMapper.ToOptions(settings, environment.ContentRootPath, engineLogger);
       // Opening reads metadata and decides index work; keep it off the request threads.
       var opened = await Task.Run(() => new AnalyticsEngine(options)).ConfigureAwait(false);
       lock (sync)
@@ -177,7 +184,15 @@ sealed class EngineHost(IWebHostEnvironment environment, ILoggerFactory loggers,
     return new(currentState, currentError, opened, statistics?.IndexMaintenance,
         statistics?.EventsAccepted ?? 0, statistics?.EventsProcessed ?? 0, statistics?.EventsDropped ?? 0,
         statistics?.QueueLength ?? 0, statistics?.Errors ?? 0, statistics?.OpenPartitions ?? 0,
-        statistics?.Partitions.Select(partition => new PartitionView(partition.Directory, partition.ApproximateRecordCount)).ToList() ?? []);
+        statistics?.Partitions.Select(partition => new PartitionView(partition.Directory, partition.ApproximateRecordCount)).ToList() ?? [],
+        current?.IpLocation is { } provider ? IpLocationStatus(provider) : null);
+  }
+
+  static IpLocationView IpLocationStatus(IpLocationProvider provider)
+  {
+    var database = provider.Database;
+    return new(database?.DatabaseType, database?.BuildTime, database?.RangeCount ?? 0, database?.Precision.ToString(),
+        provider.LastChecked, provider.LastError);
   }
 
   public async ValueTask DisposeAsync()

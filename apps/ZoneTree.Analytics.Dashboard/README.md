@@ -34,19 +34,15 @@ after setup. The time zone, data directory, write-ahead-log directory and visito
 precision are stored with the data and cannot change later; everything else can change in the
 admin panel.
 
-## Visitor countries
+## Visitor locations
 
 Countries are resolved from visitor IP addresses with the free
 [ip-location-db](https://github.com/sapics/ip-location-db) user-country database (PDDL, updated
-daily). It is not in the repository; download or update it from the repository root:
-
-```sh
-yarn get-ip-location-db
-```
-
-The server loads `server/data/ip-location/user-country.mmdb` at startup, so restart it after an
-update. Choose another file with `--Dashboard:IpLocationDatabase=<path>`. Without the file, the
-startup log says so and countries come only from event dimensions.
+daily). The engine downloads it into `ip-location` under the data directory and checks for a
+newer one every day; the admin overview shows the database in use, the last check and any failure. Under
+**Location** in the settings, choose DB-IP Lite for regions and cities (CC BY 4.0: show
+"IP Geolocation by DB-IP" with a link to db-ip.com), custom MMDB URLs, another update interval,
+or turn it off. Location precision under **Privacy** limits what is kept.
 
 ## Users and administration
 

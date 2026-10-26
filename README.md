@@ -207,7 +207,7 @@ Matching rollups answer recurring reports from aggregates. Segments, funnels, an
 
 The default identity strategy recognizes anonymous visitors within a UTC day using a rotating hash. Explicit visitor IDs are keyed hashes and remain stable across days. Raw IP addresses and user-agent strings are used in memory for identity and enrichment, then discarded. Page query strings are excluded by default.
 
-Custom dimensions retain the values your application supplies, so choose what to collect. Configure dimension allow and deny lists, geography precision, identity strategy, and retention to fit your use case. Geography enrichment requires a geolocation provider: `IpCountryDatabase` resolves countries from a free, downloadable database.
+Custom dimensions retain the values your application supplies, so choose what to collect. Configure dimension allow and deny lists, geography precision, identity strategy, and retention to fit your use case. For geography, the engine downloads and updates a free IP location database: add `IpLocationSources.UserCountry` for countries or `IpLocationSources.DbIpCity` for regions and cities to `Web.IpLocation.Sources`.
 
 Visitor erasure removes an explicit visitor's retained raw events, dimension-index copies, and active session state. **Existing aggregate rollups are not recomputed.** Read [privacy and identity][privacy] and [retention and erasure][retention] for the full behavior.
 

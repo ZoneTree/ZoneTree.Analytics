@@ -4,32 +4,86 @@ using System.Text;
 namespace ZoneTree.Analytics.Geo;
 
 /// <summary>
-/// The address ranges of a MaxMind DB (MMDB) file and their countries. Ranges are sorted, start at
-/// address zero and cover the whole address space; adjacent ranges of the same country are merged.
-/// Country 0 is unknown.
+/// Distinct locations, numbered from 1; 0 is unknown. Shared by the files of one database, so
+/// equal locations from different files have one number and one <see cref="GeoLocation"/>.
 /// </summary>
-sealed class MmdbCountries
+sealed class LocationTable
 {
-  public string DatabaseType;
-  public DateTimeOffset BuildTime;
-  public List<string> Countries = [null];
-  public List<uint> Ipv4Starts = [];
-  public List<ushort> Ipv4Countries = [];
-  // Null for an IPv4 database.
-  public List<UInt128> Ipv6Starts;
-  public List<ushort> Ipv6Countries;
+  readonly Dictionary<(string, string, string), int> ids = [];
+  readonly Dictionary<string, string> names = new(StringComparer.Ordinal);
+
+  public List<GeoLocation> Locations { get; } = [null];
+
+  // The most precise location in the files, also where a lower precision drops it.
+  public GeoPrecision Available { get; private set; }
+
+  // Adds a location kept to the precision.
+  public int Add(string country, string region, string city, GeoPrecision precision)
+  {
+    if (string.IsNullOrEmpty(country)) return 0;
+    var available = !string.IsNullOrEmpty(city) ? GeoPrecision.City
+        : !string.IsNullOrEmpty(region) ? GeoPrecision.Region
+        : GeoPrecision.Country;
+    if (available > Available) Available = available;
+    if (precision < GeoPrecision.Region) region = null;
+    if (precision < GeoPrecision.City) city = null;
+    var key = (Name(country), Name(region), Name(city));
+    if (ids.TryGetValue(key, out var id)) return id;
+    id = Locations.Count;
+    Locations.Add(new(key.Item1, key.Item2, key.Item3));
+    ids.Add(key, id);
+    return id;
+  }
+
+  // Names repeat across locations, for example a region in each of its cities: one string each.
+  string Name(string name)
+  {
+    if (string.IsNullOrEmpty(name)) return null;
+    if (names.TryGetValue(name, out var shared)) return shared;
+    names.Add(name, name);
+    return name;
+  }
 }
 
 /// <summary>
-/// Reads the countries of a MaxMind DB file: its search tree is flattened into address ranges.
-/// A record's country is "country_code" (ip-location-db), or the "iso_code" of "country" or else
-/// "registered_country" (MaxMind, DB-IP).
+/// Address ranges in address order. They start at address zero and cover the address space;
+/// adjacent ranges with the same location are merged.
+/// </summary>
+sealed class MmdbRanges<T>
+{
+  public List<T> Starts = [];
+  public List<int> Locations = [];
+
+  // Whether any range has a location.
+  public bool HasLocations => Locations.Exists(location => location != 0);
+}
+
+/// <summary>The ranges of one MMDB file.</summary>
+sealed class MmdbFile
+{
+  public string DatabaseType;
+  public DateTimeOffset BuildTime;
+  public MmdbRanges<uint> Ipv4;
+  // Null for an IPv4 database.
+  public MmdbRanges<UInt128> Ipv6;
+}
+
+/// <summary>
+/// Reads a MaxMind DB (MMDB) file: its search tree is flattened into address ranges with their
+/// locations, kept to the requested precision.
 /// </summary>
 /// <remarks>
+/// <para>
+/// Records are read in the ip-location-db layout ("country_code", "state1", "city") and the
+/// MaxMind layout ("country", "subdivisions" and "city" with English "names"; DB-IP uses it too).
+/// Without "country", the "registered_country" is used.
+/// </para>
+/// <para>
 /// IPv4 addresses are read from the ::/96 subtree of an IPv6 database. Other IPv6 paths into that
 /// subtree, such as aliases for IPv4-mapped, 6to4 or Teredo addresses, are left unknown.
+/// </para>
 /// </remarks>
-static class MmdbCountryReader
+static class MmdbReader
 {
   static ReadOnlySpan<byte> MetadataMarker =>
       [0xAB, 0xCD, 0xEF, (byte)'M', (byte)'a', (byte)'x', (byte)'M', (byte)'i', (byte)'n', (byte)'d', (byte)'.', (byte)'c', (byte)'o', (byte)'m'];
@@ -39,15 +93,16 @@ static class MmdbCountryReader
   const int MaxDepth = 32;
 
   // Bounds the tree walk of a malformed file whose nodes share children.
-  const long MaxVisits = 1L << 27;
+  const long MaxVisits = 1L << 28;
 
   enum Type { Pointer = 1, String = 2, Bytes = 4, UInt16 = 5, UInt32 = 6, Map = 7, Int32 = 8, UInt64 = 9, UInt128 = 10, Array = 11, Boolean = 14 }
 
-  public static MmdbCountries Read(byte[] file)
+  /// <exception cref="InvalidDataException">The file is not an MMDB file.</exception>
+  public static MmdbFile Read(byte[] file, GeoPrecision precision, LocationTable locations)
   {
     try
     {
-      return new Flattener(file).Read();
+      return new Flattener(file, precision, locations).Read();
     }
     catch (Exception exception) when (exception is IndexOutOfRangeException or ArgumentOutOfRangeException or OverflowException)
     {
@@ -57,11 +112,10 @@ static class MmdbCountryReader
 
   static InvalidDataException Invalid(string message) => new($"The file is not a valid MaxMind DB (MMDB) file: {message}");
 
-  sealed class Flattener(byte[] file)
+  sealed class Flattener(byte[] file, GeoPrecision precision, LocationTable locations)
   {
-    readonly Dictionary<uint, ushort> countryOfRecord = [];
-    readonly Dictionary<string, ushort> countryIds = new(StringComparer.Ordinal);
-    MmdbCountries result;
+    readonly Dictionary<uint, int> locationOfRecord = [];
+    MmdbFile result;
     int dataStart;
     int dataEnd;
     uint nodeCount;
@@ -69,7 +123,7 @@ static class MmdbCountryReader
     uint ipv4Root;
     long visits;
 
-    public MmdbCountries Read()
+    public MmdbFile Read()
     {
       var tail = Math.Min(file.Length, MaxMetadataSize);
       var marker = file.AsSpan(file.Length - tail).LastIndexOf(MetadataMarker);
@@ -85,16 +139,13 @@ static class MmdbCountryReader
       if (ipVersion == 6)
         for (var depth = 0; depth < 96 && ipv4Root < nodeCount; depth++)
           ipv4Root = Record(ipv4Root, 0);
-      var starts = new List<UInt128>();
-      var countries = new List<ushort>();
-      Walk(ipv4Root, 0, 32, UInt128.Zero, false, starts, countries);
-      foreach (var start in starts) result.Ipv4Starts.Add((uint)start);
-      result.Ipv4Countries = countries;
+      var ipv4 = new MmdbRanges<UInt128>();
+      Walk(ipv4Root, 0, 32, UInt128.Zero, false, ipv4);
+      result.Ipv4 = new() { Starts = ipv4.Starts.ConvertAll(start => (uint)start), Locations = ipv4.Locations };
       if (ipVersion == 6)
       {
-        result.Ipv6Starts = [];
-        result.Ipv6Countries = [];
-        Walk(0, 0, 128, UInt128.Zero, true, result.Ipv6Starts, result.Ipv6Countries);
+        result.Ipv6 = new();
+        Walk(0, 0, 128, UInt128.Zero, true, result.Ipv6);
       }
       return result;
     }
@@ -144,74 +195,96 @@ static class MmdbCountryReader
     }
 
     // Emits the ranges under a record in address order. Within IPv6, the IPv4 subtree is unknown.
-    void Walk(uint record, int depth, int bits, UInt128 prefix, bool ipv6, List<UInt128> starts, List<ushort> countries)
+    void Walk(uint record, int depth, int bits, UInt128 prefix, bool ipv6, MmdbRanges<UInt128> ranges)
     {
       if (++visits > MaxVisits) throw Invalid("the search tree has too many paths.");
       if (record < nodeCount && !(ipv6 && record == ipv4Root))
       {
         if (depth == bits) throw Invalid("the search tree is deeper than the address length.");
-        Walk(Record(record, 0), depth + 1, bits, prefix << 1, ipv6, starts, countries);
-        Walk(Record(record, 1), depth + 1, bits, prefix << 1 | UInt128.One, ipv6, starts, countries);
+        Walk(Record(record, 0), depth + 1, bits, prefix << 1, ipv6, ranges);
+        Walk(Record(record, 1), depth + 1, bits, prefix << 1 | UInt128.One, ipv6, ranges);
         return;
       }
-      var country = record > nodeCount ? Country(record) : (ushort)0;
-      if (countries.Count > 0 && countries[^1] == country) return;
-      starts.Add(depth == 0 ? UInt128.Zero : prefix << (bits - depth));
-      countries.Add(country);
+      var location = record > nodeCount ? Location(record) : 0;
+      if (ranges.Locations.Count > 0 && ranges.Locations[^1] == location) return;
+      ranges.Starts.Add(depth == 0 ? UInt128.Zero : prefix << (bits - depth));
+      ranges.Locations.Add(location);
     }
 
-    ushort Country(uint record)
+    int Location(uint record)
     {
-      if (countryOfRecord.TryGetValue(record, out var id)) return id;
+      if (locationOfRecord.TryGetValue(record, out var id)) return id;
       var offset = (long)record - nodeCount - 16;
       if (offset < 0 || offset >= dataEnd - dataStart) throw Invalid("a record points outside the data section.");
-      var code = ReadCountry(file.AsSpan(dataStart, dataEnd - dataStart), (int)offset);
-      id = 0;
-      if (!string.IsNullOrEmpty(code) && !countryIds.TryGetValue(code, out id))
-      {
-        if (result.Countries.Count > ushort.MaxValue) throw Invalid("there are too many countries.");
-        id = (ushort)result.Countries.Count;
-        result.Countries.Add(code);
-        countryIds.Add(code, id);
-      }
-      countryOfRecord.Add(record, id);
+      var (country, region, city) = ReadLocation(file.AsSpan(dataStart, dataEnd - dataStart), (int)offset);
+      id = locations.Add(country, region, city, precision);
+      locationOfRecord.Add(record, id);
       return id;
     }
+  }
 
-    static string ReadCountry(ReadOnlySpan<byte> data, int offset)
+  static (string Country, string Region, string City) ReadLocation(ReadOnlySpan<byte> data, int offset)
+  {
+    var position = offset;
+    var map = Locate(data, ref position, 0);
+    if (Peek(data, map) != Type.Map) return default;
+    var pairs = Header(data, ref map, Type.Map);
+    string code = null, country = null, registered = null, state = null, subdivision = null, city = null;
+    for (var i = 0; i < pairs; i++)
     {
-      var position = offset;
-      var map = Locate(data, ref position, 0);
-      if (Peek(data, map) != Type.Map) return null;
-      var pairs = Header(data, ref map, Type.Map);
-      string code = null, country = null, registered = null;
-      for (var i = 0; i < pairs; i++)
-      {
-        var key = ReadString(data, ref map);
-        var value = Locate(data, ref map, 0);
-        if (key.SequenceEqual("country_code"u8) && Peek(data, value) == Type.String)
-          code = Encoding.UTF8.GetString(ReadString(data, ref value));
-        else if (key.SequenceEqual("country"u8))
-          country = IsoCode(data, value);
-        else if (key.SequenceEqual("registered_country"u8))
-          registered = IsoCode(data, value);
-      }
-      return country ?? code ?? registered;
+      var key = ReadString(data, ref map);
+      var value = Locate(data, ref map, 0);
+      if (key.SequenceEqual("country_code"u8)) code = Text(data, value);
+      else if (key.SequenceEqual("country"u8)) country = Member(data, value, "iso_code"u8);
+      else if (key.SequenceEqual("registered_country"u8)) registered = Member(data, value, "iso_code"u8);
+      else if (key.SequenceEqual("state1"u8)) state = Text(data, value);
+      else if (key.SequenceEqual("subdivisions"u8)) subdivision = FirstName(data, value);
+      else if (key.SequenceEqual("city"u8)) city = Text(data, value) ?? Name(data, value);
     }
+    return (country ?? code ?? registered, state ?? subdivision, city);
+  }
 
-    static string IsoCode(ReadOnlySpan<byte> data, int map)
+  // A string value, or null for another type.
+  static string Text(ReadOnlySpan<byte> data, int position)
+  {
+    if (Peek(data, position) != Type.String) return null;
+    var value = ReadString(data, ref position);
+    return value.IsEmpty ? null : Encoding.UTF8.GetString(value);
+  }
+
+  // A string member of a map value.
+  static string Member(ReadOnlySpan<byte> data, int map, ReadOnlySpan<byte> name)
+  {
+    if (Peek(data, map) != Type.Map) return null;
+    var pairs = Header(data, ref map, Type.Map);
+    for (var i = 0; i < pairs; i++)
     {
-      if (Peek(data, map) != Type.Map) return null;
-      var pairs = Header(data, ref map, Type.Map);
-      for (var i = 0; i < pairs; i++)
-      {
-        var key = ReadString(data, ref map);
-        var value = Locate(data, ref map, 0);
-        if (key.SequenceEqual("iso_code"u8) && Peek(data, value) == Type.String)
-          return Encoding.UTF8.GetString(ReadString(data, ref value));
-      }
-      return null;
+      var key = ReadString(data, ref map);
+      var value = Locate(data, ref map, 0);
+      if (key.SequenceEqual(name)) return Text(data, value);
     }
+    return null;
+  }
+
+  // The English name of a MaxMind place: {"names": {"en": ...}}.
+  static string Name(ReadOnlySpan<byte> data, int map)
+  {
+    if (Peek(data, map) != Type.Map) return null;
+    var pairs = Header(data, ref map, Type.Map);
+    for (var i = 0; i < pairs; i++)
+    {
+      var key = ReadString(data, ref map);
+      var value = Locate(data, ref map, 0);
+      if (key.SequenceEqual("names"u8)) return Member(data, value, "en"u8);
+    }
+    return null;
+  }
+
+  // The English name of the first place in an array, the largest MaxMind subdivision.
+  static string FirstName(ReadOnlySpan<byte> data, int array)
+  {
+    if (Peek(data, array) != Type.Array || Header(data, ref array, Type.Array) == 0) return null;
+    return Name(data, Locate(data, ref array, 0));
   }
 
   // The position of the value at position, following a pointer, and moves position past it.
