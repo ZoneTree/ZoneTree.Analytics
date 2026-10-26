@@ -18,6 +18,7 @@ export interface SampleBenchmarkPanel {
   workers: SRef<number | string>
   percentiles: SRef<boolean>
   indexes: SRef<boolean>
+  geolocation: SRef<boolean>
   benchmark: ComputedRef<SampleBenchmarkStatus | null>
   run: (event: Event) => Promise<void>
   seconds: (milliseconds: number) => string
@@ -74,6 +75,15 @@ const template = html`<Panel class="form-panel sample-benchmark-panel">
       label="Maintain dimension and rollup indexes"
       :checked="indexes"
       :disabled="jobs.busy"/>
+    <FormCheck
+      id="benchmark-geolocation"
+      label="Resolve visitor countries from IP addresses"
+      :checked="geolocation"
+      :disabled="jobs.busy || !(benchmark && benchmark.geolocationAvailable)"/>
+    <p class="field-hint" r-if="benchmark && !benchmark.geolocationAvailable">
+      Needs the IP location database: run <code>yarn get-ip-location-db</code>
+      and restart the server.
+    </p>
     <div
       class="sample-job-status"
       r-if="benchmark && benchmark.state !== 'idle'"
@@ -174,7 +184,8 @@ const template = html`<Panel class="form-panel sample-benchmark-panel">
     <p>
       {{ dashboard.number(benchmark.result.events) }} events · {{ benchmark.result.days }} days ·
       {{ benchmark.result.workers }} workers · Percentiles
-      {{ benchmark.result.percentiles ? 'on' : 'off' }} · Indexes {{ benchmark.result.indexes ? 'on' : 'off' }}
+      {{ benchmark.result.percentiles ? 'on' : 'off' }} · Indexes {{ benchmark.result.indexes ? 'on' : 'off' }} ·
+      Geolocation {{ benchmark.result.geolocation ? 'on' : 'off' }}
     </p>
     <dl class="sample-ingestion-metrics">
       <div>
@@ -227,6 +238,7 @@ export function defineSampleBenchmarkPanel() {
       const workers = sref<number | string>(20)
       const percentiles = sref(false)
       const indexes = sref(true)
+      const geolocation = sref(false)
       return {
         ...head.props,
         count,
@@ -234,6 +246,7 @@ export function defineSampleBenchmarkPanel() {
         workers,
         percentiles,
         indexes,
+        geolocation,
         benchmark: computed(() => jobs.status()?.benchmark ?? null),
         viewUrl: computed(() => {
           const model = unref(head.props.dashboard)
@@ -275,6 +288,7 @@ export function defineSampleBenchmarkPanel() {
             workers: concurrency,
             percentiles: percentiles(),
             indexes: indexes(),
+            geolocation: geolocation(),
           })
         },
       }

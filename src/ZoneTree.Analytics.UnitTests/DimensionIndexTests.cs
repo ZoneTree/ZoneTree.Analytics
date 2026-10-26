@@ -161,9 +161,11 @@ public sealed class DimensionIndexTests : DirectoryTest
   [Test]
   public void IndexWriteFailureKeepsIngestionAndRawQueriesCorrectAndRecoversOnReopen()
   {
+    var logger = new RecordingLogger();
     var opens = 0;
     using (var engine = TestEngine.Create(directory, options =>
     {
+      options.Storage.Logger = logger;
       Configure(options);
       options.Ingestion.WorkerCount = 1;
       options.Storage.DimensionIndexes.Store.ConfigureMaintainer = _ =>
@@ -181,6 +183,8 @@ public sealed class DimensionIndexTests : DirectoryTest
       Assert.That(result.Plan.UsedDimensionIndexes, Is.False);
       Assert.That(result.Totals[Metric.Events], Is.EqualTo(2));
     }
+    Assert.That(logger.Problems, Has.Count.EqualTo(1));
+    Assert.That(logger.Problems.Single(), Does.Contain("System.IO.IOException: Injected secondary index write failure"));
     using var recovered = TestEngine.Create(directory, Configure);
     Assert.That(recovered.Query(Query(Filter.Equal("source", "Github"))).Plan.UsedDimensionIndexes, Is.True);
     Assert.That(recovered.Query(Query(Filter.Equal("source", "Github"))).Totals[Metric.Events], Is.EqualTo(2));

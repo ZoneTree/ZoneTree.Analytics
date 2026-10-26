@@ -234,9 +234,11 @@ public sealed class RollupIndexTests : DirectoryTest
   [Test]
   public void FailedCopyKeepsPrimaryRollupsCorrectAndRecoversOnReopen()
   {
+    var logger = new RecordingLogger();
     var opens = 0;
     using (var engine = TestEngine.Create(directory, options =>
     {
+      options.Storage.Logger = logger;
       Configure(options);
       options.Storage.RollupIndexes.Store.ConfigureMaintainer = _ =>
       {
@@ -253,6 +255,8 @@ public sealed class RollupIndexTests : DirectoryTest
       Assert.That(result.Plan.UsedRollupIndexes, Is.False);
       Assert.That(engine.GetStatistics().Errors, Is.EqualTo(1));
     }
+    Assert.That(logger.Problems, Has.Count.EqualTo(1));
+    Assert.That(logger.Problems.Single(), Does.Contain("System.IO.IOException: Injected rollup index write failure"));
     using var recovered = TestEngine.Create(directory, Configure);
     var restored = recovered.Query(Query(Filter.Equal("source", "GitHub")));
     Assert.That(restored.Totals[Metric.Events], Is.EqualTo(2));

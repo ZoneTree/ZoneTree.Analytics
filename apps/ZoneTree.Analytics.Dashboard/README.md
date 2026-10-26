@@ -34,6 +34,20 @@ after setup. The time zone, data directory, write-ahead-log directory and visito
 precision are stored with the data and cannot change later; everything else can change in the
 admin panel.
 
+## Visitor countries
+
+Countries are resolved from visitor IP addresses with the free
+[ip-location-db](https://github.com/sapics/ip-location-db) user-country database (PDDL, updated
+daily). It is not in the repository; download or update it from the repository root:
+
+```sh
+yarn get-ip-location-db
+```
+
+The server loads `server/data/ip-location/user-country.mmdb` at startup, so restart it after an
+update. Choose another file with `--Dashboard:IpLocationDatabase=<path>`. Without the file, the
+startup log says so and countries come only from event dimensions.
+
 ## Users and administration
 
 Every page, report and setting requires signing in; only `/_analytics/script.js` and

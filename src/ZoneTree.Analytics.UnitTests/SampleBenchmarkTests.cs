@@ -37,6 +37,84 @@ public sealed class SampleBenchmarkTests : DirectoryTest
     Assert.That(options.Storage.RollupIndexes.Definitions, indexes ? Is.Not.Empty : Is.Empty);
   }
 
+  // A /8 per sample country, except the skipped ones.
+  static IpCountryDatabase SampleCountries(params string[] skipped)
+  {
+    var writer = new MmdbWriter(6);
+    var block = 1;
+    foreach (var country in SampleTraffic.CountryCodes)
+      if (!skipped.Contains(country))
+        writer.Insert($"{block++}.0.0.0/8", writer.CountryCode(country));
+    return IpCountryDatabase.Load(new MemoryStream(writer.ToArray()));
+  }
+
+  [Test]
+  public void GeolocatedVisitorsCarryAddressesOfTheirCountries()
+  {
+    var end = new DateTimeOffset(2026, 10, 13, 0, 0, 0, TimeSpan.Zero);
+    var request = new SampleBenchmarkRequest(3000, 7, 4);
+    var database = SampleCountries(skipped: "KE");
+    var plain = SampleBenchmark.PrepareEvents(request, TimeZoneInfo.Utc, _ => { }, end);
+    var located = SampleBenchmark.PrepareEvents(request, TimeZoneInfo.Utc, _ => { }, end,
+        addresses: SampleTraffic.FindAddresses(database));
+    var countries = new HashSet<string>();
+    for (var index = 0; index < plain.Length; index++)
+    {
+      // Visitor ids differ by a random batch id; the visitor numbers match.
+      Assert.That(located[index].VisitorId?.Split('-')[^1], Is.EqualTo(plain[index].VisitorId?.Split('-')[^1]));
+      plain[index].Dimensions.TryGetValue(StandardDimensions.Country, out var country);
+      if (country == null)
+      {
+        Assert.That(located[index].IpAddress, Is.EqualTo(plain[index].IpAddress), "Bots keep their addresses");
+        continue;
+      }
+      countries.Add(country);
+      if (country == "KE")
+      {
+        // Countries the database lacks keep their dimension.
+        Assert.That(located[index].Dimensions[StandardDimensions.Country], Is.EqualTo("KE"));
+        continue;
+      }
+      Assert.That(located[index].Dimensions.ContainsKey(StandardDimensions.Country), Is.False);
+      Assert.That(database.Locate(located[index].IpAddress)?.Country, Is.EqualTo(country));
+    }
+    Assert.That(countries, Has.Count.GreaterThan(40));
+  }
+
+  [Test]
+  public async Task GeolocatedBenchmarkReportsTheSameCountriesAsDimensions()
+  {
+    var database = SampleCountries();
+    await using var benchmark = new SampleBenchmark(directory, TimeZoneInfo.Utc, geoLocator: database);
+    Assert.That(benchmark.CanGeolocate, Is.True);
+    async Task<Dictionary<string, long>> Countries(bool geolocation)
+    {
+      var result = await benchmark.RunAsync(new(400, 7, 2, Geolocation: geolocation), _ => { },
+          CancellationToken.None, CancellationToken.None);
+      Assert.That(result.Geolocation, Is.EqualTo(geolocation));
+      using var lease = benchmark.Reports.Acquire();
+      var report = lease.Engine.Web.GetBreakdown(new() { Site = BenchmarkReportStore.Site, Range = DateRange.LastDays(8), Limit = 100 },
+          StandardDimensions.Country);
+      return report.Rows.ToDictionary(row => row.Value ?? "", row => row.Visitors);
+    }
+    var dimensions = await Countries(false);
+    var located = await Countries(true);
+    Assert.That(dimensions, Has.Count.GreaterThan(10));
+    Assert.That(located, Is.EquivalentTo(dimensions));
+  }
+
+  [Test]
+  public void GeolocationNeedsADatabase()
+  {
+    var options = DashboardAnalyticsOptions.CreateBenchmark(directory, TimeZoneInfo.Utc, 1, false, true);
+    Assert.That(options.Web.GeoLocator, Is.Null);
+    Assert.ThrowsAsync<InvalidOperationException>(async () =>
+    {
+      await using var benchmark = new SampleBenchmark(directory, TimeZoneInfo.Utc);
+      await benchmark.RunAsync(new(17, 7, 1, Geolocation: true), _ => { }, CancellationToken.None, CancellationToken.None);
+    });
+  }
+
   [Test]
   public async Task ABenchmarkWithoutIndexesRetainsBrowsableReportsWithoutIndexes()
   {

@@ -21,7 +21,10 @@ sealed class SampleDataJobs(SampleDataStore store, SampleBenchmark benchmark, IH
     get
     {
       lock (sync) return status with
-      { ActiveOperation = operation.IsCompleted ? null : activeOperation, Benchmark = benchmarkStatus };
+      {
+        ActiveOperation = operation.IsCompleted ? null : activeOperation,
+        Benchmark = benchmarkStatus with { GeolocationAvailable = benchmark.CanGeolocate }
+      };
     }
   }
   public Task StartAsync(CancellationToken cancellationToken) => Task.CompletedTask;
@@ -59,6 +62,8 @@ sealed class SampleDataJobs(SampleDataStore store, SampleBenchmark benchmark, IH
   {
     if (request.Events is < 1 or > 10_000_000 || request.Days is < 1 or > 365 || request.Workers is < 1 or > 64)
       throw new ArgumentException("Choose 1–10,000,000 events, 365 days, and 1–64 workers.");
+    if (request.Geolocation && !benchmark.CanGeolocate)
+      throw new ArgumentException("Geolocation needs the IP location database. Run yarn get-ip-location-db and restart the server.");
     lock (sync)
     {
       if (!operation.IsCompleted) return false;
@@ -67,7 +72,7 @@ sealed class SampleDataJobs(SampleDataStore store, SampleBenchmark benchmark, IH
       var token = cancellation.Token;
       activeOperation = "benchmark";
       benchmarkStatus = new("preparing", request.Events, Workers: request.Workers, Days: request.Days,
-          Percentiles: request.Percentiles, Indexes: request.Indexes, Result: benchmarkStatus.Result);
+          Percentiles: request.Percentiles, Indexes: request.Indexes, Geolocation: request.Geolocation, Result: benchmarkStatus.Result);
       operation = Task.Run(async () =>
       {
         try

@@ -15,6 +15,7 @@ export async function checkSampleDataTools(page: Page, base: string) {
     workers: 2,
     percentiles: false,
     indexes: true,
+    geolocation: false,
     preparationMs: 100,
     submissionMs: 200,
     ingestionMs: 500,
@@ -50,6 +51,8 @@ export async function checkSampleDataTools(page: Page, base: string) {
       days: 30,
       percentiles: false,
       indexes: true,
+      geolocation: false,
+      geolocationAvailable: true,
       error: null,
       result,
       ingested: 0,
@@ -143,6 +146,16 @@ export async function checkSampleDataTools(page: Page, base: string) {
     .click()
   assert.equal(
     await page
+      .getByLabel('Resolve visitor countries from IP addresses')
+      .isChecked(),
+    false,
+    'Benchmarks measure without geolocation by default',
+  )
+  await page
+    .getByText('Resolve visitor countries from IP addresses', { exact: true })
+    .click()
+  assert.equal(
+    await page
       .getByLabel('Include load-time percentile aggregation')
       .isChecked(),
     true,
@@ -150,7 +163,14 @@ export async function checkSampleDataTools(page: Page, base: string) {
   await page.getByRole('button', { name: 'Run benchmark', exact: true }).click()
   await page.getByText('Preparing 0 / 17 events', { exact: true }).waitFor()
   assert.deepEqual(submissions, [
-    { events: 17, days: 7, workers: 2, percentiles: true, indexes: false },
+    {
+      events: 17,
+      days: 7,
+      workers: 2,
+      percentiles: true,
+      indexes: false,
+      geolocation: true,
+    },
   ])
   assert.equal(
     await page
@@ -206,7 +226,12 @@ export async function checkSampleDataTools(page: Page, base: string) {
     benchmark: {
       ...status.benchmark,
       state: 'completed',
-      result: { ...result, percentiles: true, indexes: false },
+      result: {
+        ...result,
+        percentiles: true,
+        indexes: false,
+        geolocation: true,
+      },
     },
   }
   await page.getByText('Benchmark completed', { exact: true }).waitFor()
@@ -224,7 +249,7 @@ export async function checkSampleDataTools(page: Page, base: string) {
   )
   await page
     .getByText(
-      '17 events · 7 days · 2 workers · Percentiles on · Indexes off',
+      '17 events · 7 days · 2 workers · Percentiles on · Indexes off · Geolocation on',
       {
         exact: true,
       },

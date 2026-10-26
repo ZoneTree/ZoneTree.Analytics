@@ -19,7 +19,7 @@ Configure extensions before opening the engine.
 | IEventEnricher | Adding, changing, or removing dimensions |
 | IBotDetector | Recognizing automated clients |
 | IUserAgentParser | Browser, operating-system, and device classification |
-| IGeoLocator | Country, region, and city lookup |
+| IGeoLocator | Country, region, and city lookup; `IpCountryDatabase` resolves countries |
 
 Each interface has a helper factory, such as `EventFilter.Create` or `EventEnricher.Create`, for a lambda implementation.
 
@@ -40,6 +40,21 @@ options.Enrichers.Add(EventEnricher.Create(context =>
 ```
 
 This example turns numeric path segments into `/:id`. Choose a normalization rule that matches your route structure.
+
+## Resolve visitor countries
+
+`IpCountryDatabase` resolves IP addresses to ISO country codes from a MaxMind DB (MMDB) country database, such as the free [ip-location-db](https://github.com/sapics/ip-location-db) user-country database (PDDL, updated daily). The library ships no database; download one on demand:
+
+```csharp
+var path = "data/user-country.mmdb";
+options.Web.GeoLocator = File.Exists(path)
+    ? IpCountryDatabase.Load(path)
+    : await IpCountryDatabase.DownloadAsync(path);
+```
+
+`DownloadAsync` defaults to the latest user-country database and replaces the file only with a valid one. DB-IP Lite Country and GeoLite2 Country files load too. Loading flattens the database into sorted address ranges; lookups take tens of nanoseconds and do not allocate. A loaded database does not change, so load the file again to use a newer one.
+
+For region or city, adapt another provider through `GeoLocator.Create`, or pass geography as event dimensions, for example from a CDN header.
 
 ## Apply collection rules
 

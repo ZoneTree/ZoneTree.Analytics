@@ -8,9 +8,10 @@ namespace ZoneTree.Analytics;
 public sealed class WebOptions
 {
   /// <summary>
-  /// Resolves IP addresses to locations. Default is null: no geolocation. The library ships
-  /// no geolocation database; adapt one, or pass geography through event dimensions, for
-  /// example from a CDN header.
+  /// Resolves IP addresses to locations. Default is null: no geolocation.
+  /// <see cref="IpCountryDatabase"/> resolves countries from a downloadable MMDB database; or
+  /// adapt another provider, or pass geography through event dimensions, for example from a
+  /// CDN header.
   /// </summary>
   public IGeoLocator GeoLocator { get; set; }
 

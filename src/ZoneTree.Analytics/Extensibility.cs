@@ -207,8 +207,9 @@ public sealed record GeoLocation(string Country, string Region = null, string Ci
 /// Resolves IP addresses to locations.
 /// </summary>
 /// <remarks>
-/// The library ships no geolocation database: adapt one, for example a MaxMind reader, or pass
-/// geography through event dimensions, for example from a CDN header.
+/// <see cref="IpCountryDatabase"/> resolves countries from a downloadable MMDB database. For region
+/// or city, adapt another provider, or pass geography through event dimensions, for example from
+/// a CDN header.
 /// </remarks>
 public interface IGeoLocator
 {

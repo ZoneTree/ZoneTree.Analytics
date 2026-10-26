@@ -21,6 +21,11 @@ var systemStore = new SystemStore(Path.IsPathRooted(systemDirectory) ? systemDir
 builder.Services.AddSingleton(systemStore);
 builder.Services.AddSingleton<UserStore>();
 builder.Services.AddSingleton<AuditLog>();
+// Visitor countries of the primary engine, from the database `yarn get-ip-location-db` downloads.
+var ipLocationPath = builder.Configuration["Dashboard:IpLocationDatabase"] ?? IpLocation.DefaultPath;
+builder.Services.AddSingleton(services => IpLocation.Load(
+    Path.GetFullPath(ipLocationPath, contentRoot),
+    services.GetRequiredService<ILogger<IpLocation>>()));
 builder.Services.AddSingleton<EngineHost>();
 builder.Services.AddSingleton<SettingsService>();
 builder.Services.AddSingleton<SessionStore>();
@@ -53,7 +58,8 @@ if (sampleDataEnabled)
   // New Development datasets take the reporting time zone current when they are created.
   builder.Services.AddSingleton<SampleDataStore>();
   builder.Services.AddSingleton(services => new SampleBenchmark(contentRoot,
-      () => services.GetRequiredService<SettingsService>().ReportingTimeZone, services.GetRequiredService<ILogger<SampleBenchmark>>()));
+      () => services.GetRequiredService<SettingsService>().ReportingTimeZone, services.GetRequiredService<ILogger<SampleBenchmark>>(),
+      services.GetRequiredService<IpLocation>().Locator));
   builder.Services.AddSingleton<SampleDataJobs>();
   builder.Services.AddHostedService(services => services.GetRequiredService<SampleDataJobs>());
 }

@@ -35,7 +35,7 @@ public sealed class DashboardAdministrationTests : DirectoryTest
       Store = new SystemStore(Path.Combine(root, "system"));
       Users = new UserStore(Store);
       Audit = new AuditLog(Store);
-      Engines = new EngineHost(environment, NullLoggerFactory.Instance);
+      Engines = new EngineHost(environment, NullLoggerFactory.Instance, IpLocation.None);
       Settings = new SettingsService(Store, Engines, Web, Users, Audit, environment);
       Sessions = new SessionStore(Store, Users, Settings);
     }

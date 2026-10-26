@@ -54,8 +54,14 @@ public sealed class SampleTrafficTests
     Assert.That(visits.Count(visit => visit.Count == 1), Is.GreaterThan(visits.Count * 0.15), "Single-page bounces");
     Assert.That(visits.Count(visit => visit.Count > 3), Is.GreaterThan(visits.Count * 0.15), "Longer visits");
     Assert.That(events.Any(item => item.VisitorId == null), Is.True, "Bot traffic");
-    Assert.That(humans.Select(item => item.Dimensions[StandardDimensions.Country]).Distinct(), Is.EquivalentTo(new[] { "US", "DE" }),
-        "Samples carry their country, since the dashboard engines have no geolocator");
+    // Samples carry their country, since the sample and benchmark engines have no geolocator.
+    var countries = humans.GroupBy(item => item.VisitorId)
+        .Select(visitor => visitor.Select(item => item.Dimensions[StandardDimensions.Country]).Distinct().Single())
+        .CountBy(country => country).ToDictionary();
+    Assert.That(countries, Has.Count.GreaterThan(40), "Many countries, each visitor in one");
+    Assert.That(countries.MaxBy(country => country.Value).Key, Is.EqualTo("US"));
+    Assert.That(countries["US"] / (double)countries.Values.Sum(), Is.InRange(0.24, 0.32), "A realistic share for the largest country");
+    Assert.That(countries["DE"], Is.GreaterThan(countries["NL"]));
     Assert.That(humans.Any(item => item.Name == "signup"), Is.True);
     Assert.That(humans.Any(item => item.Name == "purchase" && item.Values["revenue"] > 0), Is.True);
     foreach (var visit in visits)

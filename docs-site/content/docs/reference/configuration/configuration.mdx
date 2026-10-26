@@ -237,7 +237,7 @@ Track the attribute as an event dimension, such as an experiment variant. Later 
 
 | Setting | Type | Behavior and default |
 | --- | --- | --- |
-| `GeoLocator` | `IGeoLocator` | Resolves IP addresses to locations. Default is null: no geolocation. The library ships no geolocation database; adapt one, or pass geography through event dimensions, for example from a CDN header. |
+| `GeoLocator` | `IGeoLocator` | Resolves IP addresses to locations. Default is null: no geolocation. `IpCountryDatabase` resolves countries from a downloadable MMDB database; or adapt another provider, or pass geography through event dimensions, for example from a CDN header. |
 | `UserAgentParser` | `IUserAgentParser` | Parses user agents into browser, operating system and device. Default is `UserAgentParser.Default`. |
 | `Bots` | `BotTraffic` | What happens to bot traffic. Default is `BotTraffic.Exclude`. |
 | `BotDetectors` | `List<IBotDetector>` | Bot detectors, in order; the first that recognizes a bot wins. Default is `BotDetector.UserAgent`. Add detectors (for example based on IP ranges) or clear the list to treat all traffic as human. |

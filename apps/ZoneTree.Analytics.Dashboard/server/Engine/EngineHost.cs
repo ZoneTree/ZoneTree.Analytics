@@ -12,10 +12,10 @@ sealed record EngineStatus(EngineState State, string Error, DateTime? OpenedAt, 
 
 // Owns the primary analytics engine. Requests hold a lease while they use it; reopening waits
 // for the leases to end, closes the engine (which flushes it) and opens it with new options.
-sealed class EngineHost(IWebHostEnvironment environment, ILoggerFactory loggers) : IAsyncDisposable
+sealed class EngineHost(IWebHostEnvironment environment, ILoggerFactory loggers, IpLocation ipLocation) : IAsyncDisposable
 {
   static readonly TimeSpan AcquireTimeout = TimeSpan.FromSeconds(30);
-  readonly object sync = new();
+  readonly Lock sync = new();
   readonly SemaphoreSlim transitions = new(1, 1);
   readonly ILogger logger = loggers.CreateLogger<EngineHost>();
   readonly ILogger engineLogger = loggers.CreateLogger("ZoneTree.Analytics");
@@ -132,7 +132,7 @@ sealed class EngineHost(IWebHostEnvironment environment, ILoggerFactory loggers)
   {
     try
     {
-      var options = SettingsMapper.ToOptions(settings, environment.ContentRootPath, engineLogger);
+      var options = SettingsMapper.ToOptions(settings, environment.ContentRootPath, engineLogger, ipLocation.Locator);
       // Opening reads metadata and decides index work; keep it off the request threads.
       var opened = await Task.Run(() => new AnalyticsEngine(options)).ConfigureAwait(false);
       lock (sync)

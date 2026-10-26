@@ -198,7 +198,8 @@ static partial class SettingsMapper
     return value.TrimEnd('/', '.');
   }
 
-  public static AnalyticsOptions ToOptions(DashboardSettings settings, string contentRoot, ILogger logger)
+  public static AnalyticsOptions ToOptions(DashboardSettings settings, string contentRoot, ILogger logger,
+      IGeoLocator geoLocator = null)
   {
     var options = new AnalyticsOptions
     {
@@ -211,6 +212,7 @@ static partial class SettingsMapper
 
     var tracking = settings.Tracking;
     options.Web.Bots = tracking.Bots;
+    options.Web.GeoLocator = geoLocator;
     options.Web.TrimTrailingSlash = tracking.TrimTrailingSlash;
     options.Web.LowercasePaths = tracking.LowercasePaths;
     foreach (var host in tracking.InternalHosts) options.Web.InternalHosts.Add(host);

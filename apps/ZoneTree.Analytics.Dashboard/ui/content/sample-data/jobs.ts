@@ -14,6 +14,7 @@ export interface SampleBenchmarkResult {
   workers: number
   percentiles: boolean
   indexes: boolean
+  geolocation: boolean
   preparationMs: number
   submissionMs: number
   ingestionMs: number
@@ -49,6 +50,8 @@ export interface SampleBenchmarkStatus {
   days: number
   percentiles: boolean
   indexes: boolean
+  geolocation: boolean
+  geolocationAvailable: boolean
   error: string | null
   result: SampleBenchmarkResult | null
   ingested: number

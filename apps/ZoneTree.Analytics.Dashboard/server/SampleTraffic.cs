@@ -4,6 +4,38 @@ using ZoneTree.Analytics;
 // requested event count. Inputs include page views, goals, purchases and bots.
 static class SampleTraffic
 {
+  // Visitor shares per mille, roughly those of an international developer site.
+  static readonly (string Country, int Weight)[] Countries =
+  [
+    ("US", 280), ("IN", 90), ("DE", 70), ("GB", 60), ("FR", 40), ("CA", 40), ("CN", 35), ("BR", 35),
+    ("JP", 30), ("NL", 25), ("RU", 20), ("KR", 20), ("ES", 20), ("IT", 20), ("PL", 20), ("AU", 20),
+    ("TR", 15), ("SE", 12), ("UA", 12), ("VN", 12), ("ID", 12), ("CH", 10), ("MX", 10), ("TW", 10),
+    ("SG", 10), ("IL", 8), ("BE", 8), ("AT", 8), ("CZ", 7), ("AR", 7), ("PK", 6), ("NG", 6),
+    ("BD", 5), ("PH", 5), ("EG", 4), ("ZA", 4), ("NO", 4), ("DK", 4), ("FI", 4), ("PT", 4),
+    ("IE", 4), ("RO", 4), ("GR", 3), ("HU", 3), ("NZ", 3), ("CO", 3), ("CL", 3), ("TH", 3),
+    ("MY", 3), ("KE", 2),
+  ];
+
+  static readonly int CountryWeights = Countries.Sum(country => country.Weight);
+
+  public static IEnumerable<string> CountryCodes => Countries.Select(country => country.Country);
+
+  // Addresses in the sample countries, for traffic that a geolocator resolves.
+  public static SampleAddresses FindAddresses(IGeoLocator locator) => SampleAddresses.Find(locator, CountryCodes);
+
+  // A visitor keeps its country. The hash spreads visitors independently of the device and
+  // address choices, which use the visitor number modulo small values.
+  static string CountryOf(int visitor)
+  {
+    var point = (int)((ulong)((uint)visitor * 2654435761u) * (ulong)CountryWeights >> 32);
+    foreach (var (country, weight) in Countries)
+    {
+      if (point < weight) return country;
+      point -= weight;
+    }
+    return Countries[^1].Country;
+  }
+
   public static Task SeedAsync(AnalyticsEngine engine) => GenerateAsync(engine, 10_000);
 
   public static async Task GenerateAsync(
@@ -45,9 +77,11 @@ static class SampleTraffic
     finally { progress?.Invoke(Volatile.Read(ref processed)); }
   }
 
+  // With addresses, a visitor's country comes from its address, which the engine geolocates;
+  // otherwise it is set as a dimension.
   public static IEnumerable<AnalyticsEvent> CreateEvents(
       int eventCount, int days, string site = null, TimeZoneInfo timeZone = null,
-      DateTimeOffset? endingAt = null)
+      DateTimeOffset? endingAt = null, SampleAddresses addresses = null)
   {
     if (eventCount is < 1 or > 10_000_000)
       throw new ArgumentOutOfRangeException(nameof(eventCount), "Choose between 1 and 10,000,000 events.");
@@ -100,9 +134,14 @@ static class SampleTraffic
           UserAgent = bot ? "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
               : onMobile ? mobile : desktop,
         };
-        // Set like a CDN country header would be, so no engine needs a fake geolocator.
         if (!bot)
-          item.Dimensions[StandardDimensions.Country] = visitor % 5 < 3 ? "US" : "DE";
+        {
+          var country = CountryOf(visitor);
+          var address = addresses?.Of(visitor, country);
+          if (address != null) item.IpAddress = address;
+          // Set like a CDN country header would be, so no engine needs a fake geolocator.
+          else item.Dimensions[StandardDimensions.Country] = country;
+        }
         if (name == "purchase")
         {
           var team = random.NextDouble() < 0.22;

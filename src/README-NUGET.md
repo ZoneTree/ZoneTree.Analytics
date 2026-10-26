@@ -175,7 +175,7 @@ Matching rollups answer recurring reports from aggregates. Segments, funnels, an
 
 The default identity strategy recognizes anonymous visitors within a UTC day using a rotating hash. Explicit visitor IDs are keyed hashes and remain stable across days. Raw IP addresses and user-agent strings are used in memory for identity and enrichment, then discarded. Page query strings are excluded by default.
 
-Custom dimensions retain the values your application supplies, so choose what to collect. Configure dimension allow and deny lists, geography precision, identity strategy, and retention to fit your use case. Geography enrichment requires a geolocation provider.
+Custom dimensions retain the values your application supplies, so choose what to collect. Configure dimension allow and deny lists, geography precision, identity strategy, and retention to fit your use case. Geography enrichment requires a geolocation provider: `IpCountryDatabase` resolves countries from a free, downloadable database.
 
 Visitor erasure removes an explicit visitor's retained raw events, dimension-index copies, and active session state. **Existing aggregate rollups are not recomputed.** Read [privacy and identity](https://analytics.zonetree.dev/docs/concepts/privacy/) and [retention and erasure](https://analytics.zonetree.dev/docs/operations/retention-and-erasure/) for the full behavior.
 

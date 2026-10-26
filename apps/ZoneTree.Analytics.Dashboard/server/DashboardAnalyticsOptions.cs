@@ -18,8 +18,9 @@ static class DashboardAnalyticsOptions
   {
     options.Retention.RawEvents = TimeSpan.FromDays(365 * 3);
     options.Web.Bots = BotTraffic.TrackSeparately;
-    // No geolocator: real traffic needs a real one (see WebOptions.GeoLocator). Generated
-    // samples carry their country as a dimension.
+    // No geolocator: generated samples carry their country as a dimension, unless a benchmark
+    // measures geolocation. The primary engine resolves visitor countries with the IP location
+    // database (see IpLocation).
     ConfigureIndexes(options);
   }
 
@@ -32,11 +33,13 @@ static class DashboardAnalyticsOptions
     return options;
   }
 
-  // Without indexes, ingestion writes only raw events, sessions and rollups.
+  // Without indexes, ingestion writes only raw events, sessions and rollups. With a geolocator,
+  // sessions resolve their country from the visitor address.
   public static AnalyticsOptions CreateBenchmark(string directory, TimeZoneInfo timeZone,
-      int workers, bool percentiles, bool indexes, ILogger logger = null)
+      int workers, bool percentiles, bool indexes, ILogger logger = null, IGeoLocator geoLocator = null)
   {
     var options = Create(directory, BenchmarkSite, timeZone, logger);
+    options.Web.GeoLocator = geoLocator;
     SetWorkers(options, workers);
     options.Ingestion.QueueFullBehavior = QueueFullBehavior.Wait;
     if (percentiles) options.Rollups.ValueAggregates["load_time"] = ValueAggregates.Percentiles;

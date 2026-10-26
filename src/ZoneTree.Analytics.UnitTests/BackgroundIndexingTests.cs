@@ -329,6 +329,7 @@ public sealed class BackgroundIndexingTests : DirectoryTest
   [Test]
   public void ABuildWhoseCopyFailedIsNotRecordedAsComplete()
   {
+    var logger = new RecordingLogger();
     using (var seeded = TestEngine.Create(directory))
     {
       for (var i = 0; i < 3; ++i)
@@ -339,6 +340,7 @@ public sealed class BackgroundIndexingTests : DirectoryTest
     // The dimension index build's first copy fails; a joint rollup index is built after it.
     using (var engine = new AnalyticsEngine(TestEngine.Options(directory, options =>
     {
+      options.Storage.Logger = logger;
       DimensionIndex(options);
       JointIndex(options);
       options.Storage.DimensionIndexes.Store.ConfigureMaintainer = _ =>
@@ -360,6 +362,8 @@ public sealed class BackgroundIndexingTests : DirectoryTest
         Same(rollups, engine.Query(Query(QuerySource.RawEvents)));
       });
     }
+    Assert.That(logger.Problems, Has.Count.EqualTo(1));
+    Assert.That(logger.Problems.Single(), Does.Contain("System.IO.IOException: Injected dimension index copy failure"));
     // Before: the retry skipped every copy and recorded the indexes as clean.
     Assert.That(new MetaStore(Path.Combine(directory, "meta")).Get("dimension-index.clean"), Is.EqualTo("false"));
     using var reopened = TestEngine.Create(directory, DimensionIndex);
