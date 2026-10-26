@@ -70,9 +70,7 @@ export function mountPage<TContext extends object>(
     },
     {
       selector: options.selector,
-      template: html`
-        <DashboardPage />
-      `,
+      template: html`<DashboardPage/>`,
     },
   )
   window.addEventListener(

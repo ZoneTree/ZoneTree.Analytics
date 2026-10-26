@@ -140,8 +140,7 @@ const reportControls = html`<div>
       :model="dashboard.dateTo"
       :required="true"/>
     <Btn class="button primary" tone="accent" @click="dashboard.applyDates"
-      >Apply dates</Btn
-    >
+      >Apply dates</Btn>
   </div>
   <div class="filter-chips" aria-label="Active filters">
     <Btn
@@ -196,11 +195,9 @@ const reportControls = html`<div>
       </FormStatus>
       <div class="dialog-actions">
         <Btn class="button" variant="outline" @click="dashboard.closeFilter"
-          >Cancel</Btn
-        >
+          >Cancel</Btn>
         <Btn class="button primary" tone="accent" type="submit"
-          >Apply filter</Btn
-        >
+          >Apply filter</Btn>
       </div>
     </form>
   </dialog>

@@ -54,6 +54,7 @@ sealed class FaultingZoneTree<TKey, TValue>(IZoneTree<TKey, TValue> inner) : IZo
   public long Upsert(in TKey key, GetValueDelegate<TKey, TValue> getter) => inner.Upsert(key, getter);
   public bool TryDelete(in TKey key, out long opIndex) => inner.TryDelete(key, out opIndex);
   public long ForceDelete(in TKey key) => inner.ForceDelete(key);
+  public Task SyncWALAsync(CancellationToken cancellationToken = default) => inner.SyncWALAsync(cancellationToken);
   public long Count() => inner.Count();
   public long CountFullScan() => inner.CountFullScan();
   public IMaintainer CreateMaintainer() => inner.CreateMaintainer();

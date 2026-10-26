@@ -34,7 +34,10 @@ const steps = [
 
 const template = html`<div class="setup-wizard">
   <ol class="setup-steps" aria-label="Setup progress" r-if="!done">
-    <li r-for="(name, index) in steps" :class="{ current: index === step, complete: index < step }">
+    <li
+      r-for="(name, index) in steps"
+      :class="{ current: index === step, complete: index < step }"
+    >
       <span class="setup-step-number">{{ index + 1 }}</span><span>{{ name }}</span>
     </li>
   </ol>
@@ -44,20 +47,32 @@ const template = html`<div class="setup-wizard">
       <div class="eyebrow">WELCOME TO ZONETREE ANALYTICS</div>
       <h1>Let's set up your server</h1>
       <p>
-        A few choices and you're collecting analytics. Everything except the time zone and the
-        storage location can change later in the admin panel.
+        A few choices and you're collecting analytics. Everything except the
+        time zone and the storage location can change later in the admin panel.
       </p>
     </div>
     <AppForm class="auth-form" @submit.prevent="verify">
-      <FormInputField id="setup-key" label="Setup key" :model="key" :required="true"
-        placeholder="XXXX-XXXX-XXXX" autocomplete="off"/>
+      <FormInputField
+        id="setup-key"
+        label="Setup key"
+        :model="key"
+        :required="true"
+        placeholder="XXXX-XXXX-XXXX"
+        autocomplete="off"/>
       <p class="field-hint">
-        The server prints the key in its log when it starts: look for "Setup key". Only someone who
-        can read the log can set up this server.
+        The server prints the key in its log when it starts: look for "Setup
+        key". Only someone who can read the log can set up this server.
       </p>
-      <FormStatus tone="danger" role="alert" r-if="error">{{ error }}</FormStatus>
+      <FormStatus tone="danger" role="alert" r-if="error"
+        >{{ error }}</FormStatus>
       <div class="form-actions">
-        <Btn class="button primary" tone="accent" type="submit" :disabled="busy" iconEnd="tabler:arrow-right">
+        <Btn
+          class="button primary"
+          tone="accent"
+          type="submit"
+          :disabled="busy"
+          iconEnd="tabler:arrow-right"
+        >
           Continue
         </Btn>
       </div>
@@ -67,22 +82,58 @@ const template = html`<div class="setup-wizard">
   <section class="auth-card setup-card" r-if="step === 1 && !done">
     <div class="auth-heading">
       <h1>Create the administrator</h1>
-      <p>The administrator manages settings, sites and users. Other people get their own accounts later.</p>
+      <p>
+        The administrator manages settings, sites and users. Other people get
+        their own accounts later.
+      </p>
     </div>
     <AppForm class="auth-form" @submit.prevent="next">
       <div class="form-grid">
-        <FormInputField id="admin-user" label="User name" :model="adminUser" :required="true" autocomplete="username"/>
-        <FormInputField id="admin-name" label="Display name" :model="adminName" placeholder="Optional"/>
-        <FormInputField id="admin-password" label="Password" type="password" :model="adminPassword"
-          :required="true" autocomplete="new-password"/>
-        <FormInputField id="admin-confirm" label="Confirm password" type="password" :model="adminConfirm"
-          :required="true" autocomplete="new-password"/>
+        <FormInputField
+          id="admin-user"
+          label="User name"
+          :model="adminUser"
+          :required="true"
+          autocomplete="username"/>
+        <FormInputField
+          id="admin-name"
+          label="Display name"
+          :model="adminName"
+          placeholder="Optional"/>
+        <FormInputField
+          id="admin-password"
+          label="Password"
+          type="password"
+          :model="adminPassword"
+          :required="true"
+          autocomplete="new-password"/>
+        <FormInputField
+          id="admin-confirm"
+          label="Confirm password"
+          type="password"
+          :model="adminConfirm"
+          :required="true"
+          autocomplete="new-password"/>
       </div>
-      <p class="field-hint">At least 10 characters. A passphrase of a few words is easy to remember and hard to guess.</p>
-      <FormStatus tone="danger" role="alert" r-if="error">{{ error }}</FormStatus>
+      <p class="field-hint">
+        At least 10 characters. A passphrase of a few words is easy to remember
+        and hard to guess.
+      </p>
+      <FormStatus tone="danger" role="alert" r-if="error"
+        >{{ error }}</FormStatus>
       <div class="form-actions">
-        <Btn class="button" variant="outline" icon="tabler:arrow-left" @click="back">Back</Btn>
-        <Btn class="button primary" tone="accent" type="submit" iconEnd="tabler:arrow-right">Continue</Btn>
+        <Btn
+          class="button"
+          variant="outline"
+          icon="tabler:arrow-left"
+          @click="back"
+          >Back</Btn>
+        <Btn
+          class="button primary"
+          tone="accent"
+          type="submit"
+          iconEnd="tabler:arrow-right"
+          >Continue</Btn>
       </div>
     </AppForm>
   </section>
@@ -90,14 +141,28 @@ const template = html`<div class="setup-wizard">
   <section class="auth-card setup-card" r-if="step === 2 && !done">
     <div class="auth-heading">
       <h1>Which websites will you track?</h1>
-      <p>Add each website and the domains its pages run on. You can add more sites later.</p>
+      <p>
+        Add each website and the domains its pages run on. You can add more
+        sites later.
+      </p>
     </div>
     <AppForm class="auth-form" @submit.prevent="next">
       <SitesEditor :editor="sites"/>
-      <FormStatus tone="danger" role="alert" r-if="error">{{ error }}</FormStatus>
+      <FormStatus tone="danger" role="alert" r-if="error"
+        >{{ error }}</FormStatus>
       <div class="form-actions">
-        <Btn class="button" variant="outline" icon="tabler:arrow-left" @click="back">Back</Btn>
-        <Btn class="button primary" tone="accent" type="submit" iconEnd="tabler:arrow-right">Continue</Btn>
+        <Btn
+          class="button"
+          variant="outline"
+          icon="tabler:arrow-left"
+          @click="back"
+          >Back</Btn>
+        <Btn
+          class="button primary"
+          tone="accent"
+          type="submit"
+          iconEnd="tabler:arrow-right"
+          >Continue</Btn>
       </div>
     </AppForm>
   </section>
@@ -114,10 +179,21 @@ const template = html`<div class="setup-wizard">
       <FormStatus tone="warning">
         The time zone is stored with your data and cannot change after setup.
       </FormStatus>
-      <FormStatus tone="danger" role="alert" r-if="error">{{ error }}</FormStatus>
+      <FormStatus tone="danger" role="alert" r-if="error"
+        >{{ error }}</FormStatus>
       <div class="form-actions">
-        <Btn class="button" variant="outline" icon="tabler:arrow-left" @click="back">Back</Btn>
-        <Btn class="button primary" tone="accent" type="submit" iconEnd="tabler:arrow-right">Continue</Btn>
+        <Btn
+          class="button"
+          variant="outline"
+          icon="tabler:arrow-left"
+          @click="back"
+          >Back</Btn>
+        <Btn
+          class="button primary"
+          tone="accent"
+          type="submit"
+          iconEnd="tabler:arrow-right"
+          >Continue</Btn>
       </div>
     </AppForm>
   </section>
@@ -125,22 +201,41 @@ const template = html`<div class="setup-wizard">
   <section class="auth-card setup-card" r-if="step === 4 && !done">
     <div class="auth-heading">
       <h1>What should be collected?</h1>
-      <p>Pick a starting point. Each choice is a set of privacy and retention settings you can fine-tune later.</p>
+      <p>
+        Pick a starting point. Each choice is a set of privacy and retention
+        settings you can fine-tune later.
+      </p>
     </div>
     <AppForm class="auth-form" @submit.prevent="next">
       <div class="preset-grid" role="radiogroup" aria-label="Collection">
-        <button type="button" class="preset-card" r-for="preset in collectionPresets"
-          :class="{ selected: preset.key === collection }" role="radio"
-          :aria-checked="preset.key === collection ? 'true' : 'false'" @click="choose(preset)">
+        <button
+          type="button"
+          class="preset-card"
+          r-for="preset in collectionPresets"
+          :class="{ selected: preset.key === collection }"
+          role="radio"
+          :aria-checked="preset.key === collection ? 'true' : 'false'"
+          @click="choose(preset)"
+        >
           <strong>{{ preset.label }}</strong>
           <span>{{ preset.description }}</span>
         </button>
       </div>
       <h3 class="settings-group">Filtered reports</h3>
-      <div class="preset-grid preset-grid-two" role="radiogroup" aria-label="Indexes">
-        <button type="button" class="preset-card" r-for="preset in indexPresets"
-          :class="{ selected: preset.key === indexes }" role="radio"
-          :aria-checked="preset.key === indexes ? 'true' : 'false'" @click="choose(preset)">
+      <div
+        class="preset-grid preset-grid-two"
+        role="radiogroup"
+        aria-label="Indexes"
+      >
+        <button
+          type="button"
+          class="preset-card"
+          r-for="preset in indexPresets"
+          :class="{ selected: preset.key === indexes }"
+          role="radio"
+          :aria-checked="preset.key === indexes ? 'true' : 'false'"
+          @click="choose(preset)"
+        >
           <strong>{{ preset.label }}</strong>
           <span>{{ preset.description }}</span>
         </button>
@@ -148,10 +243,21 @@ const template = html`<div class="setup-wizard">
       <div class="settings-grid">
         <SettingsField r-for="state in collectionFields" :state="state"/>
       </div>
-      <FormStatus tone="danger" role="alert" r-if="error">{{ error }}</FormStatus>
+      <FormStatus tone="danger" role="alert" r-if="error"
+        >{{ error }}</FormStatus>
       <div class="form-actions">
-        <Btn class="button" variant="outline" icon="tabler:arrow-left" @click="back">Back</Btn>
-        <Btn class="button primary" tone="accent" type="submit" iconEnd="tabler:arrow-right">Continue</Btn>
+        <Btn
+          class="button"
+          variant="outline"
+          icon="tabler:arrow-left"
+          @click="back"
+          >Back</Btn>
+        <Btn
+          class="button primary"
+          tone="accent"
+          type="submit"
+          iconEnd="tabler:arrow-right"
+          >Continue</Btn>
       </div>
     </AppForm>
   </section>
@@ -159,28 +265,65 @@ const template = html`<div class="setup-wizard">
   <section class="auth-card setup-card" r-if="step === 5 && !done">
     <div class="auth-heading">
       <h1>Review and finish</h1>
-      <p>Everything below has a sensible default. Open the advanced settings only if you need to tune something.</p>
+      <p>
+        Everything below has a sensible default. Open the advanced settings only
+        if you need to tune something.
+      </p>
     </div>
     <dl class="setup-summary">
-      <div><dt>Administrator</dt><dd>{{ adminUser }}</dd></div>
-      <div><dt>Sites</dt><dd>{{ siteSummary }}</dd></div>
-      <div><dt>Time zone</dt><dd>{{ timeZone }}</dd></div>
-      <div><dt>Collection</dt><dd>{{ collectionLabel }}</dd></div>
-      <div><dt>Filtered reports</dt><dd>{{ indexLabel }}</dd></div>
+      <div>
+        <dt>Administrator</dt>
+        <dd>{{ adminUser }}</dd>
+      </div>
+      <div>
+        <dt>Sites</dt>
+        <dd>{{ siteSummary }}</dd>
+      </div>
+      <div>
+        <dt>Time zone</dt>
+        <dd>{{ timeZone }}</dd>
+      </div>
+      <div>
+        <dt>Collection</dt>
+        <dd>{{ collectionLabel }}</dd>
+      </div>
+      <div>
+        <dt>Filtered reports</dt>
+        <dd>{{ indexLabel }}</dd>
+      </div>
     </dl>
     <details class="advanced-settings" @toggle="advancedToggled">
       <summary>Advanced settings</summary>
-      <p class="field-hint">Settings marked "Chosen during setup" cannot change later.</p>
+      <p class="field-hint">
+        Settings marked "Chosen during setup" cannot change later.
+      </p>
       <div class="settings-section" r-for="section in advancedSections">
         <h2>{{ section.label }}</h2>
         <p class="settings-help">{{ section.help }}</p>
-        <SettingsSection :form="form" :section="section" :advanced="true" :showTiers="true"/>
+        <SettingsSection
+          :form="form"
+          :section="section"
+          :advanced="true"
+          :showTiers="true"/>
       </div>
     </details>
-    <FormStatus tone="danger" role="alert" r-if="error">{{ error }}</FormStatus>
+    <FormStatus tone="danger" role="alert" r-if="error"
+      >{{ error }}</FormStatus>
     <div class="form-actions">
-      <Btn class="button" variant="outline" icon="tabler:arrow-left" @click="back" :disabled="busy">Back</Btn>
-      <Btn class="button primary" tone="accent" @click="finish" :disabled="busy" icon="tabler:check">
+      <Btn
+        class="button"
+        variant="outline"
+        icon="tabler:arrow-left"
+        @click="back"
+        :disabled="busy"
+        >Back</Btn>
+      <Btn
+        class="button primary"
+        tone="accent"
+        @click="finish"
+        :disabled="busy"
+        icon="tabler:check"
+      >
         {{ busy ? 'Setting up…' : 'Finish setup' }}
       </Btn>
     </div>
@@ -190,13 +333,19 @@ const template = html`<div class="setup-wizard">
     <div class="auth-heading">
       <div class="eyebrow">ALL SET</div>
       <h1>Your analytics server is ready</h1>
-      <p>Add this script to every page of your sites. Page views appear in reports within seconds.</p>
+      <p>
+        Add this script to every page of your sites. Page views appear in
+        reports within seconds.
+      </p>
     </div>
     <div class="snippet">
       <code>{{ snippet }}</code>
-      <Btn class="button" variant="outline" icon="tabler:copy" @click="copy">{{ copied ? 'Copied' : 'Copy' }}</Btn>
+      <Btn class="button" variant="outline" icon="tabler:copy" @click="copy"
+        >{{ copied ? 'Copied' : 'Copy' }}</Btn>
     </div>
-    <p class="field-hint">Record custom events with zta('signup', { plan: 'pro' }).</p>
+    <p class="field-hint">
+      Record custom events with zta('signup', { plan: 'pro' }).
+    </p>
     <div class="form-actions">
       <a class="button primary" href="/">Open the dashboard</a>
       <a class="button" href="/admin/users/">Invite people</a>

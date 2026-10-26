@@ -76,29 +76,25 @@ const template = html`<Panel class="form-panel sample-data-panel">
         variant="outline"
         :disabled="busy"
         @click="preset(1000)"
-        >1,000</Btn
-      >
+        >1,000</Btn>
       <Btn
         class="button"
         variant="outline"
         :disabled="busy"
         @click="preset(100000)"
-        >100,000</Btn
-      >
+        >100,000</Btn>
       <Btn
         class="button"
         variant="outline"
         :disabled="busy"
         @click="preset(1000000)"
-        >1 million</Btn
-      >
+        >1 million</Btn>
       <Btn
         class="button"
         variant="outline"
         :disabled="busy"
         @click="preset(5000000)"
-        >5 million</Btn
-      >
+        >5 million</Btn>
     </div>
     <div class="sample-job-status" r-if="status" aria-live="polite">
       <p>{{ dashboard.number(status.totalGenerated) }} generated events in this dataset</p>
@@ -131,7 +127,10 @@ const template = html`<Panel class="form-panel sample-data-panel">
       </div>
       <p r-if="status.state === 'deleting'">Deleting sample data…</p>
       <p r-if="status.state === 'compacting'">
-        <progress class="sample-progress" aria-label="Preparing sample reports"></progress>
+        <progress
+          class="sample-progress"
+          aria-label="Preparing sample reports"
+        ></progress>
         Preparing sample reports…
       </p>
     </div>
@@ -144,24 +143,21 @@ const template = html`<Panel class="form-panel sample-data-panel">
         tone="accent"
         type="submit"
         :disabled="busy || !status"
-        >Generate sample data</Btn
-      >
+        >Generate sample data</Btn>
       <Btn
         class="button"
         variant="outline"
         @click="cancel"
         :disabled="pending"
         r-if="status && status.activeOperation === 'generation'"
-        >Cancel generation</Btn
-      >
+        >Cancel generation</Btn>
       <Btn
         class="button danger"
         tone="danger"
         variant="outline"
         @click="clear"
         :disabled="busy || !status"
-        >Delete sample data</Btn
-      >
+        >Delete sample data</Btn>
       <a class="button" :href="viewUrl">View sample reports</a>
     </div>
   </AppForm>

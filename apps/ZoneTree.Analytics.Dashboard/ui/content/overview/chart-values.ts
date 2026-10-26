@@ -24,19 +24,31 @@ export interface OverviewChartValues {
   page: (direction: number) => void
 }
 
-const template = html`
-  <details class="chart-data" r-if="dashboard.points" @toggle="toggle">
-    <summary>View exact chart values</summary>
-    <ReportTable :data="table" :onFilter="dashboard.addFilter" r-if="open" />
-    <div class="pagination" r-if="open && paginated" aria-label="Exact chart values pagination">
-      <span>{{ pageLabel }}</span>
-      <div>
-        <Btn class="button" variant="outline" :disabled="offset === 0" @click="page(-1)">Previous</Btn>
-        <Btn class="button" variant="outline" :disabled="!hasNext" @click="page(1)">Next</Btn>
-      </div>
+const template = html`<details class="chart-data" r-if="dashboard.points" @toggle="toggle">
+  <summary>View exact chart values</summary>
+  <ReportTable :data="table" :onFilter="dashboard.addFilter" r-if="open"/>
+  <div
+    class="pagination"
+    r-if="open && paginated"
+    aria-label="Exact chart values pagination"
+  >
+    <span>{{ pageLabel }}</span>
+    <div>
+      <Btn
+        class="button"
+        variant="outline"
+        :disabled="offset === 0"
+        @click="page(-1)"
+        >Previous</Btn>
+      <Btn
+        class="button"
+        variant="outline"
+        :disabled="!hasNext"
+        @click="page(1)"
+        >Next</Btn>
     </div>
-  </details>
-`
+  </div>
+</details>`
 
 export function defineOverviewChartValues() {
   return defineComponent<OverviewChartValues>(template, {

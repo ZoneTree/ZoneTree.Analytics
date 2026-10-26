@@ -4,6 +4,7 @@ import {
   defineComponent,
   html,
   type RefOrValue,
+  type SRef,
   unref,
 } from 'regor'
 import type { SettingSection } from '../lib/admin-contracts'
@@ -14,31 +15,52 @@ export interface SettingsFieldView {
 }
 
 export interface SettingsSectionView {
-  form: RefOrValue<SettingsForm>
-  section: RefOrValue<SettingSection>
+  form: SRef<SettingsForm> | SettingsForm
+  section: SRef<SettingSection> | SettingSection
   advanced: RefOrValue<boolean>
   showTiers?: RefOrValue<boolean>
   entries: ComputedRef<FormEntry[]>
 }
 
 // One schema-described setting. Values are bound as text and props, never HTML.
-const fieldTemplate = html`<div class="setting-field" :class="{ 'setting-locked': state.locked }" :data-setting="state.field.key">
+const fieldTemplate = html`<div
+  class="setting-field"
+  :class="{ 'setting-locked': state.locked }"
+  :data-setting="state.field.key"
+>
   <div class="setting-label">
-    <label :for="state.id" r-if="state.field.type !== 'toggle' && state.field.type !== 'multi'">{{ state.label }}</label>
+    <label
+      :for="state.id"
+      r-if="state.field.type !== 'toggle' && state.field.type !== 'multi'"
+      >{{ state.label }}</label>
     <span r-if="state.field.type === 'multi'">{{ state.label }}</span>
-    <span class="setting-tier" r-if="showTiers" :class="'tier-' + state.field.tier">{{ state.tierLabel }}</span>
+    <span
+      class="setting-tier"
+      r-if="showTiers"
+      :class="'tier-' + state.field.tier"
+      >{{ state.tierLabel }}</span>
   </div>
   <label class="check setting-toggle" r-if="state.field.type === 'toggle'">
-    <input type="checkbox" :id="state.id" r-model="state.checked" :disabled="state.locked || state.empty"/>
+    <input
+      type="checkbox"
+      :id="state.id"
+      r-model="state.checked"
+      :disabled="state.locked || state.empty"/>
     <span>{{ state.label }}</span>
   </label>
   <div class="setting-choices" r-if="state.field.type === 'multi'">
     <label class="check" r-for="choice in state.choices">
-      <input type="checkbox" r-model="choice.checked" :disabled="state.locked"/>
+      <input
+        type="checkbox"
+        r-model="choice.checked"
+        :disabled="state.locked"/>
       <span>{{ choice.label }}</span>
     </label>
   </div>
-  <div class="setting-input" r-if="state.field.type === 'number' || state.field.type === 'text'">
+  <div
+    class="setting-input"
+    r-if="state.field.type === 'number' || state.field.type === 'text'"
+  >
     <input
       :id="state.id"
       :type="state.field.type === 'number' ? 'number' : 'text'"
@@ -48,28 +70,53 @@ const fieldTemplate = html`<div class="setting-field" :class="{ 'setting-locked'
       step="any"
       :disabled="state.locked || state.empty"
       :placeholder="state.empty ? state.field.emptyLabel : ''"/>
-    <span class="setting-unit" r-if="state.field.unit">{{ state.field.unit }}</span>
+    <span class="setting-unit" r-if="state.field.unit"
+      >{{ state.field.unit }}</span>
   </div>
-  <label class="check setting-empty" r-if="state.field.nullable && (state.field.type === 'number' || state.field.type === 'toggle')">
+  <label
+    class="check setting-empty"
+    r-if="state.field.nullable && (state.field.type === 'number' || state.field.type === 'toggle')"
+  >
     <input type="checkbox" r-model="state.empty" :disabled="state.locked"/>
     <span>{{ state.field.emptyLabel || 'Default' }}</span>
   </label>
-  <select :id="state.id" r-model="state.text" :disabled="state.locked"
-    r-if="state.field.type === 'select' || state.field.type === 'timeZone'">
-    <option r-for="option in state.options" :value="option.value">{{ option.label }}</option>
+  <select
+    :id="state.id"
+    r-model="state.text"
+    :disabled="state.locked"
+    r-if="state.field.type === 'select' || state.field.type === 'timeZone'"
+  >
+    <option r-for="option in state.options" :value="option.value">
+      {{ option.label }}
+    </option>
   </select>
-  <input :id="state.id" type="text" r-model="state.text" :disabled="state.locked"
-    placeholder="Separate with commas" r-if="state.field.type === 'tags'"/>
-  <textarea :id="state.id" r-model="state.text" rows="3" :disabled="state.locked"
+  <input
+    :id="state.id"
+    type="text"
+    r-model="state.text"
+    :disabled="state.locked"
+    placeholder="Separate with commas"
+    r-if="state.field.type === 'tags'"/>
+  <textarea
+    :id="state.id"
+    r-model="state.text"
+    rows="3"
+    :disabled="state.locked"
     :placeholder="(state.field.keyLabel || 'key') + ' = ' + (state.field.valueLabel || 'value')"
-    r-if="state.field.type === 'map'"></textarea>
+    r-if="state.field.type === 'map'"
+  ></textarea>
   <span class="field-hint" r-if="state.hint">{{ state.hint }}</span>
 </div>`
 
 const sectionTemplate = html`<div class="settings-grid">
   <template r-for="entry in entries">
-    <h3 class="settings-group" r-if="entry.kind === 'group'">{{ entry.label }}</h3>
-    <SettingsField r-if="entry.kind === 'field'" :state="entry" :showTiers="showTiers"/>
+    <h3 class="settings-group" r-if="entry.kind === 'group'">
+      {{ entry.label }}
+    </h3>
+    <SettingsField
+      r-if="entry.kind === 'field'"
+      :state="entry"
+      :showTiers="showTiers"/>
   </template>
 </div>`
 
@@ -87,10 +134,10 @@ export function defineSettingsFieldComponents() {
         return {
           ...props,
           entries: computed(() => {
-            const form = unref(props.form) as SettingsForm
+            const form = unref(props.form)
             const advanced = unref(props.advanced)
             return form
-              .entries(unref(props.section) as SettingSection)
+              .entries(unref(props.section))
               .filter(
                 (entry) =>
                   advanced ||

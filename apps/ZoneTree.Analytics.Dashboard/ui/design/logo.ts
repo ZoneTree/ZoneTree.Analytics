@@ -12,12 +12,20 @@ export interface DashboardLogo {
 export function defineDashboardLogo() {
   return defineComponent<DashboardLogo>(
     html`<a class="dashboard-logo" :href="href" aria-label="ZoneTree Analytics home">
-      <IconFrame class="dashboard-logo__mark" :name="icon" variant="none" aria-hidden="true"/>
-      <span class="dashboard-logo__wordmark" aria-hidden="true">
-        <span class="dashboard-logo__name"><span r-for="letter in brandLetters">{{ letter }}</span></span>
-        <span class="dashboard-logo__caption"><span r-for="letter in productLetters">{{ letter }}</span></span>
-      </span>
-    </a>`,
+  <IconFrame
+    class="dashboard-logo__mark"
+    :name="icon"
+    variant="none"
+    aria-hidden="true"/>
+  <span class="dashboard-logo__wordmark" aria-hidden="true">
+    <span class="dashboard-logo__name"
+      ><span r-for="letter in brandLetters"
+        >{{ letter }}</span></span>
+    <span class="dashboard-logo__caption"
+      ><span r-for="letter in productLetters"
+        >{{ letter }}</span></span>
+  </span>
+</a>`,
     {
       props: ['href', 'icon'],
       context: (head) => ({

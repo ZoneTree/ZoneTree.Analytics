@@ -10,74 +10,233 @@ export interface AnalyticsHero {
 export function defineAnalyticsHero() {
   return defineComponent<AnalyticsHero>(
     html`<section class="docs-hero" aria-labelledby="analytics-hero-title">
-      <div class="docs-hero-layout">
-        <div class="hero-introduction">
-          <Badge tone="accent" variant="surface">Analytics Engine for .NET</Badge>
-          <h1 id="analytics-hero-title">Millions of events.<br/><span>One clear picture.</span></h1>
-          <p class="docs-hero-copy">Understand your traffic, your product, and the actions that matter. Powerful analytics inside your .NET application, with your data under your control.</p>
-          <Flex class="docs-hero-actions">
-            <BtnLink href="/docs/getting-started/first-events/" tone="accent" variant="solid" icon="tabler:arrow-right" iconPosition="end">Start building</BtnLink>
-            <BtnLink href="/docs/getting-started/dashboard/" tone="neutral" variant="outline">Explore the dashboard</BtnLink>
-          </Flex>
-          <div class="docs-facts"><span>.NET 8 · 9 · 10</span><span>Open source · MIT</span><span>Your infrastructure</span></div>
+  <div class="docs-hero-layout">
+    <div class="hero-introduction">
+      <Badge tone="accent" variant="surface">Analytics Engine for .NET</Badge>
+      <h1 id="analytics-hero-title">
+        Millions of events.<br/><span>One clear picture.</span>
+      </h1>
+      <p class="docs-hero-copy">
+        Understand your traffic, your product, and the actions that matter.
+        Powerful analytics inside your .NET application, with your data under
+        your control.
+      </p>
+      <Flex class="docs-hero-actions">
+        <BtnLink
+          href="/docs/getting-started/first-events/"
+          tone="accent"
+          variant="solid"
+          icon="tabler:arrow-right"
+          iconPosition="end"
+          >Start building</BtnLink>
+        <BtnLink
+          href="/docs/getting-started/dashboard/"
+          tone="neutral"
+          variant="outline"
+          >Explore the dashboard</BtnLink>
+      </Flex>
+      <div class="docs-facts">
+        <span>.NET 8 · 9 · 10</span><span>Open source · MIT</span><span>Your infrastructure</span>
+      </div>
+    </div>
+    <div
+      class="hero-observatory"
+      role="group"
+      aria-label="Website, product, and service activity becomes insight through ZoneTree Analytics"
+    >
+      <div class="hero-visual-heading">
+        <span>Activity, made clear.</span><span class="hero-visual-index">01 / INSIGHT</span>
+      </div>
+      <div class="hero-signal-field">
+        <svg
+          class="hero-signal-art"
+          viewBox="0 0 640 420"
+          fill="none"
+          aria-hidden="true"
+          focusable="false"
+        >
+          <defs>
+            <pattern
+              id="analytics-hero-grid"
+              width="24"
+              height="24"
+              patternUnits="userSpaceOnUse"
+            >
+              <circle cx="1" cy="1" r="1" fill="currentColor"/>
+            </pattern>
+            <radialGradient id="analytics-hero-halo">
+              <stop stop-color="currentColor" stop-opacity=".18"/>
+              <stop offset="1" stop-color="currentColor" stop-opacity="0"/>
+            </radialGradient>
+            <linearGradient
+              id="analytics-hero-face"
+              x1="230"
+              y1="186"
+              x2="394"
+              y2="278"
+              gradientUnits="userSpaceOnUse"
+            >
+              <stop stop-color="currentColor" stop-opacity=".36"/>
+              <stop offset="1" stop-color="currentColor" stop-opacity=".08"/>
+            </linearGradient>
+            <linearGradient
+              id="analytics-hero-chart"
+              x1="520"
+              y1="120"
+              x2="520"
+              y2="280"
+              gradientUnits="userSpaceOnUse"
+            >
+              <stop stop-color="currentColor" stop-opacity=".24"/>
+              <stop offset="1" stop-color="currentColor" stop-opacity="0"/>
+            </linearGradient>
+          </defs>
+          <rect
+            class="hero-grid"
+            x="8"
+            y="20"
+            width="624"
+            height="376"
+            fill="url(#analytics-hero-grid)"/>
+          <ellipse
+            cx="314"
+            cy="248"
+            rx="218"
+            ry="180"
+            fill="url(#analytics-hero-halo)"/>
+          <g class="hero-orbits" stroke="currentColor">
+            <ellipse cx="312" cy="264" rx="145" ry="82"/>
+            <ellipse
+              cx="312"
+              cy="264"
+              rx="185"
+              ry="108"
+              stroke-dasharray="2 9"/>
+            <path d="M312 132V164M312 362V386M108 264H132M494 264H518"/>
+          </g>
+          <g class="hero-streams" stroke="currentColor" stroke-width="1.5">
+            <path d="M152 120C214 120 202 194 264 212"/>
+            <path d="M152 200C202 200 202 224 238 234"/>
+            <path d="M152 280C210 280 204 268 238 256"/>
+            <path d="M210 68C270 68 280 138 304 192" stroke-dasharray="3 7"/>
+            <path d="M462 322C426 330 404 284 378 274" stroke-dasharray="3 7"/>
+          </g>
+          <g class="hero-event-points" fill="currentColor">
+            <circle cx="210" cy="68" r="4"/>
+            <circle cx="462" cy="322" r="4"/>
+            <circle cx="180" cy="330" r="2"/>
+            <circle cx="426" cy="92" r="2"/>
+            <circle cx="544" cy="72" r="2"/>
+          </g>
+          <path
+            d="M440 220L464 204L484 212L508 177L530 187L554 146L586 155L610 126V280H440Z"
+            fill="url(#analytics-hero-chart)"/>
+          <path
+            class="hero-answer-trace"
+            d="M394 232C420 232 420 220 440 220L464 204L484 212L508 177L530 187L554 146L586 155L610 126"
+            stroke="currentColor"
+            stroke-width="2.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"/>
+          <circle cx="610" cy="126" r="5" fill="currentColor"/>
+          <circle
+            cx="610"
+            cy="126"
+            r="12"
+            stroke="currentColor"
+            opacity=".25"/>
+          <g
+            class="hero-core"
+            stroke="currentColor"
+            stroke-width="1.5"
+            stroke-linejoin="round"
+          >
+            <path
+              class="hero-core-base"
+              d="M312 234L394 280L312 326L230 280Z"/>
+            <path
+              class="hero-core-middle"
+              d="M312 210L394 256L312 302L230 256Z"/>
+            <path
+              class="hero-core-top"
+              d="M312 186L394 232L312 278L230 232Z"
+              fill="url(#analytics-hero-face)"/>
+            <path d="M230 232V280M394 232V280M312 278V326" opacity=".6"/>
+            <path d="M312 209L352 232L312 255L272 232Z" opacity=".6"/>
+            <circle cx="312" cy="232" r="5" fill="currentColor" stroke="none"/>
+          </g>
+          <g class="hero-particles" fill="currentColor">
+            <circle r="3" opacity="0">
+              <animateMotion
+                path="M152 120C214 120 202 194 264 212"
+                dur="3s"
+                begin=".2s"
+                fill="freeze"/>
+              <animate
+                attributeName="opacity"
+                values="0;1;1;0"
+                keyTimes="0;.08;.9;1"
+                dur="3s"
+                begin=".2s"
+                fill="freeze"/>
+            </circle>
+            <circle r="3" opacity="0">
+              <animateMotion
+                path="M152 200C202 200 202 224 238 234"
+                dur="3s"
+                begin=".6s"
+                fill="freeze"/>
+              <animate
+                attributeName="opacity"
+                values="0;1;1;0"
+                keyTimes="0;.08;.9;1"
+                dur="3s"
+                begin=".6s"
+                fill="freeze"/>
+            </circle>
+            <circle r="3" opacity="0">
+              <animateMotion
+                path="M152 280C210 280 204 268 238 256"
+                dur="3s"
+                begin="1s"
+                fill="freeze"/>
+              <animate
+                attributeName="opacity"
+                values="0;1;1;0"
+                keyTimes="0;.08;.9;1"
+                dur="3s"
+                begin="1s"
+                fill="freeze"/>
+            </circle>
+          </g>
+        </svg>
+        <div class="hero-source hero-source-web">
+          <Icon name="tabler:world"/><span>Website traffic</span>
         </div>
-        <div class="hero-observatory" role="group" aria-label="Website, product, and service activity becomes insight through ZoneTree Analytics">
-          <div class="hero-visual-heading"><span>Activity, made clear.</span><span class="hero-visual-index">01 / INSIGHT</span></div>
-          <div class="hero-signal-field">
-            <svg class="hero-signal-art" viewBox="0 0 640 420" fill="none" aria-hidden="true" focusable="false">
-              <defs>
-                <pattern id="analytics-hero-grid" width="24" height="24" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill="currentColor"/></pattern>
-                <radialGradient id="analytics-hero-halo"><stop stop-color="currentColor" stop-opacity=".18"/><stop offset="1" stop-color="currentColor" stop-opacity="0"/></radialGradient>
-                <linearGradient id="analytics-hero-face" x1="230" y1="186" x2="394" y2="278" gradientUnits="userSpaceOnUse"><stop stop-color="currentColor" stop-opacity=".36"/><stop offset="1" stop-color="currentColor" stop-opacity=".08"/></linearGradient>
-                <linearGradient id="analytics-hero-chart" x1="520" y1="120" x2="520" y2="280" gradientUnits="userSpaceOnUse"><stop stop-color="currentColor" stop-opacity=".24"/><stop offset="1" stop-color="currentColor" stop-opacity="0"/></linearGradient>
-              </defs>
-              <rect class="hero-grid" x="8" y="20" width="624" height="376" fill="url(#analytics-hero-grid)"/>
-              <ellipse cx="314" cy="248" rx="218" ry="180" fill="url(#analytics-hero-halo)"/>
-              <g class="hero-orbits" stroke="currentColor">
-                <ellipse cx="312" cy="264" rx="145" ry="82"/>
-                <ellipse cx="312" cy="264" rx="185" ry="108" stroke-dasharray="2 9"/>
-                <path d="M312 132V164M312 362V386M108 264H132M494 264H518"/>
-              </g>
-              <g class="hero-streams" stroke="currentColor" stroke-width="1.5">
-                <path d="M152 120C214 120 202 194 264 212"/>
-                <path d="M152 200C202 200 202 224 238 234"/>
-                <path d="M152 280C210 280 204 268 238 256"/>
-                <path d="M210 68C270 68 280 138 304 192" stroke-dasharray="3 7"/>
-                <path d="M462 322C426 330 404 284 378 274" stroke-dasharray="3 7"/>
-              </g>
-              <g class="hero-event-points" fill="currentColor"><circle cx="210" cy="68" r="4"/><circle cx="462" cy="322" r="4"/><circle cx="180" cy="330" r="2"/><circle cx="426" cy="92" r="2"/><circle cx="544" cy="72" r="2"/></g>
-              <path d="M440 220L464 204L484 212L508 177L530 187L554 146L586 155L610 126V280H440Z" fill="url(#analytics-hero-chart)"/>
-              <path class="hero-answer-trace" d="M394 232C420 232 420 220 440 220L464 204L484 212L508 177L530 187L554 146L586 155L610 126" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-              <circle cx="610" cy="126" r="5" fill="currentColor"/>
-              <circle cx="610" cy="126" r="12" stroke="currentColor" opacity=".25"/>
-              <g class="hero-core" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round">
-                <path class="hero-core-base" d="M312 234L394 280L312 326L230 280Z"/>
-                <path class="hero-core-middle" d="M312 210L394 256L312 302L230 256Z"/>
-                <path class="hero-core-top" d="M312 186L394 232L312 278L230 232Z" fill="url(#analytics-hero-face)"/>
-                <path d="M230 232V280M394 232V280M312 278V326" opacity=".6"/>
-                <path d="M312 209L352 232L312 255L272 232Z" opacity=".6"/>
-                <circle cx="312" cy="232" r="5" fill="currentColor" stroke="none"/>
-              </g>
-              <g class="hero-particles" fill="currentColor">
-                <circle r="3" opacity="0"><animateMotion path="M152 120C214 120 202 194 264 212" dur="3s" begin=".2s" fill="freeze"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;.08;.9;1" dur="3s" begin=".2s" fill="freeze"/></circle>
-                <circle r="3" opacity="0"><animateMotion path="M152 200C202 200 202 224 238 234" dur="3s" begin=".6s" fill="freeze"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;.08;.9;1" dur="3s" begin=".6s" fill="freeze"/></circle>
-                <circle r="3" opacity="0"><animateMotion path="M152 280C210 280 204 268 238 256" dur="3s" begin="1s" fill="freeze"/><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;.08;.9;1" dur="3s" begin="1s" fill="freeze"/></circle>
-              </g>
-            </svg>
-            <div class="hero-source hero-source-web"><Icon name="tabler:world"/><span>Website traffic</span></div>
-            <div class="hero-source hero-source-product"><Icon name="tabler:target"/><span>Product activity</span></div>
-            <div class="hero-source hero-source-service"><Icon name="tabler:activity"/><span>Service telemetry</span></div>
-            <div class="hero-engine-label"><strong>ZoneTree</strong><span>Analytics engine</span></div>
-            <div class="hero-answer-label"><strong>Clear answers</strong><span>Trends. Behavior. Outcomes.</span></div>
-          </div>
-          <div class="hero-proof">
-            <a :href="benchmarkHref"><strong>5M<span> events</span></strong><small>Measured dataset</small></a>
-            <a :href="benchmarkHref"><strong>33<span> ms</span></strong><small>Six annual reports · median</small></a>
-          </div>
-          <a class="hero-benchmark-link" :href="benchmarkHref">Explore the benchmark <Icon name="tabler:arrow-up-right"/></a>
+        <div class="hero-source hero-source-product">
+          <Icon name="tabler:target"/><span>Product activity</span>
+        </div>
+        <div class="hero-source hero-source-service">
+          <Icon name="tabler:activity"/><span>Service telemetry</span>
+        </div>
+        <div class="hero-engine-label">
+          <strong>ZoneTree</strong><span>Analytics engine</span>
+        </div>
+        <div class="hero-answer-label">
+          <strong>Clear answers</strong><span>Trends. Behavior. Outcomes.</span>
         </div>
       </div>
-    </section>`,
+      <div class="hero-proof">
+        <a :href="benchmarkHref"
+          ><strong>5M<span> events</span></strong><small>Measured dataset</small></a>
+        <a :href="benchmarkHref"
+          ><strong>33<span> ms</span></strong><small>Six annual reports · median</small></a>
+      </div>
+      <a class="hero-benchmark-link" :href="benchmarkHref"
+        >Explore the benchmark <Icon name="tabler:arrow-up-right"/></a>
+    </div>
+  </div>
+</section>`,
     { props: ['benchmarkHref'] },
   )
 }

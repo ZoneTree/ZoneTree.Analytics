@@ -74,9 +74,7 @@ export async function mountReport<TContext extends object>(
   }
   const app = createApp(context, {
     selector: options.selector,
-    template: html`
-      <DashboardPage />
-    `,
+    template: html`<DashboardPage/>`,
   })
   model.start(configError ? null : options.loader || null)
   if (configError) model.error(configError)

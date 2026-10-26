@@ -13,33 +13,54 @@ const template = html`<div class="page-heading">
   <div>
     <div class="eyebrow">ADMINISTRATION</div>
     <h1>Sites</h1>
-    <p>The websites this server collects analytics for, and the domains their pages run on.</p>
+    <p>
+      The websites this server collects analytics for, and the domains their
+      pages run on.
+    </p>
   </div>
 </div>
-<FormStatus tone="danger" role="alert" r-if="error">{{ error }}</FormStatus>
+<FormStatus tone="danger" role="alert" r-if="error"
+  >{{ error }}</FormStatus>
 <Panel class="form-panel" r-if="loaded">
   <h2>Websites</h2>
-  <p>Removing a site hides it from reports and users; its stored data stays until retention removes it.</p>
+  <p>
+    Removing a site hides it from reports and users; its stored data stays until
+    retention removes it.
+  </p>
   <AppForm @submit.prevent="save">
     <SitesEditor :editor="editor"/>
     <label class="check setting-toggle">
       <input type="checkbox" r-model="trackUsage"/>
-      <span>Record visits to this dashboard in a separate "Dashboard usage" site that only you see</span>
+      <span
+        >Record visits to this dashboard in a separate "Dashboard usage" site
+        that only you see</span>
     </label>
     <div class="form-actions">
-      <Btn class="button primary" tone="accent" type="submit" :disabled="flow.busy || flow.reviewing">Review changes</Btn>
+      <Btn
+        class="button primary"
+        tone="accent"
+        type="submit"
+        :disabled="flow.busy || flow.reviewing"
+        >Review changes</Btn>
     </div>
   </AppForm>
   <SaveReview :flow="flow"/>
 </Panel>
 <Panel class="form-panel" r-if="loaded">
   <h2>Tracking snippet</h2>
-  <p>Add this script to every page of your sites. The server assigns each page view to the site whose domain matches.</p>
+  <p>
+    Add this script to every page of your sites. The server assigns each page
+    view to the site whose domain matches.
+  </p>
   <div class="snippet">
     <code>{{ snippet }}</code>
-    <Btn class="button" variant="outline" icon="tabler:copy" @click="copy">{{ copied ? 'Copied' : 'Copy' }}</Btn>
+    <Btn class="button" variant="outline" icon="tabler:copy" @click="copy"
+      >{{ copied ? 'Copied' : 'Copy' }}</Btn>
   </div>
-  <p class="field-hint">Record custom events with zta('signup', { plan: 'pro' }). Add data-hash-routing="true" for hash-based single-page apps.</p>
+  <p class="field-hint">
+    Record custom events with zta('signup', { plan: 'pro' }). Add
+    data-hash-routing="true" for hash-based single-page apps.
+  </p>
 </Panel>`
 
 const page = defineComponent(template, {

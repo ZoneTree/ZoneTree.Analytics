@@ -83,9 +83,14 @@ List reports contain from, to, totalRows, rows, and plan. Summary reports contai
 
 These examples use HTTP-file syntax. Replace `http://localhost:5000` with your reporting host and supply its authentication credentials when required. The local address matches the [ASP.NET Core quick start](../../getting-started/aspnet-core/aspnet-core.mdx).
 
-<Tabs group="reporting-http" selectedTab="reporting-get" ariaLabel="Reporting request examples" tone="neutral" variant="none">
+<Tabs
+  group="reporting-http"
+  selectedTab="reporting-get"
+  ariaLabel="Reporting request examples"
+  tone="neutral"
+  variant="none"
+>
   <TabPane id="reporting-get" label="GET reports">
-
 ```http
 ### Traffic totals for the last 30 calendar days
 GET http://localhost:5000/_analytics/api/summary?range=30d&tz=UTC
@@ -95,10 +100,8 @@ Accept: application/json
 GET http://localhost:5000/_analytics/api/breakdown?range=30d&tz=UTC&dimension=country&filter=source%3D%3DGitHub&includeSessionMetrics=false
 Accept: application/json
 ```
-
-</TabPane>
+  </TabPane>
   <TabPane id="reporting-post" label="POST a query">
-
 ```http
 ### Daily purchase count and revenue for the shop site
 POST http://localhost:5000/_analytics/api/query
@@ -115,8 +118,7 @@ Accept: application/json
   "fill": "none"
 }
 ```
-
-</TabPane>
+  </TabPane>
 </Tabs>
 
 The second GET URL encodes `source==GitHub` and groups the matching traffic by country. The POST uses the event fields from the [product analytics guide](../../guides/product-analytics/product-analytics.mdx); a different site or value name must match your own collection.

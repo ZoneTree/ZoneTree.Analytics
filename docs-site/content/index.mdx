@@ -11,7 +11,8 @@ layout:
   showToc: false
 ---
 
-<AnalyticsHero benchmarkHref="./docs/performance/query-benchmarks/query-benchmarks.mdx"/>
+<AnalyticsHero
+  benchmarkHref="./docs/performance/query-benchmarks/query-benchmarks.mdx"/>
 
 ## Understand the activity that matters
 
@@ -83,7 +84,6 @@ Use the website reports as a starting point, then build custom queries as your q
   variant="none"
 >
   <TabPane id="core-example" label="Direct .NET">
-
 ```cs
 using ZoneTree.Analytics;
 using ZoneTree.Analytics.Web;
@@ -100,10 +100,8 @@ var sales = await analytics.QueryAsync(new AnalyticsQuery
     Metrics = { Metric.Events, Metric.Sum("revenue") },
 });
 ```
-
-</TabPane>
+  </TabPane>
   <TabPane id="web-example" label="ASP.NET Core">
-
 ```cs
 using ZoneTree.Analytics.AspNetCore;
 
@@ -119,8 +117,7 @@ app.MapGet("/", () => Results.Content(
 app.MapZoneTreeAnalyticsApi();
 await app.RunAsync();
 ```
-
-</TabPane>
+  </TabPane>
 </Tabs>
 
 Track visits and purchases directly from .NET, or add analytics to your ASP.NET Core application.

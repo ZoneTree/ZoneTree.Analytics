@@ -8,8 +8,10 @@ const template = html`<div class="auth-card">
     <h1>{{ done ? 'You are signed out' : 'Signing out…' }}</h1>
     <p r-if="done">This browser no longer has access to the dashboard.</p>
   </div>
-  <FormStatus tone="danger" role="alert" r-if="error">{{ error }}</FormStatus>
-  <a class="button primary auth-submit" href="/signin/" r-if="done">Sign in again</a>
+  <FormStatus tone="danger" role="alert" r-if="error"
+    >{{ error }}</FormStatus>
+  <a class="button primary auth-submit" href="/signin/" r-if="done"
+    >Sign in again</a>
 </div>`
 
 const page = defineComponent(template, {

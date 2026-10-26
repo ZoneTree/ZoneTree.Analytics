@@ -155,15 +155,30 @@ const template = html`<div class="sites-editor">
   <div class="site-row" r-for="site in editor.sites">
     <label>
       Site name
-      <input type="text" r-model="site.name" @input="editor.nameChanged(site)" maxlength="100" placeholder="My website" required/>
+      <input
+        type="text"
+        r-model="site.name"
+        @input="editor.nameChanged(site)"
+        maxlength="100"
+        placeholder="My website"
+        required/>
     </label>
     <label>
       Site ID
-      <input type="text" r-model="site.id" @input="editor.idChanged(site)" :readonly="site.locked" maxlength="64" required/>
+      <input
+        type="text"
+        r-model="site.id"
+        @input="editor.idChanged(site)"
+        :readonly="site.locked"
+        maxlength="64"
+        required/>
     </label>
     <label class="site-domains">
       Domains
-      <input type="text" r-model="site.domains" placeholder="example.com, *.example.com"/>
+      <input
+        type="text"
+        r-model="site.domains"
+        placeholder="example.com, *.example.com"/>
     </label>
     <Btn
       class="icon-button site-remove"
@@ -175,24 +190,32 @@ const template = html`<div class="sites-editor">
       @click="editor.remove(site)"/>
   </div>
   <p class="field-hint">
-    Pages on these domains report to the site. *.example.com covers example.com and its subdomains.
-    The site ID names the site in reports and the API; it cannot change once data is stored.
+    Pages on these domains report to the site. *.example.com covers example.com
+    and its subdomains. The site ID names the site in reports and the API; it
+    cannot change once data is stored.
   </p>
-  <Btn class="button" variant="outline" icon="tabler:plus" @click="editor.add">Add site</Btn>
+  <Btn class="button" variant="outline" icon="tabler:plus" @click="editor.add"
+    >Add site</Btn>
   <div class="form-grid sites-options">
     <label>
       Primary site
       <select r-model="editor.primarySite">
-        <option r-for="option in editor.primaryOptions" :value="option.value">{{ option.label }}</option>
+        <option r-for="option in editor.primaryOptions" :value="option.value">
+          {{ option.label }}
+        </option>
       </select>
-      <span class="field-hint">Opens first in reports and receives events that name no site.</span>
+      <span class="field-hint"
+        >Opens first in reports and receives events that name no site.</span>
     </label>
     <label>
       Traffic from other domains
       <select r-model="editor.unmatched">
-        <option r-for="option in editor.unmatchedOptions" :value="option.value">{{ option.label }}</option>
+        <option r-for="option in editor.unmatchedOptions" :value="option.value">
+          {{ option.label }}
+        </option>
       </select>
-      <span class="field-hint">Events from pages whose host matches no site's domains.</span>
+      <span class="field-hint"
+        >Events from pages whose host matches no site's domains.</span>
     </label>
   </div>
 </div>`

@@ -14,11 +14,18 @@ const template = html`<div class="page-heading">
   <Panel class="form-panel">
     <h2>Profile</h2>
     <AppForm @submit.prevent="saveProfile">
-      <FormInputField id="profile-name" label="Display name" :model="displayName" placeholder="Your name"/>
-      <FormStatus tone="success" r-if="profileStatus">{{ profileStatus }}</FormStatus>
-      <FormStatus tone="danger" role="alert" r-if="profileError">{{ profileError }}</FormStatus>
+      <FormInputField
+        id="profile-name"
+        label="Display name"
+        :model="displayName"
+        placeholder="Your name"/>
+      <FormStatus tone="success" r-if="profileStatus"
+        >{{ profileStatus }}</FormStatus>
+      <FormStatus tone="danger" role="alert" r-if="profileError"
+        >{{ profileError }}</FormStatus>
       <div class="form-actions">
-        <Btn class="button primary" tone="accent" type="submit">Save profile</Btn>
+        <Btn class="button primary" tone="accent" type="submit"
+          >Save profile</Btn>
       </div>
     </AppForm>
   </Panel>
@@ -26,16 +33,34 @@ const template = html`<div class="page-heading">
     <h2>Password</h2>
     <p>Changing your password signs out every other browser.</p>
     <AppForm @submit.prevent="savePassword">
-      <FormInputField id="password-current" label="Current password" type="password" :model="current"
-        :required="true" autocomplete="current-password"/>
-      <FormInputField id="password-new" label="New password" type="password" :model="next"
-        :required="true" autocomplete="new-password"/>
-      <FormInputField id="password-confirm" label="Confirm new password" type="password" :model="confirm"
-        :required="true" autocomplete="new-password"/>
-      <FormStatus tone="success" r-if="passwordStatus">{{ passwordStatus }}</FormStatus>
-      <FormStatus tone="danger" role="alert" r-if="passwordError">{{ passwordError }}</FormStatus>
+      <FormInputField
+        id="password-current"
+        label="Current password"
+        type="password"
+        :model="current"
+        :required="true"
+        autocomplete="current-password"/>
+      <FormInputField
+        id="password-new"
+        label="New password"
+        type="password"
+        :model="next"
+        :required="true"
+        autocomplete="new-password"/>
+      <FormInputField
+        id="password-confirm"
+        label="Confirm new password"
+        type="password"
+        :model="confirm"
+        :required="true"
+        autocomplete="new-password"/>
+      <FormStatus tone="success" r-if="passwordStatus"
+        >{{ passwordStatus }}</FormStatus>
+      <FormStatus tone="danger" role="alert" r-if="passwordError"
+        >{{ passwordError }}</FormStatus>
       <div class="form-actions">
-        <Btn class="button primary" tone="accent" type="submit">Change password</Btn>
+        <Btn class="button primary" tone="accent" type="submit"
+          >Change password</Btn>
       </div>
     </AppForm>
   </Panel>

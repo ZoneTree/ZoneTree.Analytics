@@ -40,32 +40,59 @@ const template = html`<div class="page-heading">
     <p>Everyone who can sign in, what they can do, and which sites they see.</p>
   </div>
   <div class="heading-actions">
-    <Btn class="button primary" tone="accent" icon="tabler:user-plus" @click="create" r-if="!draft">Add user</Btn>
+    <Btn
+      class="button primary"
+      tone="accent"
+      icon="tabler:user-plus"
+      @click="create"
+      r-if="!draft"
+      >Add user</Btn>
   </div>
 </div>
-<FormStatus tone="danger" role="alert" r-if="error">{{ error }}</FormStatus>
+<FormStatus tone="danger" role="alert" r-if="error"
+  >{{ error }}</FormStatus>
 <FormStatus tone="success" r-if="status">{{ status }}</FormStatus>
 
 <Panel class="form-panel" r-if="draft">
   <h2>{{ draft.id ? 'Edit ' + draft.userName : 'Add a user' }}</h2>
-  <p r-if="!draft.id">Share the user name and password with the person; they can change the password after signing in.</p>
+  <p r-if="!draft.id">
+    Share the user name and password with the person; they can change the
+    password after signing in.
+  </p>
   <AppForm @submit.prevent="save">
     <div class="form-grid">
-      <FormInputField id="user-name" label="User name" :model="draft.userName" :required="true" autocomplete="off"/>
-      <FormInputField id="user-display" label="Display name" :model="draft.displayName" placeholder="Optional"/>
+      <FormInputField
+        id="user-name"
+        label="User name"
+        :model="draft.userName"
+        :required="true"
+        autocomplete="off"/>
+      <FormInputField
+        id="user-display"
+        label="Display name"
+        :model="draft.displayName"
+        placeholder="Optional"/>
       <label r-if="!draft.administrator">
         Role
         <select r-model="draft.role">
-          <option r-for="option in roleOptions" :value="option.value">{{ option.label }}</option>
+          <option r-for="option in roleOptions" :value="option.value">
+            {{ option.label }}
+          </option>
         </select>
       </label>
-      <FormInputField id="user-password" :label="draft.id ? 'New password' : 'Password'" type="password"
-        :model="draft.password" :required="!draft.id" autocomplete="new-password"
+      <FormInputField
+        id="user-password"
+        :label="draft.id ? 'New password' : 'Password'"
+        type="password"
+        :model="draft.password"
+        :required="!draft.id"
+        autocomplete="new-password"
         :placeholder="draft.id ? 'Leave empty to keep the current password' : 'At least 10 characters'"
         r-if="!draft.administrator"/>
     </div>
     <p class="field-hint" r-if="draft.administrator">
-      Change your own password in <a href="/account/settings/">Account settings</a>.
+      Change your own password in
+      <a href="/account/settings/">Account settings</a>.
     </p>
     <fieldset class="site-access" r-if="!draft.administrator">
       <legend>Sites</legend>
@@ -84,12 +111,23 @@ const template = html`<div class="page-heading">
       <input type="checkbox" r-model="draft.disabled"/>
       <span>Disabled: cannot sign in</span>
     </label>
-    <p class="field-hint" r-if="draft.id">Changing the role, sites, password or status signs the user out everywhere.</p>
+    <p class="field-hint" r-if="draft.id">
+      Changing the role, sites, password or status signs the user out
+      everywhere.
+    </p>
     <div class="form-actions">
-      <Btn class="button primary" tone="accent" type="submit" :disabled="busy">{{ draft.id ? 'Save user' : 'Create user' }}</Btn>
-      <Btn class="button" variant="outline" @click="close" :disabled="busy">Cancel</Btn>
-      <Btn class="button quiet danger" variant="none" icon="tabler:trash" r-if="draft.id && !draft.administrator"
-        @click="remove" :disabled="busy">Delete user</Btn>
+      <Btn class="button primary" tone="accent" type="submit" :disabled="busy"
+        >{{ draft.id ? 'Save user' : 'Create user' }}</Btn>
+      <Btn class="button" variant="outline" @click="close" :disabled="busy"
+        >Cancel</Btn>
+      <Btn
+        class="button quiet danger"
+        variant="none"
+        icon="tabler:trash"
+        r-if="draft.id && !draft.administrator"
+        @click="remove"
+        :disabled="busy"
+        >Delete user</Btn>
     </div>
   </AppForm>
   <div class="user-sessions" r-if="draft.id">
@@ -98,14 +136,28 @@ const template = html`<div class="page-heading">
       <li r-for="session in sessions">
         <div>
           <strong>{{ describeAgent(session.userAgent) }}</strong>
-          <Badge tone="success" variant="surface" r-if="session.current">You, now</Badge>
-          <small>{{ session.ipAddress || 'Unknown address' }} · last active {{ formatDate(session.lastSeen) }}</small>
+          <Badge tone="success" variant="surface" r-if="session.current"
+            >You, now</Badge>
+          <small
+            >{{ session.ipAddress || 'Unknown address' }} · last active
+            {{ formatDate(session.lastSeen) }}</small>
         </div>
-        <Btn class="button quiet" variant="none" r-if="!session.current" @click="endSession(session)">Sign out</Btn>
+        <Btn
+          class="button quiet"
+          variant="none"
+          r-if="!session.current"
+          @click="endSession(session)"
+          >Sign out</Btn>
       </li>
     </ul>
     <p r-else>No active sessions.</p>
-    <Btn class="button" variant="outline" icon="tabler:logout" r-if="sessions.length" @click="endAll">Sign out everywhere</Btn>
+    <Btn
+      class="button"
+      variant="outline"
+      icon="tabler:logout"
+      r-if="sessions.length"
+      @click="endAll"
+      >Sign out everywhere</Btn>
   </div>
 </Panel>
 
@@ -125,12 +177,22 @@ const template = html`<div class="page-heading">
         <tr r-for="user in users" :class="{ disabled: user.disabled }">
           <td>
             <strong>{{ user.displayName }}</strong>
-            <small>{{ user.userName }}{{ user.disabled ? ' · disabled' : '' }}</small>
+            <small
+              >{{ user.userName }}{{ user.disabled ? ' · disabled' : '' }}</small>
           </td>
-          <td :title="roleDescriptions[user.role]">{{ user.role }}</td>
+          <td :title="roleDescriptions[user.role]">
+            {{ user.role }}
+          </td>
           <td>{{ siteSummary(user) }}</td>
           <td>{{ formatDate(user.lastSignIn) }}</td>
-          <td class="numeric"><Btn class="button quiet" variant="none" icon="tabler:pencil" @click="edit(user)">Edit</Btn></td>
+          <td class="numeric">
+            <Btn
+              class="button quiet"
+              variant="none"
+              icon="tabler:pencil"
+              @click="edit(user)"
+              >Edit</Btn>
+          </td>
         </tr>
       </tbody>
     </table>

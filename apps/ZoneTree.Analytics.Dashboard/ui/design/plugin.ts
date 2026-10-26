@@ -14,6 +14,43 @@ import { dashboardSkin } from './skin'
 import { registerDashboardStyles } from './styles'
 
 let trackerSourcePath = ''
+
+// Every page is a full load, so the sidebar would start at the top after each click. This runs
+// right after the sidebar markup, before the first paint: it restores the position the tab last
+// had, or brings the current page's link into view, and saves the position when the page is left.
+// The navigation for the remembered role (lib/session.ts) is shown first, so the sidebar already
+// has its full height and the position is not cut short when the session confirms the role.
+const sidebarScrollScript = `(function () {
+  var sidebar = document.querySelector('.sidebar')
+  if (!sidebar) return
+  var key = 'zt-sidebar-scroll'
+  try {
+    var role = localStorage.getItem('zt-dashboard-role')
+    var root = document.documentElement
+    if (role === 'Administrator') root.classList.add('role-admin')
+    if (role === 'Administrator' || role === 'Analyst') root.classList.add('role-query')
+  } catch (error) {}
+  try {
+    var saved = sessionStorage.getItem(key)
+    if (saved !== null) sidebar.scrollTop = Number(saved)
+    else {
+      var current = sidebar.querySelector('[aria-current="page"]')
+      if (current) current.scrollIntoView({ block: 'nearest' })
+    }
+  } catch (error) {}
+  function save() {
+    try {
+      sessionStorage.setItem(key, String(sidebar.scrollTop))
+    } catch (error) {}
+  }
+  sidebar.addEventListener('click', save)
+  addEventListener('pagehide', save)
+  // Escape closes the navigation drawer on narrow screens.
+  addEventListener('keydown', function (event) {
+    var toggle = document.getElementById('nav-toggle')
+    if (event.key === 'Escape' && toggle && toggle.checked) toggle.checked = false
+  })
+})()`
 const previewUser = {
   id: 'preview',
   userName: 'preview',
@@ -183,6 +220,11 @@ export const dashboardPlugin = definePlugin({
                 .class('app-shell')
                 .push(
                   h('').raw(headerHtml ?? ''),
+                  h('script').raw(sidebarScrollScript),
+                  // Covers the page while the navigation drawer is open: a click on it closes the drawer.
+                  h('label')
+                    .class('nav-backdrop')
+                    .attr({ for: 'nav-toggle', 'aria-hidden': 'true' }),
                   h('div').class('main-shell').raw(bodyHtml),
                 ),
             ),

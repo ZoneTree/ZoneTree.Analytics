@@ -26,10 +26,17 @@ const template = html`<div class="page-heading">
     <p>Sign-ins, setting changes and user management, newest first.</p>
   </div>
   <div class="heading-actions">
-    <Btn class="button" variant="outline" icon="tabler:refresh" @click="reload" :disabled="loading">Refresh</Btn>
+    <Btn
+      class="button"
+      variant="outline"
+      icon="tabler:refresh"
+      @click="reload"
+      :disabled="loading"
+      >Refresh</Btn>
   </div>
 </div>
-<FormStatus tone="danger" role="alert" r-if="error">{{ error }}</FormStatus>
+<FormStatus tone="danger" role="alert" r-if="error"
+  >{{ error }}</FormStatus>
 <Panel class="form-panel">
   <div class="table-wrap" r-if="entries.length">
     <table class="data-table audit-table">
@@ -43,7 +50,10 @@ const template = html`<div class="page-heading">
         </tr>
       </thead>
       <tbody>
-        <tr r-for="entry in entries" :class="{ warning: entry.action === 'auth.signin-failed' }">
+        <tr
+          r-for="entry in entries"
+          :class="{ warning: entry.action === 'auth.signin-failed' }"
+        >
           <td>{{ formatDate(entry.time) }}</td>
           <td>{{ entry.actor || '—' }}</td>
           <td>{{ label(entry.action) }}</td>
@@ -55,7 +65,8 @@ const template = html`<div class="page-heading">
   </div>
   <p r-if="!entries.length && !loading">Nothing has been recorded yet.</p>
   <div class="form-actions" r-if="more">
-    <Btn class="button" variant="outline" @click="loadMore" :disabled="loading">Show older entries</Btn>
+    <Btn class="button" variant="outline" @click="loadMore" :disabled="loading"
+      >Show older entries</Btn>
   </div>
 </Panel>`
 

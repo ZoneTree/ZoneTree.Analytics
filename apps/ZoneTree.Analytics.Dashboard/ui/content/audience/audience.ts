@@ -9,32 +9,30 @@ export interface AudiencePage {
   dimensions: { id: string; label: string }[]
 }
 
-const audienceTemplate = html`
-  <ReportHeader :dashboard="dashboard" />
-  <ReportControls :dashboard="dashboard" />
-  <ReportFeedback :dashboard="dashboard" />
-  <Panel :aria-busy="dashboard.loading" r-if="dashboard.table.headers.length">
-    <div class="panel-heading">
-      <div>
-        <h2>Audience breakdown</h2>
-        <p>Geography depends on the geolocator configured by your host.</p>
-      </div>
+const audienceTemplate = html`<ReportHeader :dashboard="dashboard"/>
+<ReportControls :dashboard="dashboard"/>
+<ReportFeedback :dashboard="dashboard"/>
+<Panel :aria-busy="dashboard.loading" r-if="dashboard.table.headers.length">
+  <div class="panel-heading">
+    <div>
+      <h2>Audience breakdown</h2>
+      <p>Geography depends on the geolocator configured by your host.</p>
     </div>
-    <div class="tabs" aria-label="Audience dimension">
-      <Btn
-        variant="outline"
-        r-for="dimension in dimensions"
-        :aria-pressed="dashboard.tab === dimension.id"
-        @click="dashboard.setTab(dimension.id)"
-      >
-        {{ dimension.label }}
-      </Btn>
-    </div>
-    <ReportTable :data="dashboard.table" :onFilter="dashboard.addFilter" />
-    <ReportPagination :dashboard="dashboard" />
-  </Panel>
-  <ReportFooter :dashboard="dashboard" />
-`
+  </div>
+  <div class="tabs" aria-label="Audience dimension">
+    <Btn
+      variant="outline"
+      r-for="dimension in dimensions"
+      :aria-pressed="dashboard.tab === dimension.id"
+      @click="dashboard.setTab(dimension.id)"
+    >
+      {{ dimension.label }}
+    </Btn>
+  </div>
+  <ReportTable :data="dashboard.table" :onFilter="dashboard.addFilter"/>
+  <ReportPagination :dashboard="dashboard"/>
+</Panel>
+<ReportFooter :dashboard="dashboard"/>`
 
 async function loadBreakdown(model: DashboardModel, signal: AbortSignal) {
   const result = await model.request<Report<Breakdown>>('breakdown', signal, {

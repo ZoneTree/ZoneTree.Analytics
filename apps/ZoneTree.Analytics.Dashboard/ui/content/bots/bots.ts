@@ -8,25 +8,23 @@ export interface BotsPage {
   dashboard: DashboardModel
 }
 
-const botsTemplate = html`
-  <ReportHeader :dashboard="dashboard" />
-  <ReportControls :dashboard="dashboard" />
-  <ReportFeedback :dashboard="dashboard" />
-  <Panel :aria-busy="dashboard.loading" r-if="dashboard.table.headers.length">
-    <div class="panel-heading">
-      <div>
-        <h2>Crawler activity</h2>
-        <p>
-          Requires Bots = BotTraffic.TrackSeparately on your host. Bots never count as visitors.
-          Remove audience filters to query bot traffic.
-        </p>
-      </div>
+const botsTemplate = html`<ReportHeader :dashboard="dashboard"/>
+<ReportControls :dashboard="dashboard"/>
+<ReportFeedback :dashboard="dashboard"/>
+<Panel :aria-busy="dashboard.loading" r-if="dashboard.table.headers.length">
+  <div class="panel-heading">
+    <div>
+      <h2>Crawler activity</h2>
+      <p>
+        Requires Bots = BotTraffic.TrackSeparately on your host. Bots never
+        count as visitors. Remove audience filters to query bot traffic.
+      </p>
     </div>
-    <ReportTable :data="dashboard.table" :onFilter="dashboard.addFilter" />
-    <ReportPagination :dashboard="dashboard" />
-  </Panel>
-  <ReportFooter :dashboard="dashboard" />
-`
+  </div>
+  <ReportTable :data="dashboard.table" :onFilter="dashboard.addFilter"/>
+  <ReportPagination :dashboard="dashboard"/>
+</Panel>
+<ReportFooter :dashboard="dashboard"/>`
 
 async function loadBots(model: DashboardModel, signal: AbortSignal) {
   const result = await model.request<Report<Bot>>('bots', signal, {

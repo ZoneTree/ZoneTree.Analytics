@@ -18,29 +18,58 @@ const template = html`<div class="page-heading">
     <a class="button" href="/account/settings/">Edit profile and password</a>
   </div>
 </div>
-<FormStatus tone="danger" role="alert" r-if="error">{{ error }}</FormStatus>
+<FormStatus tone="danger" role="alert" r-if="error"
+  >{{ error }}</FormStatus>
 <div class="admin-columns" r-if="me">
   <Panel class="form-panel">
     <h2>Profile</h2>
     <dl class="detail-list">
-      <div><dt>User name</dt><dd>{{ me.user.userName }}</dd></div>
-      <div><dt>Display name</dt><dd>{{ me.user.displayName }}</dd></div>
-      <div><dt>Role</dt><dd>{{ me.user.role }}<small>{{ roleDescription }}</small></dd></div>
-      <div><dt>Sites</dt><dd>{{ siteList }}</dd></div>
-      <div><dt>Member since</dt><dd>{{ formatDate(me.user.created) }}</dd></div>
+      <div>
+        <dt>User name</dt>
+        <dd>{{ me.user.userName }}</dd>
+      </div>
+      <div>
+        <dt>Display name</dt>
+        <dd>{{ me.user.displayName }}</dd>
+      </div>
+      <div>
+        <dt>Role</dt>
+        <dd>
+          {{ me.user.role }}<small>{{ roleDescription }}</small>
+        </dd>
+      </div>
+      <div>
+        <dt>Sites</dt>
+        <dd>{{ siteList }}</dd>
+      </div>
+      <div>
+        <dt>Member since</dt>
+        <dd>{{ formatDate(me.user.created) }}</dd>
+      </div>
     </dl>
   </Panel>
   <Panel class="form-panel">
     <h2>Signed-in browsers</h2>
-    <p>End a session you don't recognize. Changing your password ends every other session.</p>
+    <p>
+      End a session you don't recognize. Changing your password ends every other
+      session.
+    </p>
     <ul class="session-list">
       <li r-for="session in sessions">
         <div>
           <strong>{{ describeAgent(session.userAgent) }}</strong>
-          <Badge tone="success" variant="surface" r-if="session.current">This browser</Badge>
-          <small>{{ session.ipAddress || 'Unknown address' }} · last active {{ formatDate(session.lastSeen) }}</small>
+          <Badge tone="success" variant="surface" r-if="session.current"
+            >This browser</Badge>
+          <small
+            >{{ session.ipAddress || 'Unknown address' }} · last active
+            {{ formatDate(session.lastSeen) }}</small>
         </div>
-        <Btn class="button quiet" variant="none" r-if="!session.current" @click="revoke(session)">Sign out</Btn>
+        <Btn
+          class="button quiet"
+          variant="none"
+          r-if="!session.current"
+          @click="revoke(session)"
+          >Sign out</Btn>
       </li>
     </ul>
   </Panel>

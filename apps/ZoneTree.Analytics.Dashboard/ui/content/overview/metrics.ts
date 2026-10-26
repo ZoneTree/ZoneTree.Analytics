@@ -15,31 +15,32 @@ export interface OverviewMetrics {
   selectMetric: (key: MetricKey) => void
 }
 
-const template = html`
-  <section class="metric-grid" aria-label="Summary metrics">
-    <button
-      class="metric-card"
-      type="button"
-      r-for="card in cards"
-      :class="{selected:dashboard.metric === card.key}"
-      :aria-pressed="dashboard.metric === card.key"
-      :disabled="!card.available"
-      :title="card.available ? 'Plot ' + card.label : 'Unavailable for these filters or engine configuration'"
-      @click="selectMetric(card.key)"
-    >
-      <span class="metric-label">{{ card.label }}</span>
-      <strong class="metric-value">{{ card.value }}</strong>
-      <span class="metric-change">
-        <span class="delta" :class="{negative:card.negative}"
-          r-if="dashboard.compare !== 'none' && card.hasDelta">
-          {{ card.delta }}
-        </span>
-        <span>{{ dashboard.compare === 'none' ? 'No comparison' : card.hasDelta ?
-          dashboard.comparisonLabel : 'No comparison available' }}</span>
+const template = html`<section class="metric-grid" aria-label="Summary metrics">
+  <button
+    class="metric-card"
+    type="button"
+    r-for="card in cards"
+    :class="{selected:dashboard.metric === card.key}"
+    :aria-pressed="dashboard.metric === card.key"
+    :disabled="!card.available"
+    :title="card.available ? 'Plot ' + card.label : 'Unavailable for these filters or engine configuration'"
+    @click="selectMetric(card.key)"
+  >
+    <span class="metric-label">{{ card.label }}</span>
+    <strong class="metric-value">{{ card.value }}</strong>
+    <span class="metric-change">
+      <span
+        class="delta"
+        :class="{negative:card.negative}"
+        r-if="dashboard.compare !== 'none' && card.hasDelta"
+      >
+        {{ card.delta }}
       </span>
-    </button>
-  </section>
-`
+      <span>{{ dashboard.compare === 'none' ? 'No comparison' : card.hasDelta ?
+          dashboard.comparisonLabel : 'No comparison available' }}</span>
+    </span>
+  </button>
+</section>`
 
 export function defineOverviewMetrics() {
   return defineComponent<OverviewMetrics>(template, {

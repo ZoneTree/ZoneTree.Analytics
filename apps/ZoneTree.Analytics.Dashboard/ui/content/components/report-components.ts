@@ -53,23 +53,23 @@ const reportHeader = html`<div class="page-heading">
       <span>Loading reports…</span>
     </span>
     <div class="report-badges">
-    <Badge
-      class="api-response-badge"
-      tone="neutral"
-      variant="outline"
-      title="Latest reporting API response, including network transfer and JSON decoding."
-      :aria-label="'API response time: ' + dashboard.apiResponseMs + ' milliseconds'"
-      r-if="dashboard.config.mode === 'live' && dashboard.apiResponseMs !== null"
-    >
-      {{ dashboard.apiResponseMs }} ms
-    </Badge>
-    <Badge
-      class="mode-badge"
-      :tone="dashboard.config.mode === 'demo' ? 'warning' : 'success'"
-      variant="surface"
-    >
-      {{ dashboard.config.mode === 'demo' ? 'Demo data' : 'Live API' }}
-    </Badge>
+      <Badge
+        class="api-response-badge"
+        tone="neutral"
+        variant="outline"
+        title="Latest reporting API response, including network transfer and JSON decoding."
+        :aria-label="'API response time: ' + dashboard.apiResponseMs + ' milliseconds'"
+        r-if="dashboard.config.mode === 'live' && dashboard.apiResponseMs !== null"
+      >
+        {{ dashboard.apiResponseMs }} ms
+      </Badge>
+      <Badge
+        class="mode-badge"
+        :tone="dashboard.config.mode === 'demo' ? 'warning' : 'success'"
+        variant="surface"
+      >
+        {{ dashboard.config.mode === 'demo' ? 'Demo data' : 'Live API' }}
+      </Badge>
     </div>
     <span class="live-count" r-if="dashboard.kind !== 'sample-data'">
       <i></i>

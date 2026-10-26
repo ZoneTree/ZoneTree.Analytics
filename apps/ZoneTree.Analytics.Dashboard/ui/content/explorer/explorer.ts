@@ -84,66 +84,69 @@ export interface ExplorerPage {
   query: ReturnType<typeof createExplorerModel>
 }
 
-const explorerTemplate = html`
-  <ReportHeader :dashboard="dashboard" />
-  <ReportControls :dashboard="dashboard" />
-  <ReportFeedback :dashboard="dashboard" />
-  <Panel class="form-panel">
-    <h2>Explore your data</h2>
-    <p>
-      Use the engine's metric expressions, dimensions, intervals, segments, and filters. Controls
-      above apply unless your JSON overrides them.
-    </p>
-    <AppForm @submit.prevent="query.run">
-      <FormSelectField
-        id="query-preset"
-        label="Start from a query"
-        :model="query.preset"
-        :options="query.presets"
+const explorerTemplate = html`<ReportHeader :dashboard="dashboard"/>
+<ReportControls :dashboard="dashboard"/>
+<ReportFeedback :dashboard="dashboard"/>
+<Panel class="form-panel">
+  <h2>Explore your data</h2>
+  <p>
+    Use the engine's metric expressions, dimensions, intervals, segments, and
+    filters. Controls above apply unless your JSON overrides them.
+  </p>
+  <AppForm @submit.prevent="query.run">
+    <FormSelectField
+      id="query-preset"
+      label="Start from a query"
+      :model="query.preset"
+      :options="query.presets"
+      :disabled="dashboard.loading"/>
+    <label for="query-json">
+      Query JSON
+      <textarea
+        id="query-json"
+        r-model="query.json"
+        rows="13"
+        spellcheck="false"
         :disabled="dashboard.loading"
-      />
-      <label for="query-json">
-        Query JSON
-        <textarea
-          id="query-json"
-          r-model="query.json"
-          rows="13"
-          spellcheck="false"
-          :disabled="dashboard.loading"
-        ></textarea>
-      </label>
-      <div class="form-actions">
-        <Btn class="button primary" tone="accent" type="submit" :disabled="dashboard.loading">
-          Run query
-        </Btn>
-        <span class="field-hint">Read-only · POST /query</span>
+      ></textarea>
+    </label>
+    <div class="form-actions">
+      <Btn
+        class="button primary"
+        tone="accent"
+        type="submit"
+        :disabled="dashboard.loading"
+      >
+        Run query
+      </Btn>
+      <span class="field-hint">Read-only · POST /query</span>
+    </div>
+  </AppForm>
+</Panel>
+<div :aria-busy="dashboard.loading" r-if="query.result">
+  <Panel>
+    <div class="panel-heading">
+      <div>
+        <h2>Query results</h2>
+        <p>
+          {{ dashboard.number(query.result.rows.length) }} of {{
+            dashboard.number(query.result.totalRows) }} rows
+          returned. Export contains these rows.
+        </p>
       </div>
-    </AppForm>
+    </div>
+    <ReportTable :data="query.table" :onFilter="dashboard.addFilter"/>
   </Panel>
-  <div :aria-busy="dashboard.loading" r-if="query.result">
-    <Panel>
-      <div class="panel-heading">
-        <div>
-          <h2>Query results</h2>
-          <p>
-            {{ dashboard.number(query.result.rows.length) }} of {{
-            dashboard.number(query.result.totalRows) }} rows returned. Export contains these rows.
-          </p>
-        </div>
-      </div>
-      <ReportTable :data="query.table" :onFilter="dashboard.addFilter" />
-    </Panel>
-    <Panel class="totals-panel">
-      <div class="panel-heading"><h2>Totals</h2></div>
-      <ReportTable :data="query.totals" :onFilter="dashboard.addFilter" />
-    </Panel>
-    <details class="panel">
-      <summary class="panel-heading">Response &amp; query plan</summary>
-      <pre class="result-json" r-text="query.response"></pre>
-    </details>
-  </div>
-  <ReportFooter :dashboard="dashboard" />
-`
+  <Panel class="totals-panel">
+    <div class="panel-heading"><h2>Totals</h2></div>
+    <ReportTable :data="query.totals" :onFilter="dashboard.addFilter"/>
+  </Panel>
+  <details class="panel">
+    <summary class="panel-heading">Response &amp; query plan</summary>
+    <pre class="result-json" r-text="query.response"></pre>
+  </details>
+</div>
+<ReportFooter :dashboard="dashboard"/>`
 
 export function defineExplorerPage(model: DashboardModel) {
   return defineComponent<ExplorerPage>(explorerTemplate, {

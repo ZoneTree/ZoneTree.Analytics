@@ -147,22 +147,37 @@ const saveReviewTemplate = html`<div>
     <ul class="change-list">
       <li r-for="change in flow.changes">
         <span>{{ change.label }}</span>
-        <span class="setting-tier" :class="'tier-' + change.tier">{{ flow.tierLabel(change.tier) }}</span>
+        <span class="setting-tier" :class="'tier-' + change.tier"
+          >{{ flow.tierLabel(change.tier) }}</span>
       </li>
     </ul>
     <FormStatus tone="info" r-if="flow.reopens">
-      The engine closes and reopens to apply these changes. Reports and tracking pause for a few seconds.
+      The engine closes and reopens to apply these changes. Reports and tracking
+      pause for a few seconds.
     </FormStatus>
-    <FormStatus tone="danger" r-for="warning in flow.warnings">{{ warning }}</FormStatus>
+    <FormStatus tone="danger" r-for="warning in flow.warnings"
+      >{{ warning }}</FormStatus>
     <div class="form-actions">
-      <Btn class="button primary" :tone="flow.warnings.length ? 'danger' : 'accent'" :disabled="flow.busy" @click="flow.confirm">
+      <Btn
+        class="button primary"
+        :tone="flow.warnings.length ? 'danger' : 'accent'"
+        :disabled="flow.busy"
+        @click="flow.confirm"
+      >
         {{ flow.busy ? 'Applying…' : flow.warnings.length ? 'Delete data and save' : 'Save changes' }}
       </Btn>
-      <Btn class="button" variant="outline" :disabled="flow.busy" @click="flow.cancel">Keep editing</Btn>
+      <Btn
+        class="button"
+        variant="outline"
+        :disabled="flow.busy"
+        @click="flow.cancel"
+        >Keep editing</Btn>
     </div>
   </Panel>
-  <FormStatus tone="success" r-if="flow.status">{{ flow.status }}</FormStatus>
-  <FormStatus tone="danger" role="alert" r-if="flow.error">{{ flow.error }}</FormStatus>
+  <FormStatus tone="success" r-if="flow.status"
+    >{{ flow.status }}</FormStatus>
+  <FormStatus tone="danger" role="alert" r-if="flow.error"
+    >{{ flow.error }}</FormStatus>
 </div>`
 
 export function defineSaveReview() {

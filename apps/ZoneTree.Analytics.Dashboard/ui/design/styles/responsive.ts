@@ -1,7 +1,8 @@
+import { sidebarColors as sidebar } from '../colors'
 import type { DashboardStyleContext } from './context'
 
 export function registerResponsiveStyles(context: DashboardStyleContext) {
-  const { root, accent } = context
+  const { root, accent, colors } = context
   const wide = root.media('min-width: 1500px')
   wide.select('.chart-wrap').height('310px')
 
@@ -41,6 +42,15 @@ export function registerResponsiveStyles(context: DashboardStyleContext) {
     .boxShadow('16px 0 60px #00000033')
 
   drawer
+    .select('.nav-toggle:checked ~ .app-shell .nav-backdrop')
+    .display('block')
+    .position('fixed')
+    .inset('0')
+    .zIndex('45')
+    .background(colors.overlay)
+    .cursor('pointer')
+
+  drawer
     .select('.nav-toggle:checked ~ .app-shell .sidebar')
     .transform('translateX(0)')
     .visibility('visible')
@@ -49,7 +59,28 @@ export function registerResponsiveStyles(context: DashboardStyleContext) {
 
   drawer.select('.mobile-only').display('inline-flex')
 
-  drawer.select('.drawer-close').position('absolute').top('8px').right('8px')
+  // A quiet control on the dark drawer, not the light bordered icon button of the page.
+  drawer
+    .select('.sidebar .drawer-close')
+    .position('absolute')
+    .top('12px')
+    .right('12px')
+    .width('30px')
+    .minHeight('30px')
+    .height('30px')
+    .padding('0')
+    .border('0')
+    .borderRadius('6px')
+    .background('transparent')
+    .color(sidebar.muted)
+    .cursor('pointer')
+
+  drawer
+    .select('.sidebar .drawer-close:hover')
+    .background(sidebar.hover)
+    .color(sidebar.ink)
+
+  drawer.select('.sidebar .drawer-close .icon').width('16px').height('16px')
 
   drawer
     .select('.nav-toggle:focus-visible ~ .app-shell .mobile-only')

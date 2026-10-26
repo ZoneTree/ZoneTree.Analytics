@@ -8,25 +8,23 @@ export interface EventsPage {
   dashboard: DashboardModel
 }
 
-const eventsTemplate = html`
-  <ReportHeader :dashboard="dashboard" />
-  <ReportControls :dashboard="dashboard" />
-  <ReportFeedback :dashboard="dashboard" />
-  <Panel :aria-busy="dashboard.loading" r-if="dashboard.table.headers.length">
-    <div class="panel-heading">
-      <div>
-        <h2>Tracked events &amp; goals</h2>
-        <p>
-          Conversion rate = goal visitors ÷ visitors with a page view. Events are discovered from
-          your tracked data.
-        </p>
-      </div>
+const eventsTemplate = html`<ReportHeader :dashboard="dashboard"/>
+<ReportControls :dashboard="dashboard"/>
+<ReportFeedback :dashboard="dashboard"/>
+<Panel :aria-busy="dashboard.loading" r-if="dashboard.table.headers.length">
+  <div class="panel-heading">
+    <div>
+      <h2>Tracked events &amp; goals</h2>
+      <p>
+        Conversion rate = goal visitors ÷ visitors with a page view. Events are
+        discovered from your tracked data.
+      </p>
     </div>
-    <ReportTable :data="dashboard.table" :onFilter="dashboard.addFilter" />
-    <ReportPagination :dashboard="dashboard" />
-  </Panel>
-  <ReportFooter :dashboard="dashboard" />
-`
+  </div>
+  <ReportTable :data="dashboard.table" :onFilter="dashboard.addFilter"/>
+  <ReportPagination :dashboard="dashboard"/>
+</Panel>
+<ReportFooter :dashboard="dashboard"/>`
 
 async function loadGoals(model: DashboardModel, signal: AbortSignal) {
   const result = await model.request<Report<Goal>>('goals', signal, {

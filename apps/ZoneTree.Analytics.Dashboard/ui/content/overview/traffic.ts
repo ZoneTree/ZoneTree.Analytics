@@ -85,45 +85,53 @@ export interface OverviewTraffic {
   valueSuffix: ComputedRef<string>
 }
 
-const template = html`
-  <Panel class="traffic-panel">
-    <div class="panel-heading">
-      <div>
-        <h2>{{ dashboard.selectedMetric.label }} over time</h2>
-        <p>{{ rangeLabel }} · {{ timeZone }}</p>
-      </div>
-      <div class="chart-controls" aria-label="Chart interval">
-        <button type="button" :aria-pressed="dashboard.interval === 'day'"
-          @click="dashboard.setInterval('day')">Daily</button>
-        <button type="button" :aria-pressed="dashboard.interval === 'hour'"
-          @click="dashboard.setInterval('hour')">Hourly</button>
-      </div>
+const template = html`<Panel class="traffic-panel">
+  <div class="panel-heading">
+    <div>
+      <h2>{{ dashboard.selectedMetric.label }} over time</h2>
+      <p>{{ rangeLabel }} · {{ timeZone }}</p>
     </div>
-    <div class="chart-wrap" :ref="chartElement">
-      <LineChart
-        :series="series"
-        :positions="positions"
-        :ariaLabel="dashboard.selectedMetric.label + ' over the selected range'"
-        :description="rangeLabel"
-        width="100%"
-        height="100%"
-        :valueSuffix="valueSuffix"
-        :showArea="true"
-        :showPoints="showMarkers"
-        :animated="false"
-        curve="linear"
-        variant="none" />
+    <div class="chart-controls" aria-label="Chart interval">
+      <button
+        type="button"
+        :aria-pressed="dashboard.interval === 'day'"
+        @click="dashboard.setInterval('day')"
+      >
+        Daily
+      </button>
+      <button
+        type="button"
+        :aria-pressed="dashboard.interval === 'hour'"
+        @click="dashboard.setInterval('hour')"
+      >
+        Hourly
+      </button>
     </div>
-    <div class="chart-legend">
-      <span><i class="legend-mark"></i>{{ dashboard.selectedMetric.label }}</span>
-      <span r-if="dashboard.compare !== 'none'">
-        <i class="legend-mark previous"></i>
-        {{ dashboard.compare === 'previous-year' ? 'Previous year' : 'Previous period' }}
-      </span>
-    </div>
-    <OverviewChartValues :dashboard="dashboard" />
-  </Panel>
-`
+  </div>
+  <div class="chart-wrap" :ref="chartElement">
+    <LineChart
+      :series="series"
+      :positions="positions"
+      :ariaLabel="dashboard.selectedMetric.label + ' over the selected range'"
+      :description="rangeLabel"
+      width="100%"
+      height="100%"
+      :valueSuffix="valueSuffix"
+      :showArea="true"
+      :showPoints="showMarkers"
+      :animated="false"
+      curve="linear"
+      variant="none"/>
+  </div>
+  <div class="chart-legend">
+    <span><i class="legend-mark"></i>{{ dashboard.selectedMetric.label }}</span>
+    <span r-if="dashboard.compare !== 'none'">
+      <i class="legend-mark previous"></i>
+      {{ dashboard.compare === 'previous-year' ? 'Previous year' : 'Previous period' }}
+    </span>
+  </div>
+  <OverviewChartValues :dashboard="dashboard"/>
+</Panel>`
 
 export function defineOverviewTraffic() {
   return defineComponent<OverviewTraffic>(template, {

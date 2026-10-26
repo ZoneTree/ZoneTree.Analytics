@@ -22,40 +22,80 @@ const template = html`<div class="page-heading">
   <div>
     <div class="eyebrow">ADMINISTRATION</div>
     <h1>Settings</h1>
-    <p>Every option of the analytics engine and this dashboard. Changes are reviewed before they apply.</p>
+    <p>
+      Every option of the analytics engine and this dashboard. Changes are
+      reviewed before they apply.
+    </p>
   </div>
 </div>
-<FormStatus tone="danger" role="alert" r-if="error">{{ error }}</FormStatus>
+<FormStatus tone="danger" role="alert" r-if="error"
+  >{{ error }}</FormStatus>
 <FormStatus tone="warning" r-if="restartRequired">
-  A saved setting applies after the server restarts: the number of concurrent reports.
+  A saved setting applies after the server restarts: the number of concurrent
+  reports.
 </FormStatus>
 <div class="settings-layout" r-if="loaded">
   <nav class="settings-nav" aria-label="Settings sections">
-    <button type="button" r-for="section in sections" :class="{ active: section.key === active }"
-      :aria-current="section.key === active ? 'true' : undefined" @click="select(section)">
+    <button
+      type="button"
+      r-for="section in sections"
+      :class="{ active: section.key === active }"
+      :aria-current="section.key === active ? 'true' : undefined"
+      @click="select(section)"
+    >
       {{ section.label }}
     </button>
   </nav>
   <div class="settings-body">
-    <Panel class="form-panel" r-for="section in sections" r-show="section.key === active">
+    <Panel
+      class="form-panel"
+      r-for="section in sections"
+      r-show="section.key === active"
+    >
       <h2>{{ section.label }}</h2>
       <p>{{ section.help }}</p>
-      <div class="preset-grid" r-if="section.key === 'privacy' || section.key === 'retention'" role="radiogroup" aria-label="Collection presets">
-        <button type="button" class="preset-card" r-for="preset in presets"
-          :class="{ selected: preset.key === selectedPreset }" role="radio"
-          :aria-checked="preset.key === selectedPreset ? 'true' : 'false'" @click="choose(preset)">
+      <div
+        class="preset-grid"
+        r-if="section.key === 'privacy' || section.key === 'retention'"
+        role="radiogroup"
+        aria-label="Collection presets"
+      >
+        <button
+          type="button"
+          class="preset-card"
+          r-for="preset in presets"
+          :class="{ selected: preset.key === selectedPreset }"
+          role="radio"
+          :aria-checked="preset.key === selectedPreset ? 'true' : 'false'"
+          @click="choose(preset)"
+        >
           <strong>{{ preset.label }}</strong>
           <span>{{ preset.description }}</span>
         </button>
       </div>
       <label class="check advanced-toggle">
-        <input type="checkbox" r-model="advanced"/><span>Show advanced settings</span>
+        <input type="checkbox" r-model="advanced"/><span
+          >Show advanced settings</span>
       </label>
-      <SettingsSection :form="form" :section="section" :advanced="advanced" :showTiers="true"/>
+      <SettingsSection
+        :form="form"
+        :section="section"
+        :advanced="advanced"
+        :showTiers="true"/>
     </Panel>
     <div class="sticky-actions">
-      <Btn class="button primary" tone="accent" @click="save" :disabled="flow.busy || flow.reviewing">Review changes</Btn>
-      <Btn class="button" variant="outline" @click="discard" :disabled="flow.busy">Discard edits</Btn>
+      <Btn
+        class="button primary"
+        tone="accent"
+        @click="save"
+        :disabled="flow.busy || flow.reviewing"
+        >Review changes</Btn>
+      <Btn
+        class="button"
+        variant="outline"
+        @click="discard"
+        :disabled="flow.busy"
+        >Discard edits</Btn>
     </div>
     <SaveReview :flow="flow"/>
   </div>

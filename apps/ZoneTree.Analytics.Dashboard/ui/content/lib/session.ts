@@ -4,6 +4,8 @@ import type { SessionUser } from './contracts'
 // PureStack's auth hint script shows the signed-in avatar while this key holds "1".
 export const signedInHintKey = 'signed-in-hint'
 const initialsKey = 'zt-dashboard-initials'
+// The sidebar script in design/plugin.ts reads it to show the role's navigation before the first paint.
+export const roleKey = 'zt-dashboard-role'
 export const dashboardApiPath = '/_dashboard/api'
 
 export function initials(name: string): string {
@@ -50,9 +52,24 @@ export function applyUser(user: SessionUser | null | undefined) {
     user?.role === 'Administrator' || user?.role === 'Analyst',
   )
   store(signedInHintKey, user ? '1' : null)
+  store(roleKey, user ? user.role : null)
   const text = user ? initials(user.displayName || user.userName) : ''
   store(initialsKey, user ? text : null)
   showInitials(text)
+  revealCurrentLink()
+}
+
+// Without a saved sidebar position, the current page's link comes into view once the role's
+// navigation is shown: before, it may have been hidden.
+function revealCurrentLink() {
+  try {
+    if (sessionStorage.getItem('zt-sidebar-scroll') !== null) return
+  } catch {
+    return
+  }
+  document
+    .querySelector('.sidebar [aria-current="page"]')
+    ?.scrollIntoView({ block: 'nearest' })
 }
 
 export function redirectToSignIn() {

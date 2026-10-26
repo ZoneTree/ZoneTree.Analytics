@@ -23,12 +23,20 @@ const template = html`<div class="auth-card">
       :model="password"
       :required="true"
       autocomplete="current-password"/>
-    <FormStatus tone="danger" role="alert" r-if="error">{{ error }}</FormStatus>
-    <Btn class="button primary auth-submit" tone="accent" type="submit" :disabled="busy">
+    <FormStatus tone="danger" role="alert" r-if="error"
+      >{{ error }}</FormStatus>
+    <Btn
+      class="button primary auth-submit"
+      tone="accent"
+      type="submit"
+      :disabled="busy"
+    >
       {{ busy ? 'Signing in…' : 'Sign in' }}
     </Btn>
   </AppForm>
-  <p class="auth-footnote">Forgot your password? Ask the administrator to set a new one.</p>
+  <p class="auth-footnote">
+    Forgot your password? Ask the administrator to set a new one.
+  </p>
 </div>`
 
 const page = defineComponent(template, {

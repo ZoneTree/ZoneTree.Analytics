@@ -15,29 +15,30 @@ export interface OverviewTopPages {
   filterPage: (page: string | null) => void
 }
 
-const template = html`
-  <Panel>
-    <div class="panel-heading">
-      <div><h2>Top pages</h2><p>The most visited places on your website</p></div>
-      <a class="panel-link" :href="dashboard.assetPath('pages/')">Details ↗</a>
+const template = html`<Panel>
+  <div class="panel-heading">
+    <div>
+      <h2>Top pages</h2>
+      <p>The most visited places on your website</p>
     </div>
-    <div class="breakdown-list" r-if="dashboard.topPages.length">
-      <div class="list-heading"><span>PAGE</span><span>VIEWS</span></div>
-      <button
-        class="breakdown-row"
-        type="button"
-        r-for="row in dashboard.topPages"
-        :disabled="row.page === null"
-        :style="{'--bar-width': barWidth(row.pageViews)}"
-        @click="filterPage(row.page)"
-      >
-        <span class="row-name">{{ row.page || 'Unknown' }}</span>
-        <span class="row-count">{{ dashboard.number(row.pageViews) }}</span>
-      </button>
-    </div>
-    <EmptyReport r-else />
-  </Panel>
-`
+    <a class="panel-link" :href="dashboard.assetPath('pages/')">Details ↗</a>
+  </div>
+  <div class="breakdown-list" r-if="dashboard.topPages.length">
+    <div class="list-heading"><span>PAGE</span><span>VIEWS</span></div>
+    <button
+      class="breakdown-row"
+      type="button"
+      r-for="row in dashboard.topPages"
+      :disabled="row.page === null"
+      :style="{'--bar-width': barWidth(row.pageViews)}"
+      @click="filterPage(row.page)"
+    >
+      <span class="row-name">{{ row.page || 'Unknown' }}</span>
+      <span class="row-count">{{ dashboard.number(row.pageViews) }}</span>
+    </button>
+  </div>
+  <EmptyReport r-else/>
+</Panel>`
 
 export function defineOverviewTopPages() {
   return defineComponent<OverviewTopPages>(template, {

@@ -22,10 +22,7 @@ export interface OverviewPage {
 const overviewTemplate = html`<ReportHeader :dashboard="dashboard"/>
 <ReportControls :dashboard="dashboard"/>
 <ReportFeedback :dashboard="dashboard"/>
-<div
-  :aria-busy="dashboard.loading"
-  r-if="dashboard.summary"
->
+<div :aria-busy="dashboard.loading" r-if="dashboard.summary">
   <OverviewMetrics :dashboard="dashboard"/>
   <OverviewTraffic :dashboard="dashboard"/>
   <OverviewBreakdowns :dashboard="dashboard"/>

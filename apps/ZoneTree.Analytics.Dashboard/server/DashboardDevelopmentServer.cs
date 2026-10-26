@@ -16,6 +16,8 @@ sealed class DashboardDevelopmentServer(
   };
   Process process;
   Uri origin;
+  PureStackLogGroup output;
+  PureStackLogGroup errors;
   long lastOutputTicks = DateTime.UtcNow.Ticks;
 
   // When PureStack last printed anything: its first full render keeps logging after it serves.
@@ -42,17 +44,19 @@ sealed class DashboardDevelopmentServer(
     foreach (var argument in new[] { cli, "serve", "--content", "./content", "--host", "127.0.0.1", "--port", port.ToString(), "--full-render" })
       start.ArgumentList.Add(argument);
     process = new Process { StartInfo = start, EnableRaisingEvents = true };
+    output = new PureStackLogGroup(text => Log(text, LogLevel.Information));
+    errors = new PureStackLogGroup(text => Log(text, LogLevel.Warning));
     process.OutputDataReceived += (_, line) =>
     {
       if (string.IsNullOrWhiteSpace(line.Data)) return;
       Interlocked.Exchange(ref lastOutputTicks, DateTime.UtcNow.Ticks);
-      logger.LogInformation("PureStack: {Line}", line.Data);
+      output.Add(line.Data);
     };
     process.ErrorDataReceived += (_, line) =>
     {
       if (string.IsNullOrWhiteSpace(line.Data)) return;
       Interlocked.Exchange(ref lastOutputTicks, DateTime.UtcNow.Ticks);
-      logger.LogWarning("PureStack: {Line}", line.Data);
+      errors.Add(line.Data);
     };
     process.Exited += (_, _) =>
     {
@@ -89,6 +93,15 @@ sealed class DashboardDevelopmentServer(
       StopProcess();
       throw;
     }
+  }
+
+  // PureStack's own level shows in the grouped text: errors and warnings keep their weight.
+  void Log(string text, LogLevel level)
+  {
+    var visible = PureStackLogGroup.Visible(text);
+    if (visible.Contains(" ERROR ", StringComparison.Ordinal)) level = LogLevel.Error;
+    else if (visible.Contains(" WARN ", StringComparison.Ordinal) && level < LogLevel.Warning) level = LogLevel.Warning;
+    logger.Log(level, "PureStack: {Line}", text);
   }
 
   static string ResolvePureStackCli(string source)
@@ -173,6 +186,8 @@ sealed class DashboardDevelopmentServer(
   public void Dispose()
   {
     StopProcess();
+    output?.Dispose();
+    errors?.Dispose();
     process?.Dispose();
     client.Dispose();
   }

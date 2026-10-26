@@ -35,81 +35,159 @@ const template = html`<div class="page-heading">
   <div>
     <div class="eyebrow">ADMINISTRATION</div>
     <h1>Indexes and rollups</h1>
-    <p>Pre-aggregate the reports you read most, and index the filters you use most.</p>
+    <p>
+      Pre-aggregate the reports you read most, and index the filters you use
+      most.
+    </p>
   </div>
 </div>
-<FormStatus tone="danger" role="alert" r-if="error">{{ error }}</FormStatus>
+<FormStatus tone="danger" role="alert" r-if="error"
+  >{{ error }}</FormStatus>
 <FormStatus tone="info" r-if="building">
-  Building in the background: {{ building }}. Reports use an index once it is complete.
+  Building in the background: {{ building }}. Reports use an index
+  once it is complete.
 </FormStatus>
 <template r-if="loaded">
   <Panel class="form-panel">
     <h2>Secondary indexes</h2>
     <p>
-      Indexes make filtered reports fast, for example visitors from one country by page. Each costs
-      storage: a dimension index keeps a full copy of every raw event that has the dimension.
-      New indexes are built from retained data in the background.
+      Indexes make filtered reports fast, for example visitors from one country
+      by page. Each costs storage: a dimension index keeps a full copy of every
+      raw event that has the dimension. New indexes are built from retained data
+      in the background.
     </p>
-    <div class="preset-grid preset-grid-two" role="radiogroup" aria-label="Index presets">
-      <button type="button" class="preset-card" r-for="preset in presets"
-        :class="{ selected: preset.key === selectedPreset }" role="radio"
-        :aria-checked="preset.key === selectedPreset ? 'true' : 'false'" @click="choose(preset)">
+    <div
+      class="preset-grid preset-grid-two"
+      role="radiogroup"
+      aria-label="Index presets"
+    >
+      <button
+        type="button"
+        class="preset-card"
+        r-for="preset in presets"
+        :class="{ selected: preset.key === selectedPreset }"
+        role="radio"
+        :aria-checked="preset.key === selectedPreset ? 'true' : 'false'"
+        @click="choose(preset)"
+      >
         <strong>{{ preset.label }}</strong>
         <span>{{ preset.description }}</span>
       </button>
     </div>
     <label>
       Dimension indexes
-      <input type="text" r-model="dimensionIndexes" placeholder="source, country, device, page"/>
-      <span class="field-hint">Ordered copies of raw events by dimension value. Requires raw event storage.</span>
+      <input
+        type="text"
+        r-model="dimensionIndexes"
+        placeholder="source, country, device, page"/>
+      <span class="field-hint"
+        >Ordered copies of raw events by dimension value. Requires raw event
+        storage.</span>
     </label>
     <h3 class="settings-group">Rollup indexes</h3>
-    <p class="field-hint">Each row indexes a joint rollup by its first dimension, so a filter on it reads only the matching rows.</p>
+    <p class="field-hint">
+      Each row indexes a joint rollup by its first dimension, so a filter on it
+      reads only the matching rows.
+    </p>
     <div class="row-editor">
       <div class="row-editor-row" r-for="row in rollupIndexes">
-        <label>Filter dimension<input type="text" r-model="row.dimension" placeholder="country"/></label>
-        <label>Grouped by<input type="text" r-model="row.groups" placeholder="page"/></label>
-        <Btn class="icon-button" variant="none" icon="tabler:trash" aria-label="Remove index" @click="removeIndex(row)"/>
+        <label
+          >Filter dimension<input
+            type="text"
+            r-model="row.dimension"
+            placeholder="country"/></label>
+        <label
+          >Grouped by<input type="text" r-model="row.groups" placeholder="page"/></label>
+        <Btn
+          class="icon-button"
+          variant="none"
+          icon="tabler:trash"
+          aria-label="Remove index"
+          @click="removeIndex(row)"/>
       </div>
     </div>
-    <Btn class="button" variant="outline" icon="tabler:plus" @click="addIndex">Add rollup index</Btn>
+    <Btn class="button" variant="outline" icon="tabler:plus" @click="addIndex"
+      >Add rollup index</Btn>
   </Panel>
 
   <Panel class="form-panel">
     <h2>Rollups</h2>
     <p>
-      A report is answered from rollups when its group-by and filter dimensions equal a rollup's
-      dimensions; otherwise it scans raw events. A rollup added later covers data from then on.
+      A report is answered from rollups when its group-by and filter dimensions
+      equal a rollup's dimensions; otherwise it scans raw events. A rollup added
+      later covers data from then on.
     </p>
     <div class="row-editor">
       <div class="row-editor-row" r-for="row in rollups">
-        <label>Dimensions<input type="text" r-model="row.dimensions" placeholder="Empty for totals"/></label>
-        <label>Only these events<input type="text" r-model="row.events" placeholder="All events"/></label>
-        <Btn class="icon-button" variant="none" icon="tabler:trash" aria-label="Remove rollup" @click="removeRollup(row)"/>
+        <label
+          >Dimensions<input
+            type="text"
+            r-model="row.dimensions"
+            placeholder="Empty for totals"/></label>
+        <label
+          >Only these events<input
+            type="text"
+            r-model="row.events"
+            placeholder="All events"/></label>
+        <Btn
+          class="icon-button"
+          variant="none"
+          icon="tabler:trash"
+          aria-label="Remove rollup"
+          @click="removeRollup(row)"/>
       </div>
     </div>
-    <Btn class="button" variant="outline" icon="tabler:plus" @click="addRollup">Add rollup</Btn>
+    <Btn class="button" variant="outline" icon="tabler:plus" @click="addRollup"
+      >Add rollup</Btn>
     <h3 class="settings-group">Value aggregates</h3>
-    <p class="field-hint">Every tracked value keeps sum, count, minimum, maximum, average and variance. Percentiles and first/last values are opt-in.</p>
+    <p class="field-hint">
+      Every tracked value keeps sum, count, minimum, maximum, average and
+      variance. Percentiles and first/last values are opt-in.
+    </p>
     <div class="row-editor">
       <div class="row-editor-row" r-for="row in values">
-        <label>Value name<input type="text" r-model="row.value" placeholder="load_time"/></label>
+        <label
+          >Value name<input
+            type="text"
+            r-model="row.value"
+            placeholder="load_time"/></label>
         <div class="setting-choices">
-          <label class="check"><input type="checkbox" r-model="row.percentiles"/><span>Percentiles</span></label>
-          <label class="check"><input type="checkbox" r-model="row.firstAndLast"/><span>First and last</span></label>
+          <label class="check"
+            ><input type="checkbox" r-model="row.percentiles"/><span
+              >Percentiles</span></label>
+          <label class="check"
+            ><input type="checkbox" r-model="row.firstAndLast"/><span
+              >First and last</span></label>
         </div>
-        <Btn class="icon-button" variant="none" icon="tabler:trash" aria-label="Remove value" @click="removeValue(row)"/>
+        <Btn
+          class="icon-button"
+          variant="none"
+          icon="tabler:trash"
+          aria-label="Remove value"
+          @click="removeValue(row)"/>
       </div>
     </div>
-    <Btn class="button" variant="outline" icon="tabler:plus" @click="addValue">Add value</Btn>
+    <Btn class="button" variant="outline" icon="tabler:plus" @click="addValue"
+      >Add value</Btn>
     <h3 class="settings-group">Rollup options</h3>
     <label class="check advanced-toggle">
-      <input type="checkbox" r-model="advanced"/><span>Show advanced settings</span>
+      <input type="checkbox" r-model="advanced"/><span
+        >Show advanced settings</span>
     </label>
-    <SettingsSection r-for="section in sections" :form="form" :section="section" :advanced="advanced" :showTiers="true"/>
+    <SettingsSection
+      r-for="section in sections"
+      :form="form"
+      :section="section"
+      :advanced="advanced"
+      :showTiers="true"/>
   </Panel>
   <div class="sticky-actions">
-    <Btn class="button primary" tone="accent" @click="save" :disabled="flow.busy || flow.reviewing">Review changes</Btn>
+    <Btn
+      class="button primary"
+      tone="accent"
+      @click="save"
+      :disabled="flow.busy || flow.reviewing"
+      >Review changes</Btn>
   </div>
   <SaveReview :flow="flow"/>
 </template>`

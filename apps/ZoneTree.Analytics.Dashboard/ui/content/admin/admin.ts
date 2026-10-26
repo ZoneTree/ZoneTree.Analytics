@@ -18,12 +18,20 @@ const template = html`<div class="page-heading">
     <p>The analytics engine, background index work and storage.</p>
   </div>
   <div class="heading-actions">
-    <Btn class="button" variant="outline" icon="tabler:refresh" @click="refresh" :disabled="loading">Refresh</Btn>
+    <Btn
+      class="button"
+      variant="outline"
+      icon="tabler:refresh"
+      @click="refresh"
+      :disabled="loading"
+      >Refresh</Btn>
   </div>
 </div>
-<FormStatus tone="danger" role="alert" r-if="error">{{ error }}</FormStatus>
+<FormStatus tone="danger" role="alert" r-if="error"
+  >{{ error }}</FormStatus>
 <FormStatus tone="warning" r-if="status && status.restartRequired">
-  A saved setting applies after the server restarts: the number of concurrent reports.
+  A saved setting applies after the server restarts: the number of concurrent
+  reports.
 </FormStatus>
 <FormStatus tone="danger" r-if="status && status.engine.error">
   The engine could not open: {{ status.engine.error }}
@@ -42,30 +50,53 @@ const template = html`<div class="page-heading">
   <Panel class="status-card">
     <span>Events processed</span>
     <strong>{{ number(status.engine.eventsProcessed) }}</strong>
-    <small>{{ number(status.engine.eventsAccepted) }} accepted · {{ number(status.engine.eventsDropped) }} dropped since opening</small>
+    <small
+      >{{ number(status.engine.eventsAccepted) }} accepted · {{ number(status.engine.eventsDropped) }} dropped
+      since opening</small>
   </Panel>
   <Panel class="status-card">
     <span>Queue</span>
     <strong>{{ number(status.engine.queueLength) }}</strong>
-    <small>{{ number(status.engine.errors) }} errors · {{ number(status.engine.openPartitions) }} open partitions</small>
+    <small
+      >{{ number(status.engine.errors) }} errors · {{ number(status.engine.openPartitions) }} open
+      partitions</small>
   </Panel>
 </div>
 <div class="admin-columns" r-if="status">
   <Panel class="form-panel">
     <h2>Server</h2>
     <dl class="detail-list">
-      <div><dt>Sites</dt><dd><a href="/admin/sites/">{{ status.sites }}</a></dd></div>
-      <div><dt>Users</dt><dd><a href="/admin/users/">{{ status.users }}</a></dd></div>
-      <div><dt>Analytics data</dt><dd><code>{{ status.dataDirectory }}</code></dd></div>
-      <div><dt>Users and settings</dt><dd><code>{{ status.systemDirectory }}</code></dd></div>
+      <div>
+        <dt>Sites</dt>
+        <dd><a href="/admin/sites/">{{ status.sites }}</a></dd>
+      </div>
+      <div>
+        <dt>Users</dt>
+        <dd><a href="/admin/users/">{{ status.users }}</a></dd>
+      </div>
+      <div>
+        <dt>Analytics data</dt>
+        <dd><code>{{ status.dataDirectory }}</code></dd>
+      </div>
+      <div>
+        <dt>Users and settings</dt>
+        <dd><code>{{ status.systemDirectory }}</code></dd>
+      </div>
     </dl>
   </Panel>
   <Panel class="form-panel">
     <h2>Partitions</h2>
-    <p>ZoneTree partitions of each data tier, with approximate record counts.</p>
+    <p>
+      ZoneTree partitions of each data tier, with approximate record counts.
+    </p>
     <div class="table-wrap" r-if="status.engine.partitions.length">
       <table class="data-table">
-        <thead><tr><th scope="col">Partition</th><th scope="col" class="numeric">Records</th></tr></thead>
+        <thead>
+          <tr>
+            <th scope="col">Partition</th>
+            <th scope="col" class="numeric">Records</th>
+          </tr>
+        </thead>
         <tbody>
           <tr r-for="partition in status.engine.partitions">
             <td><code>{{ partition.directory }}</code></td>

@@ -121,6 +121,8 @@ export function registerLayoutStyles(context: DashboardStyleContext) {
     .borderRadius('50%')
     .marginRight('5px')
 
+  root.select('.nav-backdrop').display('none')
+
   root
     .select('.nav-toggle')
     .display('none')

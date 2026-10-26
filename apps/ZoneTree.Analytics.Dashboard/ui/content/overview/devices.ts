@@ -28,36 +28,37 @@ const colors = [
   'var(--zt-chart-gold)',
   'var(--zt-chart-rose)',
 ]
-const template = html`
-  <Panel>
-    <div class="panel-heading">
-      <div><h2>Devices</h2><p>How people browse your website</p></div>
-      <a class="panel-link" :href="dashboard.assetPath('audience/')">Details ↗</a>
+const template = html`<Panel>
+  <div class="panel-heading">
+    <div>
+      <h2>Devices</h2>
+      <p>How people browse your website</p>
     </div>
-    <div class="device-layout" r-if="dashboard.devices.length">
-      <DoughnutChart
-        class="device-chart"
-        :segments="segments"
-        centerLabel="page views"
-        :centerValue="total"
-        :centerValueSize="totalSize"
-        :centerLabelSize="4.5"
-        size="160"
-        :thickness="15"
-        :animated="false"
-        ariaLabel="Page views by device"
-        variant="none" />
-      <div class="device-legend">
-        <div r-for="(row,index) in dashboard.devices">
-          <i :style="{background:color(index)}"></i>
-          <span>{{ row.value || 'Unknown' }}</span>
-          <strong>{{ share(row.pageViews) }}</strong>
-        </div>
+    <a class="panel-link" :href="dashboard.assetPath('audience/')">Details ↗</a>
+  </div>
+  <div class="device-layout" r-if="dashboard.devices.length">
+    <DoughnutChart
+      class="device-chart"
+      :segments="segments"
+      centerLabel="page views"
+      :centerValue="total"
+      :centerValueSize="totalSize"
+      :centerLabelSize="4.5"
+      size="160"
+      :thickness="15"
+      :animated="false"
+      ariaLabel="Page views by device"
+      variant="none"/>
+    <div class="device-legend">
+      <div r-for="(row,index) in dashboard.devices">
+        <i :style="{background:color(index)}"></i>
+        <span>{{ row.value || 'Unknown' }}</span>
+        <strong>{{ share(row.pageViews) }}</strong>
       </div>
     </div>
-    <EmptyReport r-else />
-  </Panel>
-`
+  </div>
+  <EmptyReport r-else/>
+</Panel>`
 
 export function defineOverviewDevices() {
   return defineComponent<OverviewDevices>(template, {

@@ -10,21 +10,29 @@ export interface SampleDataPage {
   jobs: SampleDataJobs
 }
 
-const template = html`
-  <ReportHeader :dashboard="dashboard" />
-  <ReportFeedback :dashboard="dashboard" />
-  <FormStatus tone="danger" r-if="jobs.error">{{ jobs.error }}</FormStatus>
-  <SampleDataPanel :dashboard="dashboard" :jobs="jobs"
-    r-if="dashboard.config.mode === 'live' && dashboard.config.sampleData" />
-  <SampleBenchmarkPanel :dashboard="dashboard" :jobs="jobs"
-    r-if="dashboard.config.mode === 'live' && dashboard.config.sampleData" />
-  <Panel class="form-panel"
-    r-if="dashboard.config.mode !== 'live' || !dashboard.config.sampleData">
-    <h2>Sample data controls are unavailable</h2>
-    <p>Sample data tools need the dashboard server in Development mode, signed in as the administrator.</p>
-  </Panel>
-  <ReportFooter :dashboard="dashboard" />
-`
+const template = html`<ReportHeader :dashboard="dashboard"/>
+<ReportFeedback :dashboard="dashboard"/>
+<FormStatus tone="danger" r-if="jobs.error"
+  >{{ jobs.error }}</FormStatus>
+<SampleDataPanel
+  :dashboard="dashboard"
+  :jobs="jobs"
+  r-if="dashboard.config.mode === 'live' && dashboard.config.sampleData"/>
+<SampleBenchmarkPanel
+  :dashboard="dashboard"
+  :jobs="jobs"
+  r-if="dashboard.config.mode === 'live' && dashboard.config.sampleData"/>
+<Panel
+  class="form-panel"
+  r-if="dashboard.config.mode !== 'live' || !dashboard.config.sampleData"
+>
+  <h2>Sample data controls are unavailable</h2>
+  <p>
+    Sample data tools need the dashboard server in Development mode, signed in
+    as the administrator.
+  </p>
+</Panel>
+<ReportFooter :dashboard="dashboard"/>`
 
 export function defineSampleDataPage(model: DashboardModel) {
   return defineComponent<SampleDataPage>(template, {

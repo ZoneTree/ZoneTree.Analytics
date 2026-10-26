@@ -132,31 +132,31 @@ const template = html`<Panel class="form-panel sample-benchmark-panel">
         Making benchmark reports available…
       </p>
       <p r-if="benchmark.state === 'compacting'">
-        <progress class="sample-progress" aria-label="Preparing benchmark reports"></progress>
+        <progress
+          class="sample-progress"
+          aria-label="Preparing benchmark reports"
+        ></progress>
         Preparing benchmark reports…
       </p>
       <p r-if="benchmark.state === 'completed'">Benchmark completed</p>
       <p r-if="benchmark.state === 'cancelled'">Benchmark cancelled</p>
     </div>
     <FormStatus tone="danger" r-if="benchmark && benchmark.error"
-      >{{ benchmark.error }}</FormStatus
-    >
+      >{{ benchmark.error }}</FormStatus>
     <div class="form-actions">
       <Btn
         class="button primary"
         tone="accent"
         type="submit"
         :disabled="jobs.busy || !jobs.status"
-        >Run benchmark</Btn
-      >
+        >Run benchmark</Btn>
       <Btn
         class="button"
         variant="outline"
         @click="jobs.perform('cancel')"
         :disabled="jobs.pending"
         r-if="jobs.status && jobs.status.activeOperation === 'benchmark'"
-        >Cancel benchmark</Btn
-      >
+        >Cancel benchmark</Btn>
     </div>
     <p
       role="status"
@@ -174,8 +174,7 @@ const template = html`<Panel class="form-panel sample-benchmark-panel">
     <p>
       {{ dashboard.number(benchmark.result.events) }} events · {{ benchmark.result.days }} days ·
       {{ benchmark.result.workers }} workers · Percentiles
-      {{ benchmark.result.percentiles ? 'on' : 'off' }}
-      · Indexes {{ benchmark.result.indexes ? 'on' : 'off' }}
+      {{ benchmark.result.percentiles ? 'on' : 'off' }} · Indexes {{ benchmark.result.indexes ? 'on' : 'off' }}
     </p>
     <dl class="sample-ingestion-metrics">
       <div>
@@ -213,8 +212,7 @@ const template = html`<Panel class="form-panel sample-benchmark-panel">
         variant="outline"
         @click="jobs.perform('clear-benchmark')"
         :disabled="jobs.busy"
-        >Delete benchmark data</Btn
-      >
+        >Delete benchmark data</Btn>
     </div>
   </section>
 </Panel>`

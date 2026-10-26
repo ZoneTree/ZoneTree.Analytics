@@ -9,32 +9,30 @@ export interface AcquisitionPage {
   dimensions: { id: string; label: string }[]
 }
 
-const acquisitionTemplate = html`
-  <ReportHeader :dashboard="dashboard" />
-  <ReportControls :dashboard="dashboard" />
-  <ReportFeedback :dashboard="dashboard" />
-  <Panel :aria-busy="dashboard.loading" r-if="dashboard.table.headers.length">
-    <div class="panel-heading">
-      <div>
-        <h2>Acquisition breakdown</h2>
-        <p>Click a value to focus the report.</p>
-      </div>
+const acquisitionTemplate = html`<ReportHeader :dashboard="dashboard"/>
+<ReportControls :dashboard="dashboard"/>
+<ReportFeedback :dashboard="dashboard"/>
+<Panel :aria-busy="dashboard.loading" r-if="dashboard.table.headers.length">
+  <div class="panel-heading">
+    <div>
+      <h2>Acquisition breakdown</h2>
+      <p>Click a value to focus the report.</p>
     </div>
-    <div class="tabs" aria-label="Acquisition dimension">
-      <Btn
-        variant="outline"
-        r-for="dimension in dimensions"
-        :aria-pressed="dashboard.tab === dimension.id"
-        @click="dashboard.setTab(dimension.id)"
-      >
-        {{ dimension.label }}
-      </Btn>
-    </div>
-    <ReportTable :data="dashboard.table" :onFilter="dashboard.addFilter" />
-    <ReportPagination :dashboard="dashboard" />
-  </Panel>
-  <ReportFooter :dashboard="dashboard" />
-`
+  </div>
+  <div class="tabs" aria-label="Acquisition dimension">
+    <Btn
+      variant="outline"
+      r-for="dimension in dimensions"
+      :aria-pressed="dashboard.tab === dimension.id"
+      @click="dashboard.setTab(dimension.id)"
+    >
+      {{ dimension.label }}
+    </Btn>
+  </div>
+  <ReportTable :data="dashboard.table" :onFilter="dashboard.addFilter"/>
+  <ReportPagination :dashboard="dashboard"/>
+</Panel>
+<ReportFooter :dashboard="dashboard"/>`
 
 async function loadBreakdown(model: DashboardModel, signal: AbortSignal) {
   const result = await model.request<Report<Breakdown>>('breakdown', signal, {
