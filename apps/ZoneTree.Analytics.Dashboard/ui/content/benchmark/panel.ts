@@ -8,11 +8,11 @@ import {
   unref,
 } from 'regor'
 import type { DashboardModel } from '../lib/dashboard-model'
-import type { SampleBenchmarkStatus, SampleDataJobs } from './jobs'
+import type { BenchmarkJobs, BenchmarkStatus } from './jobs'
 
-export interface SampleBenchmarkPanel {
+export interface BenchmarkPanel {
   dashboard: DashboardModel | SRef<DashboardModel>
-  jobs: SampleDataJobs | SRef<SampleDataJobs>
+  jobs: BenchmarkJobs | SRef<BenchmarkJobs>
   count: SRef<number | string>
   days: SRef<number | string>
   workers: SRef<number | string>
@@ -20,20 +20,20 @@ export interface SampleBenchmarkPanel {
   indexes: SRef<boolean>
   geolocation: SRef<boolean>
   cities: SRef<boolean>
-  benchmark: ComputedRef<SampleBenchmarkStatus | null>
+  benchmark: ComputedRef<BenchmarkStatus | null>
   run: (event: Event) => Promise<void>
   seconds: (milliseconds: number) => string
   viewUrl: ComputedRef<string>
 }
 
-const template = html`<Panel class="form-panel sample-benchmark-panel">
+const template = html`<Panel class="form-panel benchmark-panel">
   <h2>Benchmark ingestion</h2>
   <p>
-    Measure ingestion of the same realistic traffic in a fresh dataset. Events
+    Measure ingestion of realistic traffic in a fresh dataset. Events
     are prepared in memory before timing starts. The latest successful run is
     kept for browsing.
   </p>
-  <AppForm class="sample-data-form" @submit="run">
+  <AppForm class="benchmark-form" @submit="run">
     <div class="form-grid">
       <FormInputField
         id="benchmark-event-count"
@@ -50,7 +50,7 @@ const template = html`<Panel class="form-panel sample-benchmark-panel">
         label="Days"
         type="number"
         min="1"
-        max="90"
+        max="365"
         step="1"
         :model="days"
         :required="true"
@@ -97,13 +97,13 @@ const template = html`<Panel class="form-panel sample-benchmark-panel">
       Needs a database with cities: choose DB-IP Lite in the Location settings.
     </p>
     <div
-      class="sample-job-status"
+      class="benchmark-status"
       r-if="benchmark && benchmark.state !== 'idle'"
       aria-live="polite"
     >
       <div r-if="benchmark.state === 'preparing'">
         <progress
-          class="sample-progress"
+          class="benchmark-progress"
           :value="benchmark.prepared"
           :max="benchmark.requested"
           aria-label="Benchmark preparation progress"
@@ -117,7 +117,7 @@ const template = html`<Panel class="form-panel sample-benchmark-panel">
         r-if="benchmark.state === 'running' || benchmark.state === 'ingesting' || benchmark.state === 'flushing' || benchmark.state === 'cancelling'"
       >
         <progress
-          class="sample-progress"
+          class="benchmark-progress"
           :value="benchmark.ingested"
           :max="benchmark.requested"
           aria-label="Benchmark ingestion progress"
@@ -126,7 +126,7 @@ const template = html`<Panel class="form-panel sample-benchmark-panel">
           {{ dashboard.number(benchmark.ingested) }} / {{ dashboard.number(benchmark.requested) }} ingested ·
           {{ dashboard.number(benchmark.submitted) }} submitted · {{ seconds(benchmark.elapsedMs) }} s
         </p>
-        <dl class="sample-ingestion-metrics">
+        <dl class="benchmark-metrics">
           <div>
             <dt>Ingested</dt>
             <dd>{{ dashboard.number(benchmark.ingested) }}</dd>
@@ -145,7 +145,7 @@ const template = html`<Panel class="form-panel sample-benchmark-panel">
         r-if="benchmark.state === 'flushing' || benchmark.state === 'cancelling'"
       >
         <progress
-          class="sample-progress"
+          class="benchmark-progress"
           aria-label="Finishing benchmark"
         ></progress>
         {{ benchmark.state === 'cancelling' ? 'Cancelling benchmark…' : 'Saving aggregates…' }}
@@ -155,7 +155,7 @@ const template = html`<Panel class="form-panel sample-benchmark-panel">
       </p>
       <p r-if="benchmark.state === 'compacting'">
         <progress
-          class="sample-progress"
+          class="benchmark-progress"
           aria-label="Preparing benchmark reports"
         ></progress>
         Preparing benchmark reports…
@@ -177,18 +177,18 @@ const template = html`<Panel class="form-panel sample-benchmark-panel">
         variant="outline"
         @click="jobs.perform('cancel')"
         :disabled="jobs.pending"
-        r-if="jobs.status && jobs.status.activeOperation === 'benchmark'"
+        r-if="jobs.status && jobs.status.activeOperation === 'run'"
         >Cancel benchmark</Btn>
     </div>
     <p
       role="status"
-      r-if="jobs.status && jobs.status.activeOperation === 'benchmark-deletion'"
+      r-if="jobs.status && jobs.status.activeOperation === 'deletion'"
     >
       Deleting benchmark data…
     </p>
   </AppForm>
   <section
-    class="sample-benchmark-result"
+    class="benchmark-result"
     r-if="benchmark && benchmark.result"
     aria-label="Last completed benchmark"
   >
@@ -199,7 +199,7 @@ const template = html`<Panel class="form-panel sample-benchmark-panel">
       {{ benchmark.result.percentiles ? 'on' : 'off' }} · Indexes {{ benchmark.result.indexes ? 'on' : 'off' }} ·
       Geolocation {{ benchmark.result.geolocation ? (benchmark.result.cities ? 'cities' : 'countries') : 'off' }}
     </p>
-    <dl class="sample-ingestion-metrics">
+    <dl class="benchmark-metrics">
       <div>
         <dt>Ingestion throughput</dt>
         <dd>{{ dashboard.number(benchmark.result.eventsPerSecond) }} <small>events/s</small></dd>
@@ -233,15 +233,15 @@ const template = html`<Panel class="form-panel sample-benchmark-panel">
         class="button danger"
         tone="danger"
         variant="outline"
-        @click="jobs.perform('clear-benchmark')"
+        @click="jobs.perform('clear')"
         :disabled="jobs.busy"
         >Delete benchmark data</Btn>
     </div>
   </section>
 </Panel>`
 
-export function defineSampleBenchmarkPanel() {
-  return defineComponent<SampleBenchmarkPanel>(template, {
+export function defineBenchmarkPanel() {
+  return defineComponent<BenchmarkPanel>(template, {
     props: ['dashboard', 'jobs'],
     context: (head) => {
       const jobs = unref(head.props.jobs)
@@ -266,7 +266,7 @@ export function defineSampleBenchmarkPanel() {
           const model = unref(head.props.dashboard)
           const result = jobs.status()?.benchmark.result
           const query = new URLSearchParams({
-            site: model.config().sampleData?.benchmark?.siteId ?? '',
+            site: model.config().benchmark?.siteId ?? '',
             range: 'custom',
             from: result?.fromDate ?? '',
             to: result?.toDate ?? '',
@@ -296,7 +296,7 @@ export function defineSampleBenchmarkPanel() {
             )
             return
           }
-          await jobs.perform('benchmark', {
+          await jobs.perform('run', {
             events,
             days: span,
             workers: concurrency,

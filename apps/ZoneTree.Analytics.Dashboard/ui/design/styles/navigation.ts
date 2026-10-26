@@ -137,7 +137,7 @@ export function registerNavigationStyles(context: DashboardStyleContext) {
     'funnels',
     'bots',
     'explorer',
-    'sample-data',
+    'benchmark',
     'admin',
     'admin-sites',
     'admin-users',

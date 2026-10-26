@@ -10,10 +10,9 @@ public sealed class DashboardAnalyticsOptionsTests : DirectoryTest
   {
     var zone = TimeZoneInfo.FindSystemTimeZoneById("Europe/Berlin");
     var primary = Primary("primary", zone.Id);
-    var samples = DashboardAnalyticsOptions.CreatePerformanceSamples("samples", zone, 4, NullLogger.Instance);
     var benchmark = DashboardAnalyticsOptions.CreateBenchmark("benchmark", zone, 20, false, true, NullLogger.Instance);
     var reports = DashboardAnalyticsOptions.CreateBenchmarkReport("retained", zone.Id, true, true, NullLogger.Instance);
-    foreach (var options in new[] { primary, samples, benchmark, reports })
+    foreach (var options in new[] { primary, benchmark, reports })
     {
       // The primary engine keeps what its settings say: a year of raw events by default.
       Assert.That(options.Retention.RawEvents, Is.EqualTo(TimeSpan.FromDays(options == primary ? 365 : 365 * 3)));
@@ -29,32 +28,26 @@ public sealed class DashboardAnalyticsOptionsTests : DirectoryTest
     Assert.Multiple(() =>
     {
       Assert.That(primary.DataDirectory, Is.EqualTo(Path.GetFullPath(Path.Combine(directory, "primary"))));
-      Assert.That(samples.DataDirectory, Is.EqualTo("samples"));
       Assert.That(benchmark.DataDirectory, Is.EqualTo("benchmark"));
       Assert.That(reports.DataDirectory, Is.EqualTo("retained"));
-      Assert.That(samples.DefaultSite, Is.EqualTo(DashboardAnalyticsOptions.PerformanceSite));
       Assert.That(benchmark.DefaultSite, Is.EqualTo(DashboardAnalyticsOptions.BenchmarkSite));
-      Assert.That(samples.Ingestion.WorkerCount, Is.EqualTo(4));
       Assert.That(benchmark.Ingestion.WorkerCount, Is.EqualTo(20));
       Assert.That(reports.Ingestion.WorkerCount, Is.EqualTo(1));
       // Generated ingestion runs one rollup writer per worker.
-      Assert.That(samples.Ingestion.RollupWriterCount, Is.EqualTo(4));
       Assert.That(benchmark.Ingestion.RollupWriterCount, Is.EqualTo(20));
       Assert.That(reports.Ingestion.RollupWriterCount, Is.EqualTo(1));
       Assert.That(benchmark.Ingestion.QueueFullBehavior, Is.EqualTo(QueueFullBehavior.Wait));
       Assert.That(primary.Rollups.ValueAggregates["load_time"], Is.EqualTo(ValueAggregates.Percentiles));
-      Assert.That(samples.Rollups.ValueAggregates["load_time"], Is.EqualTo(ValueAggregates.Percentiles));
       Assert.That(benchmark.Rollups.ValueAggregates.ContainsKey("load_time"), Is.False);
       Assert.That(reports.Rollups.ValueAggregates["load_time"], Is.EqualTo(ValueAggregates.Percentiles));
-      Assert.That(samples.Storage.Logger, Is.Not.Null);
       Assert.That(benchmark.Storage.Logger, Is.Not.Null);
       Assert.That(reports.Storage.Logger, Is.Not.Null);
     });
-    samples.Retention.RawEvents = TimeSpan.FromDays(1);
-    samples.Storage.RollupIndexes.Definitions.Clear();
-    samples.Storage.DimensionIndexes.Dimensions.Clear();
-    samples.Rollups.ValueAggregates.Clear();
-    foreach (var options in new[] { primary, benchmark, reports })
+    benchmark.Retention.RawEvents = TimeSpan.FromDays(1);
+    benchmark.Storage.RollupIndexes.Definitions.Clear();
+    benchmark.Storage.DimensionIndexes.Dimensions.Clear();
+    benchmark.Rollups.ValueAggregates["load_time"] = ValueAggregates.None;
+    foreach (var options in new[] { primary, reports })
     {
       Assert.That(options.Retention.RawEvents, Is.EqualTo(TimeSpan.FromDays(options == primary ? 365 : 365 * 3)));
       Assert.That(options.Storage.RollupIndexes.Definitions, Has.Count.EqualTo(12));
@@ -65,13 +58,11 @@ public sealed class DashboardAnalyticsOptionsTests : DirectoryTest
   }
 
   [TestCase("primary")]
-  [TestCase("samples")]
   [TestCase("benchmark")]
   public void EveryEngineRetainsGeneratedHistoryOlderThanNinetyDays(string profile)
   {
     var options = profile switch
     {
-      "samples" => DashboardAnalyticsOptions.CreatePerformanceSamples(directory, TimeZoneInfo.Utc, 1, NullLogger.Instance),
       "benchmark" => DashboardAnalyticsOptions.CreateBenchmark(directory, TimeZoneInfo.Utc, 1, false, true, NullLogger.Instance),
       _ => Primary(directory, "UTC")
     };

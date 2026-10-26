@@ -2,7 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Routing;
 using ZoneTree.Analytics;
 
-enum EngineSource { Primary, Samples, Benchmark }
+enum EngineSource { Primary, Benchmark }
 
 // Marks an endpoint that reads or writes an engine, and which one. Routing decides it, so any
 // URL that reaches the endpoint, with or without a trailing slash, gets the engine.
@@ -37,7 +37,7 @@ static class EngineEndpoints
 }
 
 // Gives reporting and tracker endpoints the engine they read or write. Primary endpoints lease
-// the configured engine; in Development the sample and benchmark APIs lease their own datasets.
+// the configured engine; in Development the benchmark API leases the retained benchmark dataset.
 sealed class EngineMiddleware(RequestDelegate next, EngineHost engines, SettingsService settings, SiteResolution sites,
     IServiceProvider services)
 {
@@ -52,9 +52,9 @@ sealed class EngineMiddleware(RequestDelegate next, EngineHost engines, Settings
       await next(context);
       return;
     }
-    if (endpoint.Source != EngineSource.Primary)
+    if (endpoint.Source == EngineSource.Benchmark)
     {
-      await SampleAsync(context, endpoint.Source == EngineSource.Benchmark);
+      await BenchmarkAsync(context);
       return;
     }
     if (endpoint.IsBeacon)
@@ -94,24 +94,22 @@ sealed class EngineMiddleware(RequestDelegate next, EngineHost engines, Settings
     finally { context.RequestServices = original; }
   }
 
-  async Task SampleAsync(HttpContext context, bool benchmark)
+  async Task BenchmarkAsync(HttpContext context)
   {
-    if (services.GetService<SampleDataStore>() is not { } samples)
+    if (services.GetService<IngestionBenchmark>() is not { } benchmark)
     {
       context.Response.StatusCode = StatusCodes.Status404NotFound;
       return;
     }
     try
     {
-      using var lease = benchmark
-          ? services.GetRequiredService<SampleBenchmark>().Reports.Acquire()
-          : samples.Acquire();
+      using var lease = benchmark.Reports.Acquire();
       await WithEngineAsync(context, lease.Engine);
     }
-    catch (SampleDataBusyException)
+    catch (BenchmarkDataBusyException)
     {
       context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
-      await context.Response.WriteAsJsonAsync(new { error = "Sample data is being prepared. Try refreshing shortly." });
+      await context.Response.WriteAsJsonAsync(new { error = "The benchmark dataset is being replaced. Try refreshing shortly." });
     }
     catch (BenchmarkDataUnavailableException)
     {

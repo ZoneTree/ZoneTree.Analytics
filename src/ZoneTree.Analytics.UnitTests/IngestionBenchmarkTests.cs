@@ -1,14 +1,14 @@
 namespace ZoneTree.Analytics.UnitTests;
 
-public sealed class SampleBenchmarkTests : DirectoryTest
+public sealed class IngestionBenchmarkTests : DirectoryTest
 {
   [TestCase(false)]
   [TestCase(true)]
   public void PreparationPreservesTheRealisticDataShape(bool percentiles)
   {
     var end = new DateTimeOffset(2026, 10, 13, 0, 0, 0, TimeSpan.Zero);
-    var request = new SampleBenchmarkRequest(40, 7, 4, percentiles);
-    var events = SampleBenchmark.PrepareEvents(request, TimeZoneInfo.Utc, _ => { }, end);
+    var request = new BenchmarkRequest(40, 7, 4, percentiles);
+    var events = IngestionBenchmark.PrepareEvents(request, TimeZoneInfo.Utc, _ => { }, end);
     var expected = SampleTraffic.CreateEvents(40, 7, timeZone: TimeZoneInfo.Utc, endingAt: end).ToList();
     Assert.That(events, Has.Length.EqualTo(40));
     for (var index = 0; index < events.Length; index++)
@@ -62,10 +62,10 @@ public sealed class SampleBenchmarkTests : DirectoryTest
   public async Task GeolocatedVisitorsCarryAddressesOfTheirCountries()
   {
     var end = new DateTimeOffset(2026, 10, 13, 0, 0, 0, TimeSpan.Zero);
-    var request = new SampleBenchmarkRequest(3000, 7, 4);
+    var request = new BenchmarkRequest(3000, 7, 4);
     await using var database = SampleCountries(skipped: "KE");
-    var plain = SampleBenchmark.PrepareEvents(request, TimeZoneInfo.Utc, _ => { }, end);
-    var located = SampleBenchmark.PrepareEvents(request, TimeZoneInfo.Utc, _ => { }, end,
+    var plain = IngestionBenchmark.PrepareEvents(request, TimeZoneInfo.Utc, _ => { }, end);
+    var located = IngestionBenchmark.PrepareEvents(request, TimeZoneInfo.Utc, _ => { }, end,
         addresses: SampleTraffic.FindAddresses(database));
     var countries = new HashSet<string>();
     for (var index = 0; index < plain.Length; index++)
@@ -95,7 +95,7 @@ public sealed class SampleBenchmarkTests : DirectoryTest
   public async Task GeolocatedBenchmarksReportTheSameCountriesAsDimensionsAndCitiesOnRequest()
   {
     await using var database = SampleCountries();
-    await using var benchmark = new SampleBenchmark(directory, TimeZoneInfo.Utc, ipLocation: database);
+    await using var benchmark = new IngestionBenchmark(directory, TimeZoneInfo.Utc, ipLocation: database);
     Assert.That(benchmark.AvailableGeoPrecision, Is.EqualTo(GeoPrecision.City));
     async Task<(Dictionary<string, long> Countries, Dictionary<string, long> Cities)> Run(bool geolocation, bool cities)
     {
@@ -128,14 +128,14 @@ public sealed class SampleBenchmarkTests : DirectoryTest
   {
     var options = DashboardAnalyticsOptions.CreateBenchmark(directory, TimeZoneInfo.Utc, 1, false, true);
     Assert.That(options.Web.GeoLocator, Is.Null);
-    await using (var benchmark = new SampleBenchmark(directory, TimeZoneInfo.Utc))
+    await using (var benchmark = new IngestionBenchmark(directory, TimeZoneInfo.Utc))
     {
       Assert.That(benchmark.AvailableGeoPrecision, Is.EqualTo(GeoPrecision.None));
       Assert.ThrowsAsync<InvalidOperationException>(() =>
           benchmark.RunAsync(new(17, 7, 1, Geolocation: true), _ => { }, CancellationToken.None, CancellationToken.None));
     }
     await using var countries = SampleCountries(cities: false);
-    await using var countryBenchmark = new SampleBenchmark(directory, TimeZoneInfo.Utc, ipLocation: countries);
+    await using var countryBenchmark = new IngestionBenchmark(directory, TimeZoneInfo.Utc, ipLocation: countries);
     Assert.That(countryBenchmark.AvailableGeoPrecision, Is.EqualTo(GeoPrecision.Country));
     Assert.ThrowsAsync<InvalidOperationException>(() =>
         countryBenchmark.RunAsync(new(17, 7, 1, Geolocation: true, Cities: true), _ => { }, CancellationToken.None, CancellationToken.None));
@@ -144,7 +144,7 @@ public sealed class SampleBenchmarkTests : DirectoryTest
   [Test]
   public async Task ABenchmarkWithoutIndexesRetainsBrowsableReportsWithoutIndexes()
   {
-    await using var benchmark = new SampleBenchmark(directory, TimeZoneInfo.Utc);
+    await using var benchmark = new IngestionBenchmark(directory, TimeZoneInfo.Utc);
     var result = await benchmark.RunAsync(new(17, 7, 2, Indexes: false), _ => { },
         CancellationToken.None, CancellationToken.None);
     Assert.That(result.Indexes, Is.False);
@@ -161,7 +161,7 @@ public sealed class SampleBenchmarkTests : DirectoryTest
     Directory.CreateDirectory(directory);
     var sentinel = Path.Combine(directory, "existing-data.txt");
     await File.WriteAllTextAsync(sentinel, "preserve");
-    await using var benchmark = new SampleBenchmark(directory, TimeZoneInfo.Utc);
+    await using var benchmark = new IngestionBenchmark(directory, TimeZoneInfo.Utc);
     var phases = new List<string>();
     var result = await benchmark.RunAsync(new(17, 7, 2), update => phases.Add(update.State),
         CancellationToken.None, CancellationToken.None);
@@ -195,7 +195,7 @@ public sealed class SampleBenchmarkTests : DirectoryTest
   [Test]
   public async Task CancellationDrainsAndCleansTheTemporaryStore()
   {
-    await using var benchmark = new SampleBenchmark(directory, TimeZoneInfo.Utc);
+    await using var benchmark = new IngestionBenchmark(directory, TimeZoneInfo.Utc);
     using var cancellation = new CancellationTokenSource();
     var result = await benchmark.RunAsync(new(25, 1, 1), update =>
     {
@@ -208,16 +208,16 @@ public sealed class SampleBenchmarkTests : DirectoryTest
   [Test]
   public async Task SuccessfulRunsReplaceTheRetainedDatasetAndSurviveRestart()
   {
-    await using (var benchmark = new SampleBenchmark(directory, TimeZoneInfo.Utc))
+    await using (var benchmark = new IngestionBenchmark(directory, TimeZoneInfo.Utc))
     {
       await benchmark.RunAsync(new(17, 7, 2), _ => { }, CancellationToken.None, CancellationToken.None);
-      var updates = new List<SampleBenchmarkProgress>();
+      var updates = new List<BenchmarkProgress>();
       await benchmark.RunAsync(new(25, 7, 2), updates.Add, CancellationToken.None, CancellationToken.None);
       Assert.That(updates.Any(update => update.Ingested == 25), Is.True);
       Assert.That(updates.All(update => update.Ingested <= update.Submitted), Is.True);
       Assert.That(Directory.GetDirectories(Path.Combine(directory, "data/ingestion-benchmarks")), Has.Length.EqualTo(1));
     }
-    await using var reopened = new SampleBenchmark(directory, TimeZoneInfo.Utc);
+    await using var reopened = new IngestionBenchmark(directory, TimeZoneInfo.Utc);
     Assert.That(reopened.Reports.Result.Ingested, Is.EqualTo(25));
     using var lease = reopened.Reports.Acquire();
     Assert.That(lease.Engine.Web.GetSummary(new() { Site = BenchmarkReportStore.Site }).Summary.PageViews, Is.GreaterThan(0));
@@ -226,7 +226,7 @@ public sealed class SampleBenchmarkTests : DirectoryTest
   [Test]
   public async Task PublishingWaitsForPreviousReportReaders()
   {
-    await using var benchmark = new SampleBenchmark(directory, TimeZoneInfo.Utc);
+    await using var benchmark = new IngestionBenchmark(directory, TimeZoneInfo.Utc);
     await benchmark.RunAsync(new(17, 7, 2), _ => { }, CancellationToken.None, CancellationToken.None);
     using var previous = benchmark.Reports.Acquire();
     var publishing = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);

@@ -113,7 +113,7 @@ public sealed class DashboardAdministrationTests : DirectoryTest
       Assert.That(analyst.CanQuery, Is.True);
       Assert.That(viewer.CanAccess("blog"), Is.True, "all sites");
       Assert.That(viewer.CanAccess(SettingsMapper.DashboardUsageSite), Is.False, "reserved sites are the administrator's");
-      Assert.That(viewer.CanAccess(DashboardAnalyticsOptions.PerformanceSite), Is.False);
+      Assert.That(viewer.CanAccess(DashboardAnalyticsOptions.BenchmarkSite), Is.False);
       Assert.That(viewer.CanQuery, Is.False);
     });
   }

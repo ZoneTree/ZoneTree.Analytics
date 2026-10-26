@@ -42,9 +42,9 @@ export const reportInfo = {
     title: 'Query explorer',
     description: 'Ask your data a more specific question.',
   },
-  'sample-data': {
-    title: 'Sample data',
-    description: 'Generate and manage traffic for performance testing.',
+  benchmark: {
+    title: 'Benchmark',
+    description: 'Measure ingestion of realistic traffic in a fresh dataset.',
   },
 } as const
 export type ReportKind = keyof typeof reportInfo

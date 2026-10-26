@@ -38,7 +38,7 @@
   },
   "initialReports": [
     {
-      "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/summary?site=benchmark-results&tz=UTC&range=this-year&compare=previous-period",
+      "url": "http://127.0.0.1:5088/_analytics/benchmark/api/summary?site=benchmark-results&tz=UTC&range=this-year&compare=previous-period",
       "status": 200,
       "from": "2026-01-01T00:00:00+00:00",
       "to": "2027-01-01T00:00:00+00:00",
@@ -70,7 +70,7 @@
       }
     },
     {
-      "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/timeseries?site=benchmark-results&tz=UTC&interval=day&range=this-year&compare=previous-period",
+      "url": "http://127.0.0.1:5088/_analytics/benchmark/api/timeseries?site=benchmark-results&tz=UTC&interval=day&range=this-year&compare=previous-period",
       "status": 200,
       "from": "2026-01-01T00:00:00+00:00",
       "to": "2027-01-01T00:00:00+00:00",
@@ -102,7 +102,7 @@
       }
     },
     {
-      "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/breakdown?site=benchmark-results&tz=UTC&dimension=country&limit=5&includeSessionMetrics=false&range=this-year&compare=previous-period",
+      "url": "http://127.0.0.1:5088/_analytics/benchmark/api/breakdown?site=benchmark-results&tz=UTC&dimension=country&limit=5&includeSessionMetrics=false&range=this-year&compare=previous-period",
       "status": 200,
       "from": "2026-01-01T00:00:00+00:00",
       "to": "2027-01-01T00:00:00+00:00",
@@ -122,7 +122,7 @@
       }
     },
     {
-      "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/breakdown?site=benchmark-results&tz=UTC&dimension=source&limit=5&includeSessionMetrics=false&range=this-year&compare=previous-period",
+      "url": "http://127.0.0.1:5088/_analytics/benchmark/api/breakdown?site=benchmark-results&tz=UTC&dimension=source&limit=5&includeSessionMetrics=false&range=this-year&compare=previous-period",
       "status": 200,
       "from": "2026-01-01T00:00:00+00:00",
       "to": "2027-01-01T00:00:00+00:00",
@@ -142,11 +142,11 @@
       }
     },
     {
-      "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/realtime?site=benchmark-results",
+      "url": "http://127.0.0.1:5088/_analytics/benchmark/api/realtime?site=benchmark-results",
       "status": 200
     },
     {
-      "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/pages?site=benchmark-results&tz=UTC&limit=5&includePageFlowMetrics=false&range=this-year&compare=previous-period",
+      "url": "http://127.0.0.1:5088/_analytics/benchmark/api/pages?site=benchmark-results&tz=UTC&limit=5&includePageFlowMetrics=false&range=this-year&compare=previous-period",
       "status": 200,
       "from": "2026-01-01T00:00:00+00:00",
       "to": "2027-01-01T00:00:00+00:00",
@@ -172,7 +172,7 @@
       }
     },
     {
-      "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/breakdown?site=benchmark-results&tz=UTC&dimension=device&limit=10&includeSessionMetrics=false&range=this-year&compare=previous-period",
+      "url": "http://127.0.0.1:5088/_analytics/benchmark/api/breakdown?site=benchmark-results&tz=UTC&dimension=device&limit=10&includeSessionMetrics=false&range=this-year&compare=previous-period",
       "status": 200,
       "from": "2026-01-01T00:00:00+00:00",
       "to": "2027-01-01T00:00:00+00:00",
@@ -207,7 +207,7 @@
       "reports": [
         {
           "name": "summary",
-          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/summary?site=benchmark-results&tz=UTC&range=this-year&compare=previous-period",
+          "url": "http://127.0.0.1:5088/_analytics/benchmark/api/summary?site=benchmark-results&tz=UTC&range=this-year&compare=previous-period",
           "timing": {
             "median": 8.549999997019768,
             "p95": 9.799999982118607,
@@ -276,7 +276,7 @@
         },
         {
           "name": "timeseries",
-          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/timeseries?site=benchmark-results&tz=UTC&interval=day&range=this-year&compare=previous-period",
+          "url": "http://127.0.0.1:5088/_analytics/benchmark/api/timeseries?site=benchmark-results&tz=UTC&interval=day&range=this-year&compare=previous-period",
           "timing": {
             "median": 11.5,
             "p95": 12.599999994039536,
@@ -328,7 +328,7 @@
         },
         {
           "name": "pages",
-          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/pages?site=benchmark-results&tz=UTC&limit=5&includePageFlowMetrics=false&range=this-year&compare=previous-period",
+          "url": "http://127.0.0.1:5088/_analytics/benchmark/api/pages?site=benchmark-results&tz=UTC&limit=5&includePageFlowMetrics=false&range=this-year&compare=previous-period",
           "timing": {
             "median": 25.900000005960464,
             "p95": 27.5,
@@ -373,7 +373,7 @@
         },
         {
           "name": "breakdown:source",
-          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/breakdown?site=benchmark-results&tz=UTC&dimension=source&limit=5&includeSessionMetrics=false&range=this-year&compare=previous-period",
+          "url": "http://127.0.0.1:5088/_analytics/benchmark/api/breakdown?site=benchmark-results&tz=UTC&dimension=source&limit=5&includeSessionMetrics=false&range=this-year&compare=previous-period",
           "timing": {
             "median": 14,
             "p95": 15.200000017881393,
@@ -412,7 +412,7 @@
         },
         {
           "name": "breakdown:country",
-          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/breakdown?site=benchmark-results&tz=UTC&dimension=country&limit=5&includeSessionMetrics=false&range=this-year&compare=previous-period",
+          "url": "http://127.0.0.1:5088/_analytics/benchmark/api/breakdown?site=benchmark-results&tz=UTC&dimension=country&limit=5&includeSessionMetrics=false&range=this-year&compare=previous-period",
           "timing": {
             "median": 11.450000002980232,
             "p95": 12.599999994039536,
@@ -451,7 +451,7 @@
         },
         {
           "name": "breakdown:device",
-          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/breakdown?site=benchmark-results&tz=UTC&dimension=device&limit=10&includeSessionMetrics=false&range=this-year&compare=previous-period",
+          "url": "http://127.0.0.1:5088/_analytics/benchmark/api/breakdown?site=benchmark-results&tz=UTC&dimension=device&limit=10&includeSessionMetrics=false&range=this-year&compare=previous-period",
           "timing": {
             "median": 11.149999991059303,
             "p95": 12,
@@ -517,7 +517,7 @@
       "reports": [
         {
           "name": "summary",
-          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/summary?site=benchmark-results&tz=UTC&range=this-year&compare=previous-period&filter=source%3D%3DGitHub",
+          "url": "http://127.0.0.1:5088/_analytics/benchmark/api/summary?site=benchmark-results&tz=UTC&range=this-year&compare=previous-period&filter=source%3D%3DGitHub",
           "timing": {
             "median": 5.850000008940697,
             "p95": 7.100000023841858,
@@ -579,7 +579,7 @@
         },
         {
           "name": "timeseries",
-          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/timeseries?site=benchmark-results&tz=UTC&interval=day&range=this-year&compare=previous-period&filter=source%3D%3DGitHub",
+          "url": "http://127.0.0.1:5088/_analytics/benchmark/api/timeseries?site=benchmark-results&tz=UTC&interval=day&range=this-year&compare=previous-period&filter=source%3D%3DGitHub",
           "timing": {
             "median": 7.950000002980232,
             "p95": 9.099999994039536,
@@ -625,7 +625,7 @@
         },
         {
           "name": "pages",
-          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/pages?site=benchmark-results&tz=UTC&limit=5&includePageFlowMetrics=false&range=this-year&compare=previous-period&filter=source%3D%3DGitHub",
+          "url": "http://127.0.0.1:5088/_analytics/benchmark/api/pages?site=benchmark-results&tz=UTC&limit=5&includePageFlowMetrics=false&range=this-year&compare=previous-period&filter=source%3D%3DGitHub",
           "timing": {
             "median": 12.5,
             "p95": 13.900000005960464,
@@ -666,7 +666,7 @@
         },
         {
           "name": "breakdown:source",
-          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/breakdown?site=benchmark-results&tz=UTC&dimension=source&limit=5&includeSessionMetrics=false&range=this-year&compare=previous-period&filter=source%3D%3DGitHub",
+          "url": "http://127.0.0.1:5088/_analytics/benchmark/api/breakdown?site=benchmark-results&tz=UTC&dimension=source&limit=5&includeSessionMetrics=false&range=this-year&compare=previous-period&filter=source%3D%3DGitHub",
           "timing": {
             "median": 4.450000002980232,
             "p95": 6.199999988079071,
@@ -706,7 +706,7 @@
         },
         {
           "name": "breakdown:country",
-          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/breakdown?site=benchmark-results&tz=UTC&dimension=country&limit=5&includeSessionMetrics=false&range=this-year&compare=previous-period&filter=source%3D%3DGitHub",
+          "url": "http://127.0.0.1:5088/_analytics/benchmark/api/breakdown?site=benchmark-results&tz=UTC&dimension=country&limit=5&includeSessionMetrics=false&range=this-year&compare=previous-period&filter=source%3D%3DGitHub",
           "timing": {
             "median": 5.699999988079071,
             "p95": 6.5,
@@ -746,7 +746,7 @@
         },
         {
           "name": "breakdown:device",
-          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/breakdown?site=benchmark-results&tz=UTC&dimension=device&limit=10&includeSessionMetrics=false&range=this-year&compare=previous-period&filter=source%3D%3DGitHub",
+          "url": "http://127.0.0.1:5088/_analytics/benchmark/api/breakdown?site=benchmark-results&tz=UTC&dimension=device&limit=10&includeSessionMetrics=false&range=this-year&compare=previous-period&filter=source%3D%3DGitHub",
           "timing": {
             "median": 5.5999999940395355,
             "p95": 6.199999988079071,
@@ -812,7 +812,7 @@
       "reports": [
         {
           "name": "summary",
-          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/summary?site=benchmark-results&tz=UTC&range=this-year&compare=previous-period&filter=country%3D%3DUS",
+          "url": "http://127.0.0.1:5088/_analytics/benchmark/api/summary?site=benchmark-results&tz=UTC&range=this-year&compare=previous-period&filter=country%3D%3DUS",
           "timing": {
             "median": 8.600000008940697,
             "p95": 10.299999982118607,
@@ -874,7 +874,7 @@
         },
         {
           "name": "timeseries",
-          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/timeseries?site=benchmark-results&tz=UTC&interval=day&range=this-year&compare=previous-period&filter=country%3D%3DUS",
+          "url": "http://127.0.0.1:5088/_analytics/benchmark/api/timeseries?site=benchmark-results&tz=UTC&interval=day&range=this-year&compare=previous-period&filter=country%3D%3DUS",
           "timing": {
             "median": 10.5,
             "p95": 11.700000017881393,
@@ -919,7 +919,7 @@
         },
         {
           "name": "pages",
-          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/pages?site=benchmark-results&tz=UTC&limit=5&includePageFlowMetrics=false&range=this-year&compare=previous-period&filter=country%3D%3DUS",
+          "url": "http://127.0.0.1:5088/_analytics/benchmark/api/pages?site=benchmark-results&tz=UTC&limit=5&includePageFlowMetrics=false&range=this-year&compare=previous-period&filter=country%3D%3DUS",
           "timing": {
             "median": 19.549999997019768,
             "p95": 21.099999994039536,
@@ -960,7 +960,7 @@
         },
         {
           "name": "breakdown:source",
-          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/breakdown?site=benchmark-results&tz=UTC&dimension=source&limit=5&includeSessionMetrics=false&range=this-year&compare=previous-period&filter=country%3D%3DUS",
+          "url": "http://127.0.0.1:5088/_analytics/benchmark/api/breakdown?site=benchmark-results&tz=UTC&dimension=source&limit=5&includeSessionMetrics=false&range=this-year&compare=previous-period&filter=country%3D%3DUS",
           "timing": {
             "median": 10.049999997019768,
             "p95": 11.900000005960464,
@@ -1001,7 +1001,7 @@
         },
         {
           "name": "breakdown:country",
-          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/breakdown?site=benchmark-results&tz=UTC&dimension=country&limit=5&includeSessionMetrics=false&range=this-year&compare=previous-period&filter=country%3D%3DUS",
+          "url": "http://127.0.0.1:5088/_analytics/benchmark/api/breakdown?site=benchmark-results&tz=UTC&dimension=country&limit=5&includeSessionMetrics=false&range=this-year&compare=previous-period&filter=country%3D%3DUS",
           "timing": {
             "median": 6.950000002980232,
             "p95": 8.599999994039536,
@@ -1040,7 +1040,7 @@
         },
         {
           "name": "breakdown:device",
-          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/breakdown?site=benchmark-results&tz=UTC&dimension=device&limit=10&includeSessionMetrics=false&range=this-year&compare=previous-period&filter=country%3D%3DUS",
+          "url": "http://127.0.0.1:5088/_analytics/benchmark/api/breakdown?site=benchmark-results&tz=UTC&dimension=device&limit=10&includeSessionMetrics=false&range=this-year&compare=previous-period&filter=country%3D%3DUS",
           "timing": {
             "median": 9,
             "p95": 9.700000017881393,
@@ -1107,7 +1107,7 @@
       "reports": [
         {
           "name": "summary",
-          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/summary?site=benchmark-results&tz=UTC&range=this-year&compare=previous-period&filter=page%3D%3D%2Fblog",
+          "url": "http://127.0.0.1:5088/_analytics/benchmark/api/summary?site=benchmark-results&tz=UTC&range=this-year&compare=previous-period&filter=page%3D%3D%2Fblog",
           "timing": {
             "median": 6.299999997019768,
             "p95": 7,
@@ -1170,7 +1170,7 @@
         },
         {
           "name": "timeseries",
-          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/timeseries?site=benchmark-results&tz=UTC&interval=day&range=this-year&compare=previous-period&filter=page%3D%3D%2Fblog",
+          "url": "http://127.0.0.1:5088/_analytics/benchmark/api/timeseries?site=benchmark-results&tz=UTC&interval=day&range=this-year&compare=previous-period&filter=page%3D%3D%2Fblog",
           "timing": {
             "median": 7.800000011920929,
             "p95": 9.299999982118607,
@@ -1216,7 +1216,7 @@
         },
         {
           "name": "pages",
-          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/pages?site=benchmark-results&tz=UTC&limit=5&includePageFlowMetrics=false&range=this-year&compare=previous-period&filter=page%3D%3D%2Fblog",
+          "url": "http://127.0.0.1:5088/_analytics/benchmark/api/pages?site=benchmark-results&tz=UTC&limit=5&includePageFlowMetrics=false&range=this-year&compare=previous-period&filter=page%3D%3D%2Fblog",
           "timing": {
             "median": 6.049999997019768,
             "p95": 7.199999988079071,
@@ -1260,7 +1260,7 @@
         },
         {
           "name": "breakdown:source",
-          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/breakdown?site=benchmark-results&tz=UTC&dimension=source&limit=5&includeSessionMetrics=false&range=this-year&compare=previous-period&filter=page%3D%3D%2Fblog",
+          "url": "http://127.0.0.1:5088/_analytics/benchmark/api/breakdown?site=benchmark-results&tz=UTC&dimension=source&limit=5&includeSessionMetrics=false&range=this-year&compare=previous-period&filter=page%3D%3D%2Fblog",
           "timing": {
             "median": 7.699999988079071,
             "p95": 8.399999976158142,
@@ -1301,7 +1301,7 @@
         },
         {
           "name": "breakdown:country",
-          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/breakdown?site=benchmark-results&tz=UTC&dimension=country&limit=5&includeSessionMetrics=false&range=this-year&compare=previous-period&filter=page%3D%3D%2Fblog",
+          "url": "http://127.0.0.1:5088/_analytics/benchmark/api/breakdown?site=benchmark-results&tz=UTC&dimension=country&limit=5&includeSessionMetrics=false&range=this-year&compare=previous-period&filter=page%3D%3D%2Fblog",
           "timing": {
             "median": 6.199999988079071,
             "p95": 7,
@@ -1342,7 +1342,7 @@
         },
         {
           "name": "breakdown:device",
-          "url": "http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/breakdown?site=benchmark-results&tz=UTC&dimension=device&limit=10&includeSessionMetrics=false&range=this-year&compare=previous-period&filter=page%3D%3D%2Fblog",
+          "url": "http://127.0.0.1:5088/_analytics/benchmark/api/breakdown?site=benchmark-results&tz=UTC&dimension=device&limit=10&includeSessionMetrics=false&range=this-year&compare=previous-period&filter=page%3D%3D%2Fblog",
           "timing": {
             "median": 6.299999982118607,
             "p95": 6.9000000059604645,

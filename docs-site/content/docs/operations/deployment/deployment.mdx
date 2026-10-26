@@ -41,7 +41,7 @@ await analytics.WaitForIndexesAsync(cancellationToken);
 
 The wait includes index builds, repairs, and reconstruction of indexed rollup history. It raises `AnalyticsStorageException` if an index cannot be built in this engine instance; queries continue using the available sources, and reopening the engine resumes the build. Canceling the token stops waiting without stopping background work.
 
-The dashboard prepares retained sample datasets before serving their reports.
+The dashboard prepares the retained benchmark dataset before serving its reports.
 
 ## Close cleanly
 

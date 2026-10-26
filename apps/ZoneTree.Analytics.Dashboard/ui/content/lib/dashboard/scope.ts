@@ -38,8 +38,12 @@ export function createDashboardScope(initialConfig: Config): DashboardScope {
       ? initialRange
       : '30d',
   )
+  // A site that is no longer listed, such as a deleted benchmark, falls back to the first one.
+  const listed = [params.get('site'), saved?.site].find((id) =>
+    initialConfig.sites.some((site) => site.id === id),
+  )
   const site = sref(
-    params.get('site') ?? saved?.site ?? initialConfig.sites[0].id,
+    typeof listed === 'string' ? listed : initialConfig.sites[0].id,
   )
   const compare = sref(
     params.get('compare') || saved?.compare || 'previous-period',

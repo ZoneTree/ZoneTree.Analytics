@@ -7,7 +7,8 @@ using ZoneTree.Analytics;
 sealed class BenchmarkReportStore : IAsyncDisposable
 {
   public const string Site = DashboardAnalyticsOptions.BenchmarkSite;
-  public const string ApiPath = "/_analytics/sample-data/benchmark-api";
+  public const string ManagementPath = "/_analytics/benchmark";
+  public const string ApiPath = ManagementPath + "/api";
   readonly object sync = new();
   readonly string root;
   readonly ILogger logger;
@@ -19,7 +20,7 @@ sealed class BenchmarkReportStore : IAsyncDisposable
   const string Marker = ".zonetree-benchmark";
   static readonly Action<ILogger, Exception> CleanupWarning = LoggerMessage.Define(LogLevel.Warning,
       new EventId(1, "BenchmarkCleanup"), "Previous benchmark directory could not be removed.");
-  sealed record Dataset(string Directory, string TimeZone, SampleBenchmarkResult Result);
+  sealed record Dataset(string Directory, string TimeZone, BenchmarkResult Result);
 
   public BenchmarkReportStore(string contentRoot, ILogger logger = null)
   {
@@ -33,7 +34,7 @@ sealed class BenchmarkReportStore : IAsyncDisposable
     }
   }
 
-  public SampleBenchmarkResult Result { get { lock (sync) return current?.Result; } }
+  public BenchmarkResult Result { get { lock (sync) return current?.Result; } }
 
   public string CreateRunDirectory()
   {
@@ -44,11 +45,11 @@ sealed class BenchmarkReportStore : IAsyncDisposable
     return directory;
   }
 
-  public SampleEngineLease Acquire()
+  public BenchmarkLease Acquire()
   {
     lock (sync)
     {
-      if (switching) throw new SampleDataBusyException();
+      if (switching) throw new BenchmarkDataBusyException();
       if (current == null) throw new BenchmarkDataUnavailableException();
       var path = Path.Combine(root, current.Directory);
       ValidateOwned(path);
@@ -63,7 +64,7 @@ sealed class BenchmarkReportStore : IAsyncDisposable
     Task wait;
     lock (sync)
     {
-      if (switching) throw new SampleDataBusyException();
+      if (switching) throw new BenchmarkDataBusyException();
       switching = true;
       wait = readers == 0 ? Task.CompletedTask : drained.Task;
     }
@@ -76,7 +77,7 @@ sealed class BenchmarkReportStore : IAsyncDisposable
     catch { lock (sync) switching = false; throw; }
   }
 
-  public async Task PublishAsync(string directory, string timeZone, SampleBenchmarkResult result, CancellationToken token)
+  public async Task PublishAsync(string directory, string timeZone, BenchmarkResult result, CancellationToken token)
   {
     ValidateOwned(directory);
     await BeginSwitchAsync(token);

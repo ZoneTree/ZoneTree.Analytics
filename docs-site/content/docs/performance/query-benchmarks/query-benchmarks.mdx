@@ -168,17 +168,17 @@ These are representative requests with fixed dates for reproducing the recorded 
 
 ```http
 ### Annual summary with the previous calendar-year comparison
-GET http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/summary?site=benchmark-results&tz=UTC&from=2026-01-01&to=2026-12-31&compare=previous-period
+GET http://127.0.0.1:5088/_analytics/benchmark/api/summary?site=benchmark-results&tz=UTC&from=2026-01-01&to=2026-12-31&compare=previous-period
 Accept: application/json
 Cache-Control: no-cache
 
 ### Country breakdown for GitHub traffic, using the source-leading rollup index
-GET http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/breakdown?site=benchmark-results&tz=UTC&from=2026-01-01&to=2026-12-31&compare=previous-period&dimension=country&limit=5&includeSessionMetrics=false&filter=source%3D%3DGitHub
+GET http://127.0.0.1:5088/_analytics/benchmark/api/breakdown?site=benchmark-results&tz=UTC&from=2026-01-01&to=2026-12-31&compare=previous-period&dimension=country&limit=5&includeSessionMetrics=false&filter=source%3D%3DGitHub
 Accept: application/json
 Cache-Control: no-cache
 
 ### Source breakdown for /blog, using the page-leading rollup index
-GET http://127.0.0.1:5088/_analytics/sample-data/benchmark-api/breakdown?site=benchmark-results&tz=UTC&from=2026-01-01&to=2026-12-31&compare=previous-period&dimension=source&limit=5&includeSessionMetrics=false&filter=page%3D%3D%2Fblog
+GET http://127.0.0.1:5088/_analytics/benchmark/api/breakdown?site=benchmark-results&tz=UTC&from=2026-01-01&to=2026-12-31&compare=previous-period&dimension=source&limit=5&includeSessionMetrics=false&filter=page%3D%3D%2Fblog
 Accept: application/json
 Cache-Control: no-cache
 ```

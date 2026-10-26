@@ -144,7 +144,7 @@ From the repository root, install the workspace dependencies:
 yarn install
 ```
 
-Then, from the repository root, start the server with sample data:
+Then, from the repository root, start the server with demo data:
 
 ```sh
 yarn dashboard --Analytics:SeedDemo=true

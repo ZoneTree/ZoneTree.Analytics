@@ -77,7 +77,7 @@ For a static release, run `yarn workspace zonetree-analytics-dashboard publish` 
 The primary engine is configured from the stored settings
 ([SettingsMapper.cs](server/Settings/SettingsMapper.cs) maps them to `AnalyticsOptions`).
 [DashboardAnalyticsOptions.cs](server/DashboardAnalyticsOptions.cs) configures the Development
-performance samples, new benchmarks and retained benchmark reports. Local datasets live under
+benchmarks and retained benchmark reports. Local datasets live under
 `server/data`. The UI uses the repository's Yarn workspace, `node_modules`, and TypeScript 7.
 
 See the [UI and application guide](ui/README.md) for reports, configuration, dataset tools,

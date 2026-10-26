@@ -47,16 +47,15 @@ builder.Services.AddZoneTreeAnalyticsWeb(web =>
   web.AuthorizeSite = (context, site) => DashboardAuthentication.User(context)?.CanAccess(site) == true;
 });
 
-var sampleDataEnabled = builder.Environment.IsDevelopment();
-if (sampleDataEnabled)
+var benchmarkEnabled = builder.Environment.IsDevelopment();
+if (benchmarkEnabled)
 {
-  // New Development datasets take the reporting time zone current when they are created.
-  builder.Services.AddSingleton<SampleDataStore>();
-  builder.Services.AddSingleton(services => new SampleBenchmark(contentRoot,
-      () => services.GetRequiredService<SettingsService>().ReportingTimeZone, services.GetRequiredService<ILogger<SampleBenchmark>>(),
+  // A benchmark run takes the reporting time zone current when it starts.
+  builder.Services.AddSingleton(services => new IngestionBenchmark(contentRoot,
+      () => services.GetRequiredService<SettingsService>().ReportingTimeZone, services.GetRequiredService<ILogger<IngestionBenchmark>>(),
       () => services.GetRequiredService<EngineHost>().IpLocation));
-  builder.Services.AddSingleton<SampleDataJobs>();
-  builder.Services.AddHostedService(services => services.GetRequiredService<SampleDataJobs>());
+  builder.Services.AddSingleton<BenchmarkJobs>();
+  builder.Services.AddHostedService(services => services.GetRequiredService<BenchmarkJobs>());
 }
 if (watchDashboard)
 {
@@ -111,9 +110,10 @@ reportingApi.MapGet("/config", (HttpContext context) =>
   var sites = current?.Sites.Items.Where(site => user.CanAccess(site.Id)).Select(site => new SiteView(site.Id, site.Name)).ToList() ?? [];
   if (user.IsAdministrator && current?.Sites.TrackDashboardUsage == true)
     sites.Add(new(SettingsMapper.DashboardUsageSite, "Dashboard usage"));
-  var samples = sampleDataEnabled && user.IsAdministrator;
-  if (samples)
-    sites.AddRange([new(SampleDataStore.Site, "Performance samples"), new(BenchmarkReportStore.Site, "Latest benchmark")]);
+  var benchmark = benchmarkEnabled && user.IsAdministrator;
+  // The benchmark site is listed while a completed run is retained.
+  if (benchmark && context.RequestServices.GetRequiredService<IngestionBenchmark>().Reports.Result != null)
+    sites.Add(new(BenchmarkReportStore.Site, "Latest benchmark"));
   return Results.Json(new
   {
     mode = "live",
@@ -121,63 +121,50 @@ reportingApi.MapGet("/config", (HttpContext context) =>
     timeZone = current?.General.TimeZone ?? "UTC",
     sites,
     refreshSeconds = current?.General.RefreshSeconds ?? 30,
-    sampleData = samples ? new
+    benchmark = benchmark ? new
     {
-      siteId = SampleDataStore.Site,
-      apiBaseUrl = SampleDataStore.ApiPath,
-      managementUrl = "/_analytics/sample-data",
-      benchmark = new { siteId = BenchmarkReportStore.Site, apiBaseUrl = BenchmarkReportStore.ApiPath }
+      siteId = BenchmarkReportStore.Site,
+      apiBaseUrl = BenchmarkReportStore.ApiPath,
+      managementUrl = BenchmarkReportStore.ManagementPath
     } : null,
     user = new { id = user.Id, userName = user.UserName, displayName = user.DisplayName, role = user.Role.ToString(), canQuery = user.CanQuery },
   });
 });
-if (sampleDataEnabled)
+if (benchmarkEnabled)
 {
-  app.MapZoneTreeAnalyticsApi(SampleDataStore.ApiPath)
-      .RequireAuthorization(DashboardAuthentication.AdministratorPolicy).UseEngine(EngineSource.Samples);
   app.MapZoneTreeAnalyticsApi(BenchmarkReportStore.ApiPath)
       .RequireAuthorization(DashboardAuthentication.AdministratorPolicy).UseEngine(EngineSource.Benchmark);
-  var management = app.MapGroup("/_analytics/sample-data").RequireAuthorization(DashboardAuthentication.AdministratorPolicy);
+  var management = app.MapGroup(BenchmarkReportStore.ManagementPath).RequireAuthorization(DashboardAuthentication.AdministratorPolicy);
   management.AddEndpointFilter(async (context, next) =>
   {
     context.HttpContext.Response.Headers.CacheControl = "no-store";
     return await next(context);
   });
-  management.MapGet("/status", (SampleDataJobs jobs) => Results.Json(jobs.Status));
-  management.MapPost("/generate", (SampleGenerationRequest request, SampleDataJobs jobs) =>
+  management.MapGet("/status", (BenchmarkJobs jobs) => Results.Json(jobs.Status));
+  management.MapPost("/cancel", (System.Text.Json.JsonElement body, BenchmarkJobs jobs) => { jobs.Cancel(); return Results.Json(jobs.Status); });
+  management.MapPost("/run", (BenchmarkRequest request, BenchmarkJobs jobs) =>
   {
-    try { return jobs.Generate(request) ? Results.Json(jobs.Status, statusCode: 202) : Results.Conflict(new { error = "A sample operation is already running." }); }
+    try { return jobs.Run(request) ? Results.Json(jobs.Status, statusCode: 202) : Results.Conflict(new { error = "A benchmark operation is already running." }); }
     catch (ArgumentException error) { return Results.BadRequest(new { error = error.Message }); }
   });
-  management.MapPost("/cancel", (System.Text.Json.JsonElement body, SampleDataJobs jobs) => { jobs.Cancel(); return Results.Json(jobs.Status); });
-  management.MapPost("/benchmark", (SampleBenchmarkRequest request, SampleDataJobs jobs) =>
-  {
-    try { return jobs.Benchmark(request) ? Results.Json(jobs.Status, statusCode: 202) : Results.Conflict(new { error = "A sample operation is already running." }); }
-    catch (ArgumentException error) { return Results.BadRequest(new { error = error.Message }); }
-  });
-  management.MapPost("/clear", (System.Text.Json.JsonElement body, SampleDataJobs jobs) =>
-      jobs.Clear() ? Results.Json(jobs.Status, statusCode: 202) : Results.Conflict(new { error = "Cancel the running operation before deleting sample data." }));
-  management.MapPost("/clear-benchmark", (System.Text.Json.JsonElement body, SampleDataJobs jobs) =>
-      jobs.ClearBenchmark() ? Results.Json(jobs.Status, statusCode: 202) : Results.Conflict(new { error = "Cancel the running operation before deleting benchmark data." }));
+  management.MapPost("/clear", (System.Text.Json.JsonElement body, BenchmarkJobs jobs) =>
+      jobs.Clear() ? Results.Json(jobs.Status, statusCode: 202) : Results.Conflict(new { error = "Cancel the running operation before deleting benchmark data." }));
 }
 if (watchDashboard)
   app.MapFallback("/{**path}", app.Services.GetRequiredService<DashboardDevelopmentServer>().ForwardAsync);
 // Complete migrations before browsers start their reporting request timeouts. A Development
 // dataset that cannot open is reported on its pages; it does not stop the dashboard.
-if (sampleDataEnabled)
+if (benchmarkEnabled)
 {
   try
   {
-    var samples = app.Services.GetRequiredService<SampleDataStore>();
-    if (samples.HasRetainedData)
-      using (samples.Acquire()) { }
-    var benchmark = app.Services.GetRequiredService<SampleBenchmark>();
+    var benchmark = app.Services.GetRequiredService<IngestionBenchmark>();
     if (benchmark.Reports.Result != null)
       using (benchmark.Reports.Acquire()) { }
   }
   catch (Exception error) when (error is AnalyticsConfigurationException or IOException)
   {
-    app.Logger.LogError(error, "A Development sample dataset could not open. Delete it from the Sample data page to start a new one.");
+    app.Logger.LogError(error, "The retained benchmark dataset could not open. Delete it on the Benchmark page and run a new benchmark.");
   }
 }
 app.Lifetime.ApplicationStarted.Register(() =>

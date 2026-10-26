@@ -1,15 +1,15 @@
 import assert from 'node:assert/strict'
 import { fileURLToPath } from 'node:url'
 import type { Page } from 'playwright'
-import { dashboardConfigPath } from '../content/lib/contracts'
 import type {
-  SampleBenchmarkResult,
-  SampleDataStatus,
-} from '../content/sample-data/jobs'
+  BenchmarkJobsStatus,
+  BenchmarkResult,
+} from '../content/benchmark/jobs'
+import { dashboardConfigPath } from '../content/lib/contracts'
 
 // UI checks use controlled responses; performance runs are left to the user.
-export async function checkSampleDataTools(page: Page, base: string) {
-  const result: SampleBenchmarkResult = {
+export async function checkBenchmarkTools(page: Page, base: string) {
+  const result: BenchmarkResult = {
     events: 17,
     days: 7,
     workers: 2,
@@ -31,17 +31,7 @@ export async function checkSampleDataTools(page: Page, base: string) {
     fromDate: '2026-10-06',
     toDate: '2026-10-13',
   }
-  let status: SampleDataStatus = {
-    state: 'completed',
-    requested: 17,
-    processed: 17,
-    totalGenerated: 17,
-    elapsedMs: 1000,
-    workers: 1,
-    ingested: 17,
-    eventsPerSecond: 17,
-    averageEventsPerSecond: 17,
-    error: null,
+  let status: BenchmarkJobsStatus = {
     activeOperation: null,
     benchmark: {
       state: 'idle',
@@ -73,25 +63,21 @@ export async function checkSampleDataTools(page: Page, base: string) {
         timeZone: 'UTC',
         sites: [{ id: '', name: 'Test site' }],
         refreshSeconds: 0,
-        sampleData: {
-          siteId: 'performance-samples',
-          apiBaseUrl: '/mock-samples/api',
-          managementUrl: '/mock-samples',
-          benchmark: {
-            siteId: 'benchmark-results',
-            apiBaseUrl: '/mock-benchmark/api',
-          },
+        benchmark: {
+          siteId: 'benchmark-results',
+          apiBaseUrl: '/mock-benchmark/api',
+          managementUrl: '/mock-benchmark',
         },
       },
     }),
   )
-  await page.route('**/mock-samples/**', async (route) => {
+  await page.route('**/mock-benchmark/*', async (route) => {
     const endpoint = new URL(route.request().url()).pathname.split('/').pop()
-    if (endpoint === 'benchmark') {
+    if (endpoint === 'run') {
       submissions.push(route.request().postDataJSON())
       status = {
         ...status,
-        activeOperation: 'benchmark',
+        activeOperation: 'run',
         benchmark: {
           ...status.benchmark,
           state: 'preparing',
@@ -113,17 +99,16 @@ export async function checkSampleDataTools(page: Page, base: string) {
     }
     await route.fulfill({ json: status })
   })
-  await page.goto(`${base}/sample-data/`)
+  await page.goto(`${base}/benchmark/`)
   await page
     .getByRole('button', { name: 'Run benchmark', exact: true })
     .waitFor()
   await page.waitForFunction(
     () =>
       !document
-        .querySelector('.sample-benchmark-panel button[type="submit"]')
+        .querySelector('.benchmark-panel button[type="submit"]')
         ?.hasAttribute('disabled'),
   )
-  await page.getByText('Generation throughput', { exact: true }).waitFor()
   await page
     .getByRole('region', { name: 'Last completed benchmark', exact: true })
     .waitFor()
@@ -133,7 +118,7 @@ export async function checkSampleDataTools(page: Page, base: string) {
       .isChecked(),
     false,
   )
-  const benchmarkPanel = page.locator('.sample-benchmark-panel')
+  const benchmarkPanel = page.locator('.benchmark-panel')
   await benchmarkPanel.getByLabel('Events').fill('17')
   await benchmarkPanel.getByLabel('Days').fill('7')
   await benchmarkPanel.getByLabel('Workers').fill('2')
@@ -186,15 +171,10 @@ export async function checkSampleDataTools(page: Page, base: string) {
   ])
   assert.equal(
     await page
-      .getByRole('button', { name: 'Generate sample data', exact: true })
+      .getByRole('button', { name: 'Delete benchmark data', exact: true })
       .isDisabled(),
     true,
-  )
-  assert.equal(
-    await page
-      .getByRole('button', { name: 'Delete sample data', exact: true })
-      .isDisabled(),
-    true,
+    'A run blocks deletion',
   )
   assert.equal(
     await page
@@ -256,7 +236,7 @@ export async function checkSampleDataTools(page: Page, base: string) {
   )
   assert.equal(
     await page
-      .getByRole('button', { name: 'Generate sample data', exact: true })
+      .getByRole('button', { name: 'Delete benchmark data', exact: true })
       .isEnabled(),
     true,
   )
@@ -268,12 +248,6 @@ export async function checkSampleDataTools(page: Page, base: string) {
       },
     )
     .waitFor()
-  assert.equal(
-    await page
-      .getByText('17 generated events in this dataset', { exact: true })
-      .count(),
-    1,
-  )
   await page.getByRole('button', { name: 'Run benchmark', exact: true }).click()
   await page
     .getByRole('button', { name: 'Cancel benchmark', exact: true })
@@ -290,22 +264,22 @@ export async function checkSampleDataTools(page: Page, base: string) {
     await page.evaluate(
       () => document.documentElement.scrollWidth <= innerWidth,
     ),
-    'Sample tools fit mobile viewport',
+    'Benchmark tools fit mobile viewport',
   )
   await page.screenshot({
     path: fileURLToPath(
-      new URL('../test-results/sample-tools-mobile.png', import.meta.url),
+      new URL('../test-results/benchmark-tools-mobile.png', import.meta.url),
     ),
     fullPage: true,
   })
   await page.setViewportSize({ width: 1440, height: 1100 })
   await page.screenshot({
     path: fileURLToPath(
-      new URL('../test-results/sample-tools-desktop.png', import.meta.url),
+      new URL('../test-results/benchmark-tools-desktop.png', import.meta.url),
     ),
     fullPage: true,
   })
   console.log(
-    'Sample tools checks passed: benchmark inputs, percentile and index toggles, stages, shared busy state, cancellation, previous results and mobile layout (mock responses).',
+    'Benchmark tools checks passed: inputs, percentile, index and geolocation toggles, stages, busy state, cancellation, previous results and mobile layout (mock responses).',
   )
 }

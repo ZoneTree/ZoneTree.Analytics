@@ -316,7 +316,7 @@ test('API timing includes response decoding and ignores failed or cancelled resp
   assert.deepEqual(timings, [['summary', 17]])
 })
 
-test('performance sample reports use the isolated endpoint while other sites use the primary API', async () => {
+test('benchmark reports use the isolated endpoint while other sites use the primary API', async () => {
   const urls: string[] = []
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
     urls.push(String(url))
@@ -327,30 +327,18 @@ test('performance sample reports use the isolated endpoint while other sites use
   const client = new ApiClient({
     ...defaultConfig,
     mode: 'live',
-    sampleData: {
-      siteId: 'performance-samples',
-      apiBaseUrl: '/_analytics/sample-data/api',
-      managementUrl: '/_analytics/sample-data',
-      benchmark: {
-        siteId: 'benchmark-results',
-        apiBaseUrl: '/_analytics/sample-data/benchmark-api',
-      },
+    benchmark: {
+      siteId: 'benchmark-results',
+      apiBaseUrl: '/_analytics/benchmark/api',
+      managementUrl: '/_analytics/benchmark',
     },
   })
-  await client.request(
-    'summary',
-    { ...scope, site: 'performance-samples' },
-    new AbortController().signal,
-  )
   await client.request('summary', scope, new AbortController().signal)
   await client.request(
     'summary',
     { ...scope, site: 'benchmark-results' },
     new AbortController().signal,
   )
-  assert.ok(urls[0].startsWith('/_analytics/sample-data/api/summary?'))
-  assert.ok(urls[1].startsWith('/_analytics/api/summary?'))
-  assert.ok(
-    urls[2].startsWith('/_analytics/sample-data/benchmark-api/summary?'),
-  )
+  assert.ok(urls[0].startsWith('/_analytics/api/summary?'))
+  assert.ok(urls[1].startsWith('/_analytics/benchmark/api/summary?'))
 })

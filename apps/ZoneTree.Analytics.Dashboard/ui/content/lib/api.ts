@@ -108,13 +108,11 @@ export class ApiClient {
       await this.acquire(combined)
       acquired = true
       combined.throwIfAborted()
-      const sample = this.config.sampleData
+      const benchmark = this.config.benchmark
       const base = normalizeApiUrl(
-        sample?.siteId === scope.site
-          ? sample.apiBaseUrl
-          : sample?.benchmark?.siteId === scope.site
-            ? sample.benchmark.apiBaseUrl
-            : this.config.apiBaseUrl,
+        benchmark?.siteId === scope.site
+          ? benchmark.apiBaseUrl
+          : this.config.apiBaseUrl,
       )
       const params =
         endpoint === 'realtime'

@@ -11,8 +11,8 @@ import {
   dashboardTrackerPath,
   defaultConfig,
 } from '../content/lib/contracts'
+import { checkBenchmarkTools } from './benchmark-browser'
 import { checkLargeSvgChart } from './chart-browser'
-import { checkSampleDataTools } from './sample-data-browser'
 
 const testUser = {
   id: 'test',
@@ -22,7 +22,7 @@ const testUser = {
   canQuery: true,
 }
 
-test('dashboard browser reports, navigation, and sample tools', async () => {
+test('dashboard browser reports, navigation, and benchmark tools', async () => {
   const workspace = fileURLToPath(new URL('../', import.meta.url))
   const root = resolve(
     workspace,
@@ -699,8 +699,8 @@ test('dashboard browser reports, navigation, and sample tools', async () => {
     assert.deepEqual(errors, [], 'No browser errors')
     await checkLargeSvgChart(page, base, reportBase, emptySummary)
     assert.deepEqual(errors, [], 'No browser errors with large chart responses')
-    await checkSampleDataTools(page, base)
-    assert.deepEqual(errors, [], 'No browser errors with sample tools')
+    await checkBenchmarkTools(page, base)
+    assert.deepEqual(errors, [], 'No browser errors with benchmark tools')
     console.log(
       'Browser checks passed: nine routes, filters, charts, queries, funnels, account, CSV, themes, mobile navigation, API failure/recovery, zero counts, safe text binding, pagination.',
     )

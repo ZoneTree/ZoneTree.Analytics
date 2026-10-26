@@ -71,7 +71,7 @@ const reportHeader = html`<div class="page-heading">
         {{ dashboard.config.mode === 'demo' ? 'Demo data' : 'Live API' }}
       </Badge>
     </div>
-    <span class="live-count" r-if="dashboard.kind !== 'sample-data'">
+    <span class="live-count" r-if="dashboard.kind !== 'benchmark'">
       <i></i>
       <strong> {{ dashboard.realtime === null ? '—' : dashboard.number(dashboard.realtime) }} </strong>
       visitors now
@@ -82,7 +82,7 @@ const reportHeader = html`<div class="page-heading">
       icon="tabler:download"
       :disabled="dashboard.loading || !dashboard.exportRows.length"
       @click="dashboard.exportCsv"
-      r-if="dashboard.kind !== 'sample-data'"
+      r-if="dashboard.kind !== 'benchmark'"
     >
       Export
     </Btn>

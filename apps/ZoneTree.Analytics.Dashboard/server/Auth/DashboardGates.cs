@@ -53,7 +53,7 @@ sealed class SameOriginMiddleware(RequestDelegate next)
     var request = context.Request;
     if (HttpMethods.IsGet(request.Method) || HttpMethods.IsHead(request.Method) || HttpMethods.IsOptions(request.Method)
         || !(request.Path.StartsWithSegments("/_dashboard") || request.Path.StartsWithSegments(EngineMiddleware.ApiPath)
-            || request.Path.StartsWithSegments("/_analytics/sample-data")))
+            || request.Path.StartsWithSegments(BenchmarkReportStore.ManagementPath)))
       return next(context);
     var origin = request.Headers.Origin.ToString();
     var fetchSite = request.Headers["Sec-Fetch-Site"].ToString();
@@ -88,7 +88,7 @@ sealed class PageGateMiddleware(RequestDelegate next, SetupStatus setup)
     var user = DashboardAuthentication.User(context);
     if (user == null)
       return Redirect(context, "/signin/?returnUrl=" + Uri.EscapeDataString(path + request.QueryString));
-    if (!user.IsAdministrator && (page.StartsWith("/admin/", StringComparison.OrdinalIgnoreCase) || page == "/sample-data/"))
+    if (!user.IsAdministrator && (page.StartsWith("/admin/", StringComparison.OrdinalIgnoreCase) || page == "/benchmark/"))
       return Redirect(context, "/");
     if (!user.CanQuery && page == "/explorer/")
       return Redirect(context, "/");

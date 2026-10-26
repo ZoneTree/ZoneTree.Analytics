@@ -94,25 +94,16 @@ public sealed class SampleTrafficTests
 
 public sealed class SampleTrafficIngestionTests : DirectoryTest
 {
-  [TestCase(1)]
-  [TestCase(4)]
-  public async Task GeneratedTrafficProducesRealSessionsGoalsAndNonFlatReports(int workers)
+  [Test]
+  public async Task SeededTrafficProducesRealSessionsGoalsAndNonFlatReports()
   {
-    await using var engine = TestEngine.Create(directory, options =>
-    {
-      options.Web.Bots = BotTraffic.TrackSeparately;
-      options.Ingestion.WorkerCount = workers;
-      options.Ingestion.QueueCapacity = 64;
-    });
-    var progress = new List<int>();
-    await SampleTraffic.GenerateAsync(engine, 10003, 14, "samples", progress.Add, workers: workers);
-    var request = new WebReportRequest { Site = "samples", Range = DateRange.LastDays(15) };
+    await using var engine = TestEngine.Create(directory, options => options.Web.Bots = BotTraffic.TrackSeparately);
+    await SampleTraffic.SeedAsync(engine);
+    var request = new WebReportRequest { Range = DateRange.LastDays(61) };
     var summary = engine.Web.GetSummary(request).Summary;
-    Assert.That(progress, Is.Ordered);
-    Assert.That(progress[^1], Is.EqualTo(10003));
     var statistics = engine.GetStatistics();
-    Assert.That(statistics.EventsAccepted, Is.EqualTo(10003));
-    Assert.That(statistics.EventsProcessed, Is.EqualTo(10003));
+    Assert.That(statistics.EventsAccepted, Is.EqualTo(10_000));
+    Assert.That(statistics.EventsProcessed, Is.EqualTo(10_000));
     Assert.That(statistics.Errors, Is.Zero);
     Assert.That(statistics.EventsDropped, Is.Zero);
     Assert.That(summary.Visitors, Is.GreaterThan(0));
@@ -121,39 +112,5 @@ public sealed class SampleTrafficIngestionTests : DirectoryTest
     Assert.That(summary.AverageSessionDuration, Is.GreaterThan(TimeSpan.FromSeconds(10)));
     var goals = engine.Web.GetGoals(request).Rows;
     Assert.That(goals.Select(goal => goal.Name), Does.Contain("signup").And.Contain("purchase"));
-    TestContext.Out.WriteLine($"Generated reports: {summary.Visitors} visitors, {summary.PageViews} page views, {summary.BounceRate:P1} bounce rate, {summary.AverageSessionDuration} average duration.");
-  }
-
-  [Test]
-  public async Task ParallelCancellationDrainsExactlyTheAcceptedEvents()
-  {
-    await using var engine = TestEngine.Create(directory, options =>
-    {
-      options.Web.Bots = BotTraffic.TrackSeparately;
-      options.Ingestion.WorkerCount = 4;
-      options.Ingestion.QueueCapacity = 16;
-    });
-    using var cancellation = new CancellationTokenSource();
-    var processed = 0;
-    async Task Generate() => await SampleTraffic.GenerateAsync(engine, 1000000, 60, "samples", count =>
-    {
-      processed = count;
-      if (count >= 1000) cancellation.Cancel();
-    }, workers: 4, cancellationToken: cancellation.Token);
-    Assert.That(Generate, Throws.InstanceOf<OperationCanceledException>());
-    await engine.FlushAsync();
-    var statistics = engine.GetStatistics();
-    Assert.That(processed, Is.InRange(1000, 999999));
-    Assert.That(statistics.EventsAccepted, Is.EqualTo(processed));
-    Assert.That(statistics.EventsProcessed, Is.EqualTo(processed));
-    Assert.That(statistics.Errors, Is.Zero);
-  }
-
-  [Test]
-  public async Task MoreWorkersThanEventsStillGenerateTheExactCount()
-  {
-    await using var engine = TestEngine.Create(directory, options => options.Web.Bots = BotTraffic.TrackSeparately);
-    await SampleTraffic.GenerateAsync(engine, 3, workers: 64);
-    Assert.That(engine.GetStatistics().EventsProcessed, Is.EqualTo(3));
   }
 }

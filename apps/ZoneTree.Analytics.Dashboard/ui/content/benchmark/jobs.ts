@@ -8,7 +8,7 @@ import {
 } from 'regor'
 import type { DashboardModel } from '../lib/dashboard-model'
 
-export interface SampleBenchmarkResult {
+export interface BenchmarkResult {
   events: number
   days: number
   workers: number
@@ -31,7 +31,7 @@ export interface SampleBenchmarkResult {
   toDate: string
 }
 
-export interface SampleBenchmarkStatus {
+export interface BenchmarkStatus {
   state:
     | 'idle'
     | 'preparing'
@@ -56,51 +56,29 @@ export interface SampleBenchmarkStatus {
   geolocationAvailable: boolean
   citiesAvailable: boolean
   error: string | null
-  result: SampleBenchmarkResult | null
+  result: BenchmarkResult | null
   ingested: number
   elapsedMs: number
   eventsPerSecond: number
 }
 
-export interface SampleDataStatus {
-  state:
-    | 'idle'
-    | 'generating'
-    | 'compacting'
-    | 'deleting'
-    | 'completed'
-    | 'cancelled'
-    | 'failed'
-  requested: number
-  processed: number
-  totalGenerated: number
-  elapsedMs: number
-  workers: number
-  ingested: number
-  eventsPerSecond: number
-  averageEventsPerSecond: number
-  error: string | null
-  activeOperation:
-    | 'generation'
-    | 'benchmark'
-    | 'deletion'
-    | 'benchmark-deletion'
-    | null
-  benchmark: SampleBenchmarkStatus
+export interface BenchmarkJobsStatus {
+  activeOperation: 'run' | 'deletion' | null
+  benchmark: BenchmarkStatus
+  // Set on rejected requests.
+  error?: string
 }
 
-export interface SampleDataJobs {
-  status: SRef<SampleDataStatus | null>
+export interface BenchmarkJobs {
+  status: SRef<BenchmarkJobsStatus | null>
   error: SRef<string>
   pending: SRef<boolean>
   busy: ComputedRef<boolean>
   perform: (action: string, body?: object) => Promise<void>
 }
 
-export function createSampleDataJobs(
-  dashboard: DashboardModel,
-): SampleDataJobs {
-  const status = sref<SampleDataStatus | null>(null)
+export function createBenchmarkJobs(dashboard: DashboardModel): BenchmarkJobs {
+  const status = sref<BenchmarkJobsStatus | null>(null)
   const error = sref('')
   const pending = sref(false)
   const busy = computed(() => pending() || Boolean(status()?.activeOperation))
@@ -110,10 +88,10 @@ export function createSampleDataJobs(
   const request = async (
     action: string,
     body?: object,
-  ): Promise<SampleDataStatus> => {
-    const capability = dashboard.config().sampleData
+  ): Promise<BenchmarkJobsStatus> => {
+    const capability = dashboard.config().benchmark
     if (!capability)
-      throw new Error('Sample data controls are not available on this host.')
+      throw new Error('Benchmark controls are not available on this host.')
     const response = await fetch(`${capability.managementUrl}/${action}`, {
       method: body ? 'POST' : 'GET',
       cache: 'no-store',
@@ -126,10 +104,10 @@ export function createSampleDataJobs(
           }
         : {}),
     })
-    const result = (await response.json()) as SampleDataStatus
+    const result = (await response.json()) as BenchmarkJobsStatus
     if (!response.ok)
       throw new Error(
-        result.error || `Sample data request failed (${response.status}).`,
+        result.error || `Benchmark request failed (${response.status}).`,
       )
     return result
   }
@@ -150,12 +128,12 @@ export function createSampleDataJobs(
           () => {
             void refresh()
           },
-          status()?.activeOperation === 'benchmark' ? 250 : 1000,
+          status()?.activeOperation === 'run' ? 250 : 1000,
         )
     }
   }
   onMounted(() => {
-    if (dashboard.config().mode === 'live' && dashboard.config().sampleData)
+    if (dashboard.config().mode === 'live' && dashboard.config().benchmark)
       void refresh()
   })
   onUnmounted(() => {

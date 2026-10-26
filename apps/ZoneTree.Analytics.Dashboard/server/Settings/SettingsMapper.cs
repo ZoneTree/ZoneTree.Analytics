@@ -12,7 +12,7 @@ static partial class SettingsMapper
 {
   // Dashboard visits recorded when Sites.TrackDashboardUsage is on.
   public const string DashboardUsageSite = "dashboard-usage";
-  public static readonly string[] ReservedSites = [DashboardUsageSite, DashboardAnalyticsOptions.PerformanceSite, DashboardAnalyticsOptions.BenchmarkSite];
+  public static readonly string[] ReservedSites = [DashboardUsageSite, DashboardAnalyticsOptions.BenchmarkSite];
 
   [GeneratedRegex("^[a-z0-9][a-z0-9._-]{0,63}$")]
   private static partial Regex SiteIdPattern();

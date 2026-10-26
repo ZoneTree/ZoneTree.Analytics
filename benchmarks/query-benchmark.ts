@@ -6,7 +6,7 @@ import { chromium } from 'playwright'
 
 // Measures the dashboard's annual overview reports over the latest ingestion benchmark.
 // Start the dashboard in Release (yarn dashboard:release), run a benchmark from
-// Tools → Sample data, then run from the repository root:
+// Tools → Benchmark, then run from the repository root:
 //   yarn benchmark:queries [output.json] [origin]
 // The output, artifacts/benchmarks/query-benchmark-results.json by default, has the layout of
 // docs-site/content/docs/performance/query-benchmarks/results.json.
@@ -19,7 +19,7 @@ const maxConcurrentRequests = 3
 
 const query = 'site=benchmark-results&tz=UTC'
 const range = 'range=this-year&compare=previous-period'
-const api = `${origin}/_analytics/sample-data/benchmark-api`
+const api = `${origin}/_analytics/benchmark/api`
 const dashboardUrl = `${origin}/?${query}&${range}`
 
 // The six requests of one overview load, as the dashboard sends them.
@@ -93,7 +93,7 @@ interface OverviewRun {
 }
 
 async function status() {
-  const response = await fetch(`${origin}/_analytics/sample-data/status`)
+  const response = await fetch(`${origin}/_analytics/benchmark/status`)
   if (!response.ok)
     throw new Error(`The dashboard at ${origin} returned ${response.status}.`)
   return await response.json()
@@ -111,7 +111,11 @@ const initialReports: unknown[] = []
 let capturing = true
 page.on('response', async (response) => {
   const url = response.url()
-  if (!capturing || !url.includes('/benchmark-api/') || url.includes('/config'))
+  if (
+    !capturing ||
+    !url.includes('/_analytics/benchmark/api/') ||
+    url.includes('/config')
+  )
     return
   try {
     const json = await response.json()
@@ -130,7 +134,7 @@ await page.goto(dashboardUrl, { waitUntil: 'networkidle' })
 await page.waitForTimeout(1000)
 capturing = false
 // Measure from a same-origin page, so dashboard refresh timers send no requests.
-await page.goto(`${origin}/_analytics/sample-data/status`)
+await page.goto(`${origin}/_analytics/benchmark/status`)
 await page.addScriptTag({
   path: fileURLToPath(new URL('measure-overview.js', import.meta.url)),
 })

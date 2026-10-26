@@ -78,17 +78,16 @@ The dashboard has one administrator. Other users are **analysts**, who read repo
 
 Saving settings shows the changes and when each applies: at once, after the engine reopens for a few seconds, or after a server restart. Changes that delete data, such as a shorter retention, need an extra confirmation. Index changes are built from retained data in the background.
 
-## 5. Try sample datasets
+## 5. Benchmark ingestion
 
-In Development mode, the administrator can open **Tools → Sample data** to generate reporting data or run an ingestion benchmark.
+In Development mode, the administrator can open **Tools → Benchmark** to measure ingestion of realistic traffic in a fresh dataset.
 
 | Dataset | Purpose |
 | --- | --- |
 | Your sites | Traffic collected by the running application |
-| Performance samples | Generated traffic for exploring report behavior |
-| Latest benchmark | The retained dataset from a successful ingestion benchmark |
+| Latest benchmark | The retained dataset from a successful ingestion benchmark, browsable like any site |
 
-Sample tools operate on their own datasets. They do not replace your primary traffic. The latest successful benchmark remains available after restarting the host.
+A benchmark runs on its own dataset and does not touch your primary traffic. The latest successful benchmark remains available after restarting the host.
 
 <figure>
   <img

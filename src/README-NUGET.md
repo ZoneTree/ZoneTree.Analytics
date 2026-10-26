@@ -163,7 +163,7 @@ Explore traffic, acquisition, audience, events, funnels, and bot activity, run c
 
 [![ZoneTree Analytics dashboard showing visitor trends, page views, sessions, and acquisition reports](https://raw.githubusercontent.com/ZoneTree/ZoneTree.Analytics/main/docs-site/content/docs/getting-started/dashboard/dashboard-overview.png)](https://analytics.zonetree.dev/docs/getting-started/dashboard/)
 
-The [dashboard guide](https://analytics.zonetree.dev/docs/getting-started/dashboard/) covers running it with sample data, release builds, and deployment.
+The [dashboard guide](https://analytics.zonetree.dev/docs/getting-started/dashboard/) covers running it with demo data, release builds, and deployment.
 
 ## Performance
 

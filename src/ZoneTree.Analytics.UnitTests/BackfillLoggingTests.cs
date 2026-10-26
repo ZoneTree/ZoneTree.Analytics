@@ -121,7 +121,7 @@ public sealed class BackfillLoggingTests : DirectoryTest
   }
 
   [Test]
-  public void HostRegistrationAndManuallyCreatedSampleEnginesUseHostLoggingFilters()
+  public void HostRegistrationAndManuallyCreatedBenchmarkEnginesUseHostLoggingFilters()
   {
     using var provider = new LogProvider();
     using var factory = LoggerFactory.Create(logging => logging.AddProvider(provider).AddFilter("Suppressed", LogLevel.Warning));
@@ -133,10 +133,10 @@ public sealed class BackfillLoggingTests : DirectoryTest
       Assert.That(provider.Messages.Any(log => log.Category == "ZoneTree.Analytics" && log.Message.StartsWith("Rollup index backfill started;", StringComparison.Ordinal)), Is.True);
     }
     provider.Messages.Clear();
-    var options = DashboardAnalyticsOptions.CreateBenchmark(directory, TimeZoneInfo.Utc, 1, false, true, factory.CreateLogger("SampleBenchmark"));
+    var options = DashboardAnalyticsOptions.CreateBenchmark(directory, TimeZoneInfo.Utc, 1, false, true, factory.CreateLogger("IngestionBenchmark"));
     TestEngine.UseTestDefaults(options);
     using (var engine = new AnalyticsEngine(options))
-      Assert.That(provider.Messages.Any(log => log.Category == "SampleBenchmark" && log.Message.Contains("backfill check completed;", StringComparison.Ordinal)), Is.True);
+      Assert.That(provider.Messages.Any(log => log.Category == "IngestionBenchmark" && log.Message.Contains("backfill check completed;", StringComparison.Ordinal)), Is.True);
     provider.Messages.Clear();
     options.UseLogger(factory.CreateLogger("Suppressed"));
     using var suppressed = new AnalyticsEngine(options);

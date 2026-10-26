@@ -26,31 +26,12 @@ export function validateConfig(input: Partial<Config>): Config {
     )
   if (new Set(value.sites.map((site) => site.id)).size !== value.sites.length)
     throw new Error('Each site ID must be unique.')
-  if (value.sampleData) {
-    const sample = value.sampleData
-    if (typeof sample.siteId !== 'string' || !sample.siteId)
-      throw new Error('The sample site ID is invalid.')
-    sample.apiBaseUrl = normalizeApiUrl(sample.apiBaseUrl)
-    sample.managementUrl = normalizeApiUrl(sample.managementUrl)
-    if (!value.sites.some((site) => site.id === sample.siteId))
-      value.sites = [
-        ...value.sites,
-        { id: sample.siteId, name: 'Performance samples' },
-      ]
-    if (sample.benchmark) {
-      if (
-        typeof sample.benchmark.siteId !== 'string' ||
-        !sample.benchmark.siteId ||
-        sample.benchmark.siteId === sample.siteId
-      )
-        throw new Error('The benchmark site ID is invalid.')
-      sample.benchmark.apiBaseUrl = normalizeApiUrl(sample.benchmark.apiBaseUrl)
-      if (!value.sites.some((site) => site.id === sample.benchmark?.siteId))
-        value.sites = [
-          ...value.sites,
-          { id: sample.benchmark.siteId, name: 'Latest benchmark' },
-        ]
-    }
+  if (value.benchmark) {
+    const benchmark = value.benchmark
+    if (typeof benchmark.siteId !== 'string' || !benchmark.siteId)
+      throw new Error('The benchmark site ID is invalid.')
+    benchmark.apiBaseUrl = normalizeApiUrl(benchmark.apiBaseUrl)
+    benchmark.managementUrl = normalizeApiUrl(benchmark.managementUrl)
   }
   return value
 }

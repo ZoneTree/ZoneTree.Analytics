@@ -1,7 +1,7 @@
 using ZoneTree.Analytics;
 
-// Streaming generation through the real engine; memory does not grow with the
-// requested event count. Inputs include page views, goals, purchases and bots.
+// Realistic website traffic for benchmarks and demo data: page views, goals, purchases and bots,
+// generated as a stream, so memory does not grow with the event count.
 static class SampleTraffic
 {
   // Visitor shares per mille, roughly those of an international developer site.
@@ -36,45 +36,13 @@ static class SampleTraffic
     return Countries[^1].Country;
   }
 
-  public static Task SeedAsync(AnalyticsEngine engine) => GenerateAsync(engine, 10_000);
-
-  public static async Task GenerateAsync(
-      AnalyticsEngine engine, int eventCount, int days = 60, string site = null,
-      Action<int> progress = null, int workers = 1, CancellationToken cancellationToken = default)
+  // Demo traffic for an empty site: 10,000 events over the last 60 days, through the real engine.
+  public static async Task SeedAsync(AnalyticsEngine engine)
   {
-    if (eventCount is < 1 or > 10_000_000 || days is < 1 or > 365 || workers is < 1 or > 64)
-      throw new ArgumentException("Choose 1–10,000,000 events, 365 days, and 1–64 workers.");
-    workers = Math.Min(workers, eventCount);
-    using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-    var progressSync = new object();
-    var processed = 0;
-    var end = DateTimeOffset.UtcNow.AddSeconds(-1);
-    async Task ProduceAsync(int count)
-    {
-      try
-      {
-        // Each producer owns a visitor stream, so parallel writes cannot reorder
-        // events for the same visitor. Only a bounded number of tasks is created.
-        foreach (var item in CreateEvents(count, days, site, engine.TimeZone, end))
-        {
-          stop.Token.ThrowIfCancellationRequested();
-          if (!await engine.TrackAsync(item, stop.Token))
-            throw new InvalidOperationException("The engine did not accept the generated event.");
-          var accepted = Interlocked.Increment(ref processed);
-          if (accepted % 1000 == 0)
-            lock (progressSync) progress?.Invoke(Volatile.Read(ref processed));
-        }
-      }
-      catch { stop.Cancel(); throw; }
-    }
-    try
-    {
-      if (workers == 1) await ProduceAsync(eventCount);
-      else await Task.WhenAll(Enumerable.Range(0, workers).Select(worker =>
-          Task.Run(() => ProduceAsync(eventCount / workers + (worker < eventCount % workers ? 1 : 0)))));
-      await engine.FlushAsync(cancellationToken);
-    }
-    finally { progress?.Invoke(Volatile.Read(ref processed)); }
+    foreach (var item in CreateEvents(10_000, 60, timeZone: engine.TimeZone))
+      if (!await engine.TrackAsync(item))
+        throw new InvalidOperationException("The engine did not accept a demo event.");
+    await engine.FlushAsync();
   }
 
   // With addresses, a visitor's country comes from its address, which the engine geolocates;
@@ -86,7 +54,7 @@ static class SampleTraffic
     if (eventCount is < 1 or > 10_000_000)
       throw new ArgumentOutOfRangeException(nameof(eventCount), "Choose between 1 and 10,000,000 events.");
     if (days is < 1 or > 365)
-      throw new ArgumentOutOfRangeException(nameof(days), "Choose between 1 and 90 days.");
+      throw new ArgumentOutOfRangeException(nameof(days), "Choose between 1 and 365 days.");
     var random = new Random(42);
     var batch = Guid.NewGuid().ToString("N");
     var end = endingAt ?? DateTimeOffset.UtcNow.AddSeconds(-1);

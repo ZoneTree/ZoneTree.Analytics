@@ -3,34 +3,23 @@ using ZoneTree.Analytics;
 using ZoneTree.Analytics.AspNetCore;
 using ZoneTree.Analytics.Web;
 
-// Engine configuration of the Development sample and benchmark datasets. Every engine gets its
-// own options and collections. The primary engine is configured from the stored dashboard
-// settings (see SettingsMapper).
+// Engine configuration of the Development benchmark datasets. Every engine gets its own options
+// and collections. The primary engine is configured from the stored dashboard settings (see
+// SettingsMapper).
 static class DashboardAnalyticsOptions
 {
   public const string DefaultDataDirectory = "data/analytics";
-  public const string PerformanceSite = "performance-samples";
   public const string BenchmarkSite = "benchmark-results";
 
-  // Shared defaults for generated samples and benchmark datasets.
-  // Set retention, storage, rollups, query and ingestion tuning here for both.
+  // Defaults of benchmark datasets: retention, storage, rollups, query and ingestion tuning.
   static void ConfigureCommon(AnalyticsOptions options)
   {
     options.Retention.RawEvents = TimeSpan.FromDays(365 * 3);
     options.Web.Bots = BotTraffic.TrackSeparately;
-    // No geolocator: generated samples carry their country as a dimension, unless a benchmark
+    // No geolocator: benchmark traffic carries its country as a dimension, unless the run
     // measures geolocation. The primary engine resolves visitor countries with the IP location
     // database (see IpLocation).
     ConfigureIndexes(options);
-  }
-
-  public static AnalyticsOptions CreatePerformanceSamples(string directory, TimeZoneInfo timeZone,
-      int workers, ILogger logger = null)
-  {
-    var options = Create(directory, PerformanceSite, timeZone, logger);
-    SetWorkers(options, workers);
-    options.Rollups.ValueAggregates["load_time"] = ValueAggregates.Percentiles;
-    return options;
   }
 
   // Without indexes, ingestion writes only raw events, sessions and rollups. With a geolocator,

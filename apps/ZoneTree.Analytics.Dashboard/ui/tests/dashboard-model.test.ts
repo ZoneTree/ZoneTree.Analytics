@@ -54,15 +54,15 @@ function browserEnvironment(url = 'http://localhost/') {
   return globals
 }
 
-test('sample controls are advertised by the host rather than restored from browser settings', async () => {
+test('benchmark controls are advertised by the host rather than restored from browser settings', async () => {
   const browser = browserEnvironment()
   browser.localStorage.setItem(
     'zt-dashboard-connection-v1',
     JSON.stringify({
       ...defaultConfig,
       mode: 'live',
-      sampleData: {
-        siteId: 'stale-sample',
+      benchmark: {
+        siteId: 'stale-benchmark',
         apiBaseUrl: '/stale/api',
         managementUrl: '/stale',
       },
@@ -74,30 +74,50 @@ test('sample controls are advertised by the host rather than restored from brows
         headers: { 'Content-Type': 'application/json' },
       }),
   )
-  assert.equal((await loadConfig()).sampleData, undefined)
+  assert.equal((await loadConfig()).benchmark, undefined)
   vi.spyOn(globalThis, 'fetch').mockImplementation(
     async () =>
       new Response(
         JSON.stringify({
           ...defaultConfig,
           mode: 'live',
-          sampleData: {
-            siteId: 'performance-samples',
-            apiBaseUrl: '/_analytics/sample-data/api',
-            managementUrl: '/_analytics/sample-data',
-            benchmark: {
-              siteId: 'benchmark-results',
-              apiBaseUrl: '/_analytics/sample-data/benchmark-api',
-            },
+          benchmark: {
+            siteId: 'benchmark-results',
+            apiBaseUrl: '/_analytics/benchmark/api',
+            managementUrl: '/_analytics/benchmark',
           },
         }),
         { headers: { 'Content-Type': 'application/json' } },
       ),
   )
   const config = await loadConfig()
-  assert.equal(config.sampleData?.siteId, 'performance-samples')
-  assert.ok(config.sites.some((site) => site.id === 'performance-samples'))
-  assert.ok(config.sites.some((site) => site.id === 'benchmark-results'))
+  assert.equal(config.benchmark?.siteId, 'benchmark-results')
+  assert.ok(
+    !config.sites.some((site) => site.id === 'benchmark-results'),
+    'Without a retained run the host does not list the benchmark site',
+  )
+  vi.spyOn(globalThis, 'fetch').mockImplementation(
+    async () =>
+      new Response(
+        JSON.stringify({
+          ...defaultConfig,
+          mode: 'live',
+          sites: [
+            ...defaultConfig.sites,
+            { id: 'benchmark-results', name: 'Latest benchmark' },
+          ],
+          benchmark: {
+            siteId: 'benchmark-results',
+            apiBaseUrl: '/_analytics/benchmark/api',
+            managementUrl: '/_analytics/benchmark',
+          },
+        }),
+        { headers: { 'Content-Type': 'application/json' } },
+      ),
+  )
+  assert.ok(
+    (await loadConfig()).sites.some((site) => site.id === 'benchmark-results'),
+  )
 })
 
 test('URL scope overrides session settings and persists custom dates, repeated filters, and no comparison', async () => {
@@ -116,6 +136,11 @@ test('URL scope overrides session settings and persists custom dates, repeated f
   const model = createDashboardModel('overview', {
     ...defaultConfig,
     timeZone: 'UTC',
+    sites: [
+      ...defaultConfig.sites,
+      { id: 'url-site', name: 'URL site' },
+      { id: 'stored-site', name: 'Stored site' },
+    ],
   })
   try {
     assert.deepEqual(model.scope(), {
@@ -139,6 +164,20 @@ test('URL scope overrides session settings and persists custom dates, repeated f
       ),
       model.scope(),
     )
+  } finally {
+    model.dispose()
+  }
+})
+
+test('a selected site that is no longer listed falls back to the first site', () => {
+  const browser = browserEnvironment('http://localhost/?site=benchmark-results')
+  browser.sessionStorage.setItem(
+    'zt-dashboard-scope-v1',
+    JSON.stringify({ site: 'deleted-site' }),
+  )
+  const model = createDashboardModel('overview', defaultConfig)
+  try {
+    assert.equal(model.scope().site, defaultConfig.sites[0].id)
   } finally {
     model.dispose()
   }

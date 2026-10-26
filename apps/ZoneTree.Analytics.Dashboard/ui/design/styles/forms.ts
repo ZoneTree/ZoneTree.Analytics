@@ -73,45 +73,43 @@ export function registerFormsStyles(context: DashboardStyleContext) {
 
   root.select('.funnel-form .form-actions').marginTop('0').alignItems('end')
 
-  root.select('.zt-dashboard .sample-data-form').gap('18px')
+  root.select('.zt-dashboard .benchmark-form').gap('18px')
 
   root
-    .select('.zt-dashboard .sample-data-form .form-block__field')
+    .select('.zt-dashboard .benchmark-form .form-block__field')
     .marginBottom('0')
 
   root
-    .select('.sample-data-form .form-grid')
+    .select('.benchmark-form .form-grid')
     .marginBottom('0')
     .gridTemplateColumns('repeat(3,minmax(0,1fr))')
 
-  root.select('.sample-data-form .form-actions').marginTop('0')
-
-  root.select('.sample-presets').display('flex').gap('8px').flexWrap('wrap')
+  root.select('.benchmark-form .form-actions').marginTop('0')
 
   root
-    .select('.sample-job-status')
+    .select('.benchmark-status')
     .fontSize('12px')
     .color(muted)
     .display('grid')
     .gap('8px')
 
   root
-    .select('.sample-progress')
+    .select('.benchmark-progress')
     .width('100%')
     .height('8px')
     .accentColor(accent)
 
   root
-    .select('.sample-ingestion-metrics')
+    .select('.benchmark-metrics')
     .display('grid')
     .gridTemplateColumns('repeat(4,minmax(0,1fr))')
     .gap('16px')
     .margin('16px 0 0')
 
-  root.select('.sample-ingestion-metrics dt').fontSize('11px').color(muted)
+  root.select('.benchmark-metrics dt').fontSize('11px').color(muted)
 
   root
-    .select('.sample-ingestion-metrics dd')
+    .select('.benchmark-metrics dd')
     .margin('4px 0 0')
     .color(ink)
     .fontSize('22px')
@@ -119,24 +117,24 @@ export function registerFormsStyles(context: DashboardStyleContext) {
     .fontVariantNumeric('tabular-nums')
 
   root
-    .select('.sample-ingestion-metrics small')
+    .select('.benchmark-metrics small')
     .color(muted)
     .fontSize('11px')
     .fontWeight('400')
 
   root
-    .select('.sample-benchmark-result')
+    .select('.benchmark-result')
     .borderTop(`1px solid ${edge}`)
     .marginTop('24px')
     .paddingTop('20px')
 
   root
-    .select('.sample-benchmark-result h3')
+    .select('.benchmark-result h3')
     .fontSize('14px')
     .fontWeight('600')
     .marginBottom('8px')
 
-  root.select('.sample-benchmark-result .field-hint').marginTop('12px')
+  root.select('.benchmark-result .field-hint').marginTop('12px')
 
   root
     .select('.funnel-step')

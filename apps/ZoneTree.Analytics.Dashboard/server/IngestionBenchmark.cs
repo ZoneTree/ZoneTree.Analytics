@@ -4,29 +4,29 @@ using System.Runtime;
 using Microsoft.Extensions.Logging;
 using ZoneTree.Analytics;
 
-sealed record SampleBenchmarkRequest(int Events = 5_000_000, int Days = 365, int Workers = 20, bool Percentiles = false,
+sealed record BenchmarkRequest(int Events = 5_000_000, int Days = 365, int Workers = 20, bool Percentiles = false,
     bool Indexes = true, bool Geolocation = false, bool Cities = false);
-sealed record SampleBenchmarkResult(int Events, int Days, int Workers, bool Percentiles,
+sealed record BenchmarkResult(int Events, int Days, int Workers, bool Percentiles,
     double PreparationMs, double SubmissionMs, double IngestionMs, double EventsPerSecond,
     long Ingested, long Errors, long Dropped, long Rejected, string Build, string GarbageCollection, string TieredCompilation,
     string FromDate = "", string ToDate = "", bool Indexes = true, bool Geolocation = false, bool Cities = false);
-sealed record SampleBenchmarkStatus(string State = "idle", int Requested = 0, int Prepared = 0, int Submitted = 0,
-    int Workers = 20, int Days = 365, bool Percentiles = false, bool Indexes = true, string Error = null, SampleBenchmarkResult Result = null,
+sealed record BenchmarkStatus(string State = "idle", int Requested = 0, int Prepared = 0, int Submitted = 0,
+    int Workers = 20, int Days = 365, bool Percentiles = false, bool Indexes = true, string Error = null, BenchmarkResult Result = null,
     long Ingested = 0, double ElapsedMs = 0, double EventsPerSecond = 0, bool Geolocation = false,
     bool Cities = false, bool GeolocationAvailable = false, bool CitiesAvailable = false);
-sealed record SampleBenchmarkProgress(string State, int Prepared = 0, int Submitted = 0,
+sealed record BenchmarkProgress(string State, int Prepared = 0, int Submitted = 0,
     long Ingested = 0, double ElapsedMs = 0, double EventsPerSecond = 0);
 
-// Preparation uses the same realistic generator. The measured interval contains
+// Preparation generates realistic traffic in memory. The measured interval contains
 // submission and the final flush; store creation, statistics and cleanup are outside it.
 // Each run takes the reporting time zone current when it starts. With geolocation, visitors carry
 // addresses the engine resolves to their countries, and with cities also to regions and cities,
 // instead of country dimensions, so the kinds of run differ only by the lookups. A run loads the
 // database files of the IP location provider current when it starts, to the precision it measures.
-sealed class SampleBenchmark(string contentRoot, Func<TimeZoneInfo> currentTimeZone, ILogger logger = null,
+sealed class IngestionBenchmark(string contentRoot, Func<TimeZoneInfo> currentTimeZone, ILogger logger = null,
     Func<IpLocationProvider> currentIpLocation = null) : IAsyncDisposable
 {
-  public SampleBenchmark(string contentRoot, TimeZoneInfo timeZone, ILogger logger = null, IpLocationProvider ipLocation = null)
+  public IngestionBenchmark(string contentRoot, TimeZoneInfo timeZone, ILogger logger = null, IpLocationProvider ipLocation = null)
       : this(contentRoot, () => timeZone, logger, () => ipLocation) { }
 
   public BenchmarkReportStore Reports { get; } = new(contentRoot, logger);
@@ -35,7 +35,7 @@ sealed class SampleBenchmark(string contentRoot, Func<TimeZoneInfo> currentTimeZ
   public GeoPrecision AvailableGeoPrecision =>
       currentIpLocation?.Invoke()?.Database?.AvailablePrecision ?? GeoPrecision.None;
 
-  public static AnalyticsEvent[] PrepareEvents(SampleBenchmarkRequest request, TimeZoneInfo timeZone,
+  public static AnalyticsEvent[] PrepareEvents(BenchmarkRequest request, TimeZoneInfo timeZone,
       Action<int> progress, DateTimeOffset? endingAt = null, CancellationToken cancellationToken = default,
       SampleAddresses addresses = null)
   {
@@ -52,7 +52,7 @@ sealed class SampleBenchmark(string contentRoot, Func<TimeZoneInfo> currentTimeZ
     return events;
   }
 
-  public async Task<SampleBenchmarkResult> RunAsync(SampleBenchmarkRequest request, Action<SampleBenchmarkProgress> progress,
+  public async Task<BenchmarkResult> RunAsync(BenchmarkRequest request, Action<BenchmarkProgress> progress,
       CancellationToken cancellationToken, CancellationToken applicationStopping)
   {
     var timeZone = currentTimeZone();
@@ -87,9 +87,9 @@ sealed class SampleBenchmark(string contentRoot, Func<TimeZoneInfo> currentTimeZ
     finally { Reports.RemoveUnpublishedRun(directory); }
   }
 
-  async Task<SampleBenchmarkResult> MeasureAsync(string directory, AnalyticsEvent[] events, SampleBenchmarkRequest request,
+  async Task<BenchmarkResult> MeasureAsync(string directory, AnalyticsEvent[] events, BenchmarkRequest request,
       IGeoLocator geoLocator, GeoPrecision geoPrecision, DateTimeOffset end,
-      TimeZoneInfo timeZone, double preparationMs, Action<SampleBenchmarkProgress> progress, CancellationToken cancellationToken, CancellationToken applicationStopping)
+      TimeZoneInfo timeZone, double preparationMs, Action<BenchmarkProgress> progress, CancellationToken cancellationToken, CancellationToken applicationStopping)
   {
     var options = DashboardAnalyticsOptions.CreateBenchmark(directory, timeZone, request.Workers, request.Percentiles, request.Indexes, logger,
         geoLocator, geoPrecision);
@@ -159,7 +159,7 @@ sealed class SampleBenchmark(string contentRoot, Func<TimeZoneInfo> currentTimeZ
   }
 
   static async Task MonitorAsync(AnalyticsEngine engine, int requested, Stopwatch stopwatch,
-      Action<SampleBenchmarkProgress> progress, CancellationToken cancellationToken, CancellationToken stop)
+      Action<BenchmarkProgress> progress, CancellationToken cancellationToken, CancellationToken stop)
   {
     using var interval = new PeriodicTimer(TimeSpan.FromMilliseconds(250));
     try
@@ -171,7 +171,7 @@ sealed class SampleBenchmark(string contentRoot, Func<TimeZoneInfo> currentTimeZ
   }
 
   static void PublishProgress(AnalyticsEngine engine, int requested, Stopwatch stopwatch,
-      Action<SampleBenchmarkProgress> progress, bool cancelling)
+      Action<BenchmarkProgress> progress, bool cancelling)
   {
     var statistics = engine.GetStatistics(includePartitions: false);
     var phase = cancelling ? "cancelling" : statistics.EventsProcessed >= requested ? "flushing" : "ingesting";

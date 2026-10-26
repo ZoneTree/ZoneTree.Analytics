@@ -126,7 +126,7 @@ export interface Config {
   timeZone: string
   sites: { id: string; name: string }[]
   refreshSeconds: number
-  sampleData?: SampleDataCapability | null
+  benchmark?: BenchmarkCapability | null
   user?: SessionUser | null
 }
 export type UserRole = 'Administrator' | 'Analyst' | 'Viewer'
@@ -137,11 +137,10 @@ export interface SessionUser {
   role: UserRole
   canQuery?: boolean
 }
-export interface SampleDataCapability {
+export interface BenchmarkCapability {
   siteId: string
   apiBaseUrl: string
   managementUrl: string
-  benchmark?: { siteId: string; apiBaseUrl: string }
 }
 export const dashboardConfigPath = '/_analytics/api/config'
 export const dashboardTrackerPath = '/_analytics/script.js'

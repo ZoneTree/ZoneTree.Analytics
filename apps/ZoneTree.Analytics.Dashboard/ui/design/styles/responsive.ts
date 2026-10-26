@@ -127,12 +127,12 @@ export function registerResponsiveStyles(context: DashboardStyleContext) {
 
   mobile
     .select(
-      '.overview-grid, .audience-grid, .form-grid, .sample-data-form .form-grid',
+      '.overview-grid, .audience-grid, .form-grid, .benchmark-form .form-grid',
     )
     .gridTemplateColumns('minmax(0,1fr)')
 
   mobile
-    .select('.sample-ingestion-metrics')
+    .select('.benchmark-metrics')
     .gridTemplateColumns('repeat(2,minmax(0,1fr))')
 
   mobile.select('.chart-wrap').height('210px')

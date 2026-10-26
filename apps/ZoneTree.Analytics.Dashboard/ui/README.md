@@ -42,44 +42,38 @@ Every dashboard page loads the host's `/_analytics/script.js` tracker with local
 The primary engine is configured in **Administration**: setup chooses the first settings, and
 the admin pages change them, reopening the engine when needed. The Development datasets are
 configured in `apps/ZoneTree.Analytics.Dashboard/server/DashboardAnalyticsOptions.cs`:
-`ConfigureCommon` holds retention, storage, ingestion, queries and rollups shared by performance
-samples, new benchmarks and reopened benchmark reports, whose raw events are retained for three
-years. `CreatePerformanceSamples`, `CreateBenchmark` and `CreateBenchmarkReport` contain the
-per-engine settings; sample and benchmark worker counts come from the dashboard, and the benchmark
-percentile and index settings and reporting time zone are preserved when reopening a completed
-dataset. New sample datasets use the reporting time zone chosen during setup; an existing one keeps the
-time zone it was created with. Restart the host to apply edited
-sample settings.
+`ConfigureCommon` holds retention, storage, ingestion, queries and rollups of new benchmarks and
+reopened benchmark reports, whose raw events are retained for three years. `CreateBenchmark`
+and `CreateBenchmarkReport` contain the per-engine settings; worker counts come from the
+dashboard, and the percentile and index settings and reporting time zone are preserved when
+reopening a completed dataset. A run uses the reporting time zone current when it starts.
 
-## Performance sample data
+## Benchmark
 
-With the dashboard server in Development mode, open **Tools â†’ Sample data**. Choose an event count (1 to 10,000,000), a date span (1 to 365 days), and parallel workers (1 to 64), then select **Generate sample data**. One worker runs sequentially; higher counts parallelize both sample producers and the sample engine's ingestion workers while retaining visitor event order. Presets include 1,000, 100,000, 1 million and 5 million events. Generation streams events without allocating the full batch. Progress includes submitted and ingested events, elapsed time, live ingestion speed and **Generation throughput**. This average covers event creation, ingestion and flushing, excluding engine preparation. Changing workers preserves the sample store and briefly pauses sample reporting while the engine reopens. The engine's default queue, rollup-buffer and session-cache limits apply per worker. **Cancel generation** stops new submissions, drains accepted events, and keeps them in the dataset.
+With the dashboard server in Development mode, open **Tools → Benchmark**. Benchmark controls and
+endpoints are available only in Development mode, including when `Dashboard:Watch=false`;
+production hosts do not expose them.
 
-Select **View sample reports**, or choose **Performance samples** in a report's site selector. These reports use a separate engine and store at `apps/ZoneTree.Analytics.Dashboard/server/data/performance-samples`. Traffic follows the reporting time zone, with quiet nights, busy daytime hours, quieter weekends, growth, campaign spikes and a temporary dip. Visits vary in length, bounce rate and conversions; campaign traffic also changes sources and load times. The dataset includes page views, signups, purchases, bot traffic, device types, sources and geography. Counts describe generated input events; the engine also produces session records. Each generation adds a batch with new visitor IDs. Delete an existing uniformly distributed dataset before generating a fresh one to see the new patterns clearly.
+**Benchmark ingestion** prepares realistic traffic in memory before timing, then feeds it to a fresh engine with the default per-worker limits. **Include load-time percentile aggregation** controls only percentile rollups; event values and traffic shape are retained. Clear **Maintain dimension and rollup indexes** to measure ingestion without the dashboard's secondary indexes; that run's reports read rollups and raw events directly. **Resolve visitor countries from IP addresses** gives visitors addresses in their countries instead of country dimensions, so the engine looks them up; **Also resolve regions and cities** keeps regions and cities too and needs a database with cities, such as DB-IP Lite. Both are off by default and use the primary engine's IP location files, loaded to the measured precision during preparation. Progress polls lightweight engine counters every 250 ms and shows ingested events, queued events, elapsed time and average throughput so far. The progress bar follows processed events, then shows a separate saving-aggregates stage while the final flush finishes. The result separates preparation, submission, and ingestion-through-flush time. Throughput uses successfully processed events divided by the submission-through-flush interval, with preparation, store creation, dataset publication, disposal and cleanup excluded.
 
-**Delete sample data** closes the sample engine and removes its events, rollups and metadata, then permits a fresh dataset. Primary traffic and its data directory are preserved. Sample controls and endpoints are available only in Development mode, including when `Dashboard:Watch=false`; production hosts do not expose them.
+Completed benchmarks compact their stores before reporting completion, moving remaining
+in-memory records into disk segments and draining their WALs. The dashboard shows **Preparing
+reports** during this step. Ingestion throughput excludes this final compaction step.
 
-**Benchmark ingestion** prepares the same realistic traffic in memory before timing, then feeds it to a fresh engine with the default per-worker limits. **Include load-time percentile aggregation** controls only percentile rollups; event values and traffic shape are retained. Clear **Maintain dimension and rollup indexes** to measure ingestion without the dashboard's secondary indexes; that run's reports read rollups and raw events directly. **Resolve visitor countries from IP addresses** gives visitors addresses in their countries instead of country dimensions, so the engine looks them up; **Also resolve regions and cities** keeps regions and cities too and needs a database with cities, such as DB-IP Lite. Both are off by default and use the primary engine's IP location files, loaded to the measured precision during preparation. Progress polls lightweight engine counters every 250 ms and shows ingested events, queued events, elapsed time and average throughput so far. The progress bar follows processed events, then shows a separate saving-aggregates stage while the final flush finishes. The result separates preparation, submission, and ingestion-through-flush time. Throughput uses successfully processed events divided by the submission-through-flush interval, with preparation, store creation, dataset publication, disposal and cleanup excluded.
+Each benchmark uses a fresh GUID directory under `data/ingestion-benchmarks`. The latest successful dataset and its result are retained across restarts; a successful new run replaces the previous one after its report queries finish. Cancelled and failed runs remove their own incomplete dataset and preserve the previous successful run. Select **View benchmark reports** to browse the **Latest benchmark** site over the full generated date range, or select that site in any report. **Delete benchmark data** removes the retained dataset and result. Benchmark reports use `/_analytics/benchmark/api`. Primary traffic is preserved. A run and a deletion share a single-operation guard and cancellation. The previous completed benchmark stays visible and browsable during a new run.
 
-Completed sample generations and benchmarks compact their stores before reporting completion,
-moving remaining in-memory records into disk segments and draining their WALs. The dashboard
-shows **Preparing reports** during this step. Generation and ingestion throughput exclude this
-final compaction step. Cancelled generations retain accepted events without forcing compaction.
-
-Each benchmark uses a fresh GUID directory under `data/ingestion-benchmarks`. The latest successful dataset and its result are retained across restarts; a successful new run replaces the previous one after its report queries finish. Cancelled and failed runs remove their own incomplete dataset and preserve the previous successful run. Select **View benchmark reports** to browse the **Latest benchmark** site over the full generated date range, or select that site in any report. **Delete benchmark data** removes the retained dataset and result. Benchmark reports use `/_analytics/sample-data/benchmark-api`. Primary traffic and generated report samples are preserved. Generation, deletion and benchmarking share a single-operation guard and cancellation. The previous completed benchmark stays visible and browsable during a new run.
-
-Benchmark defaults are **5,000,000 events**, **90 days**, and **20 workers** in both the dashboard and API. For performance measurements, use the same Release build and tiered-compilation setting as the playground. Both projects request server GC; results show the actual build and GC mode. From the repository root in PowerShell, after publishing the dashboard:
+Benchmark defaults are **5,000,000 events**, **365 days**, and **20 workers** in both the dashboard and API. For performance measurements, use the same Release build and tiered-compilation setting as the playground. Both projects request server GC; results show the actual build and GC mode. From the repository root in PowerShell, after publishing the dashboard:
 
 ```powershell
 $env:DOTNET_TieredCompilation = '0'
 dotnet run -c Release --project apps/ZoneTree.Analytics.Dashboard/server -- --Dashboard:Watch=false
 ```
 
-The dashboard server exposes `GET /_analytics/sample-data/status` and JSON `POST` requests to `/generate` (`{"events":1000000,"days":60,"workers":8}`), `/benchmark` (`{"events":5000000,"days":90,"workers":20,"percentiles":false,"indexes":true}`), `/cancel` (`{}`), `/clear` (`{}`), and `/clear-benchmark` (`{}`). Generation workers default to 1; benchmark defaults are described above. Status includes the active operation, generation progress, benchmark preparation/ingestion progress, and the previous completed benchmark result. Its config response advertises both report sites and their endpoints; other sites continue using the configured reporting API.
+The dashboard server exposes `GET /_analytics/benchmark/status` and JSON `POST` requests to `/_analytics/benchmark/run` (`{"events":5000000,"days":365,"workers":20,"percentiles":false,"indexes":true,"geolocation":false,"cities":false}`), `/cancel` (`{}`) and `/clear` (`{}`). Status includes the active operation, preparation and ingestion progress, and the previous completed result. The config response advertises the **Latest benchmark** site and its endpoints; other sites continue using the configured reporting API.
 
 ## Build and host
 
-The dashboard server, performance sample store and ingestion benchmark also enable covering rollup
+The dashboard server and ingestion benchmark also enable covering rollup
 indexes in both filtering directions for all six pairs among `source`, `country`, `device` and
 `page` (12 logical ordered indexes per enabled rollup tier). All logical indexes share one
 partitioned ZoneTree store per tier under `rollup-indexes/hour` and `rollup-indexes/day`, giving
@@ -90,11 +84,11 @@ Overview cards filtered by any one of these
 dimensions read joint aggregates instead of replaying every matching event. The shared explicit
 configuration is in `apps/ZoneTree.Analytics.Dashboard/server/DashboardAnalyticsOptions.cs`. On first open after
 enabling the combinations, retained raw events backfill the joint rollups; progress is logged.
-The main, performance-sample and benchmark engines use host logging. At Information level,
+The main and benchmark engines use host logging. At Information level,
 startup logs show timed backfill necessity checks and their reuse/rebuild reasons, followed
 by backfill start, progress and completion messages with duration, counts and throughput.
 The data directory identifies the dataset; initialization summaries show the total cost.
-The host opens retained sample datasets before listening so migrations finish before browser
+The host opens the retained benchmark dataset before listening so migrations finish before browser
 request timeouts start. Expired raw history cannot be rebuilt. Plan steps keep their rollup tier and expose
 the filter's `indexDimension`. Benchmark throughput includes maintaining the new aggregates and
 their copied keys and values. To configure other combinations in your own host, use
@@ -163,7 +157,7 @@ For hosting below a path such as `/analytics/`, set PureStack's `basePath` in `c
 | `/setup/` | `content/setup/setup.mdx`, `content/setup/setup.ts` | First-run wizard |
 | `/account/`, `/account/settings/` | `content/account/` | Profile, signed-in browsers, display name and password |
 | `/admin/…` | `content/admin/` | Server status, sites, users, indexes and rollups, settings, audit log |
-| `/sample-data/` | `content/sample-data/sample-data.mdx`, `content/sample-data/sample-data.ts` | Sample generation, progress, cancellation, and deletion |
+| `/benchmark/` | `content/benchmark/benchmark.mdx`, `content/benchmark/benchmark.ts` | Ingestion benchmark, progress, cancellation, results and deletion |
 
 Each page's MDX and TypeScript live together in its folder. PureStack treats matching folder and file names as folder indexes. The root `index.mdx` imports the shared overview markup so the homepage stays at `/`. Each page component has an exported interface, declarative `html` template, and business logic in the same TypeScript file. `content/components` contains shared typed components with their templates and behavior. `content/lib` contains HTTP contracts, transport, configuration, demo data, and formatting helpers; `session.ts`, `admin.ts` and `settings-model.ts` hold the session, the review-before-save flow and the schema-driven settings form shared by the wizard and the admin pages. `design` holds the PureStack plugin, build-time components, skin, and typed styles.
 
