@@ -28,7 +28,7 @@ builder.Services.AddSingleton<SignInThrottle>();
 builder.Services.AddSingleton<SetupKey>();
 builder.Services.AddSingleton<SetupStatus>();
 builder.Services.AddSingleton<SiteResolution>();
-builder.Services.AddHostedService<SessionCleanup>();
+builder.Services.AddHostedService<SystemCleanup>();
 builder.Services.AddDashboardAuthentication();
 // Behind a reverse proxy that terminates HTTPS, the origin check, secure cookies and visitor
 // addresses need the original scheme, host and client address. Loopback proxies are trusted by
@@ -80,6 +80,7 @@ if (settings.IsConfigured)
 }
 
 app.UseForwardedHeaders();
+app.UseMiddleware<FrameProtectionMiddleware>();
 app.UseAuthentication();
 app.UseMiddleware<SameOriginMiddleware>();
 app.UseMiddleware<PageGateMiddleware>();

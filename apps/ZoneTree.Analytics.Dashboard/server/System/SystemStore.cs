@@ -68,6 +68,17 @@ sealed class SystemStore : IDisposable
 
   public void Delete(string key) => tree.ForceDelete(key);
 
+  // The keys under the prefix, in key order, without reading their values.
+  public List<string> Keys(string prefix)
+  {
+    var result = new List<string>();
+    using var iterator = tree.CreateIterator();
+    iterator.Seek(prefix);
+    while (iterator.Next() && iterator.CurrentKey.StartsWith(prefix, StringComparison.Ordinal))
+      result.Add(iterator.CurrentKey);
+    return result;
+  }
+
   // Every record under the prefix, in key order.
   public List<KeyValuePair<string, T>> List<T>(string prefix)
   {

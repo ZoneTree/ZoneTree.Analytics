@@ -135,21 +135,3 @@ sealed class SessionStore(SystemStore store, UserStore users, SettingsService se
 
   static string Truncate(string value, int length) => string.IsNullOrEmpty(value) || value.Length <= length ? value : value[..length];
 }
-
-sealed class SessionCleanup(SessionStore sessions, ILogger<SessionCleanup> logger) : BackgroundService
-{
-  protected override async Task ExecuteAsync(CancellationToken stoppingToken)
-  {
-    using var timer = new PeriodicTimer(TimeSpan.FromHours(1));
-    do
-    {
-      try
-      {
-        var removed = sessions.Cleanup();
-        if (removed > 0) logger.LogInformation("Removed {Count} ended dashboard sessions.", removed);
-      }
-      catch (Exception error) { logger.LogError(error, "Dashboard session cleanup failed."); }
-    }
-    while (await timer.WaitForNextTickAsync(stoppingToken).ConfigureAwait(false));
-  }
-}

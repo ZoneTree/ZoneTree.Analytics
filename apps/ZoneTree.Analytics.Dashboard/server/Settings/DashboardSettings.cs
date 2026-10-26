@@ -412,4 +412,8 @@ sealed class SecuritySettings
   [Setting("Sign-in pause", Tier = SettingTier.Live, Unit = "minutes", Min = 1, Max = 1440,
       Help = "How long sign-in is paused for a user name and address after repeated failures.")]
   public int SignInLockoutMinutes { get; set; } = 15;
+
+  [Setting("Keep the audit log for", Tier = SettingTier.Live, Unit = "days", Min = 1, Max = 3650,
+      Help = "Older entries are removed. The log also keeps at most the newest 100,000 entries.")]
+  public int AuditRetentionDays { get; set; } = 90;
 }

@@ -128,6 +128,7 @@ sealed class SettingsService
     Retention("Minute rollups", before.Retention.MinuteRollupsDays, after.Retention.MinuteRollupsDays);
     Retention("Hourly rollups", before.Retention.HourRollupsDays, after.Retention.HourRollupsDays);
     Retention("Daily rollups", before.Retention.DayRollupsDays, after.Retention.DayRollupsDays);
+    Retention("Audit log entries", before.Security.AuditRetentionDays, after.Security.AuditRetentionDays);
     if (before.Storage.StoreRawEvents && !after.Storage.StoreRawEvents)
       warnings.Add("New raw events will not be stored: ad-hoc queries, real-time counts and erasure requests cover only earlier events.");
     var removedGranularities = before.Rollups.Granularities.Except(after.Rollups.Granularities).ToList();

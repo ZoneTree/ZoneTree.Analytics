@@ -18,6 +18,20 @@ sealed class AuditLog(SystemStore store)
     store.Put(key, new Record(now, actor, action, detail, context?.Connection.RemoteIpAddress?.ToString()));
   }
 
+  public const int MaxEntries = 100_000;
+
+  // Removes entries older than the cutoff, then the oldest beyond MaxEntries. Keys sort by time.
+  public int Prune(DateTime cutoff, int maxEntries = MaxEntries)
+  {
+    var keys = store.Keys(Prefix);
+    var oldest = Prefix + cutoff.Ticks.ToString("D19", CultureInfo.InvariantCulture);
+    var expired = keys.TakeWhile(key => string.CompareOrdinal(key, oldest) < 0).Count();
+    var remove = Math.Max(expired, keys.Count - maxEntries);
+    for (var i = 0; i < remove; i++)
+      store.Delete(keys[i]);
+    return remove;
+  }
+
   // Up to take entries older than the entry named before, newest first.
   public List<AuditEntry> List(string before, int take) =>
       [.. store.ListDescending<Record>(Prefix, before == null ? null : Prefix + before, Math.Clamp(take, 1, 500))

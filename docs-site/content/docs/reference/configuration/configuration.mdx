@@ -226,11 +226,7 @@ Track the attribute as an event dimension, such as an experiment variant. Later 
 | --- | --- | --- |
 | `WriteAheadLogMode` | `WriteAheadLogMode` | The write-ahead-log mode. Default is `WriteAheadLogMode.AsyncCompressed`. |
 | `MutableSegmentMaxItemCount` | `int?` | How many recent records are held in the mutable (in-memory) segment before it moves toward disk. |
-| `MutableSegmentBloomFilterBitsPerItem` | `int?` | Bloom filter bits per mutable segment record, 0 to 64. Zero disables the filter, which suits stores that are only scanned and never point-read. |
 | `DiskSegmentMaxItemCount` | `int?` | How many records a disk segment holds before merges start a new one. |
-| `BTreeLockMode` | `BTreeLockMode?` | The lock mode of the in-memory B+tree. |
-| `BTreeNodeSize` | `int?` | The node size of the in-memory B+tree. |
-| `BTreeLeafSize` | `int?` | The leaf size of the in-memory B+tree. |
 | `EnableSingleSegmentGarbageCollection` | `bool?` | Removes deleted records on load when a tree consists of its mutable segment only. |
 | `AllowUnsafeOptionValues` | `bool` | Lets ZoneTree accept option values outside its recommended ranges. |
 | `ConfigureWriteAheadLog` | `Action<WriteAheadLogOptions>` | Tunes the write-ahead log, for example compression or incremental backup. Runs after `WriteAheadLogMode` is applied. |

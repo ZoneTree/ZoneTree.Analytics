@@ -23,6 +23,27 @@ sealed class SetupStatus(UserStore users, SettingsService settings)
   public void MarkComplete() => complete = true;
 }
 
+// No other site may show the dashboard in a frame, where it could trick a signed-in user into
+// clicking (clickjacking). The headers are added as the response starts, so the development
+// forwarder's copy of PureStack's headers cannot drop them; an existing content security policy
+// gains frame-ancestors instead of being replaced.
+sealed class FrameProtectionMiddleware(RequestDelegate next)
+{
+  public Task InvokeAsync(HttpContext context)
+  {
+    context.Response.OnStarting(() =>
+    {
+      var headers = context.Response.Headers;
+      headers.XFrameOptions = "DENY";
+      var policy = headers.ContentSecurityPolicy.ToString();
+      if (!policy.Contains("frame-ancestors", StringComparison.OrdinalIgnoreCase))
+        headers.ContentSecurityPolicy = policy.Length == 0 ? "frame-ancestors 'none'" : policy.TrimEnd(' ', ';') + "; frame-ancestors 'none'";
+      return Task.CompletedTask;
+    });
+    return next(context);
+  }
+}
+
 // Rejects state-changing dashboard and reporting requests sent from other sites. The session
 // cookie is SameSite=Lax; this covers the rest.
 sealed class SameOriginMiddleware(RequestDelegate next)

@@ -391,6 +391,29 @@ public sealed class DashboardAdministrationTests : DirectoryTest
   }
 
   [Test]
+  public async Task AuditEntriesPastTheirRetentionOrBeyondTheCapAreRemoved()
+  {
+    await using var host = new Host(directory);
+    for (var i = 0; i < 3; i++) host.Audit.Write("old", "auth.signin-failed", $"{i}");
+    Thread.Sleep(20);
+    var cutoff = DateTime.UtcNow;
+    Thread.Sleep(20);
+    for (var i = 0; i < 4; i++) host.Audit.Write("new", "auth.signin", $"{i}");
+
+    Assert.That(host.Audit.Prune(cutoff), Is.EqualTo(3), "entries older than the retention");
+    Assert.That(host.Audit.List(null, 100).Select(entry => entry.Actor), Is.EqualTo(Enumerable.Repeat("new", 4)));
+
+    Assert.That(host.Audit.Prune(cutoff, maxEntries: 2), Is.EqualTo(2), "the oldest beyond the cap");
+    Assert.That(host.Audit.List(null, 100).Select(entry => entry.Detail), Is.EqualTo(new[] { "3", "2" }), "the newest are kept");
+
+    var settings = host.Settings;
+    await settings.CompleteSetupAsync(Settings());
+    var shorter = settings.Copy();
+    shorter.Security.AuditRetentionDays = 30;
+    Assert.That(settings.Review(shorter).Warnings, Has.One.Contains("Audit log entries older than 30 days"));
+  }
+
+  [Test]
   public async Task SignInAttemptsAreCountedBeforeTheirPasswordsAreChecked()
   {
     await using var host = new Host(directory);

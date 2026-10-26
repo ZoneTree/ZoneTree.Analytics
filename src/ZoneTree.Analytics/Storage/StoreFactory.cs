@@ -74,20 +74,14 @@ sealed class StoreFactory
         .ConfigureDiskSegmentOptions(options => store.ConfigureDiskSegments?.Invoke(options))
         .Configure(options =>
         {
-          if (store.BTreeLockMode is { } lockMode)
-            options.BTreeLockMode = lockMode;
-          if (store.BTreeNodeSize is { } nodeSize)
-            options.BTreeNodeSize = nodeSize;
-          if (store.BTreeLeafSize is { } leafSize)
-            options.BTreeLeafSize = leafSize;
           if (store.EnableSingleSegmentGarbageCollection is { } collect)
             options.EnableSingleSegmentGarbageCollection = collect;
           options.AllowUnsafeOptionValues = store.AllowUnsafeOptionValues;
         });
     if (store.MutableSegmentMaxItemCount is { } mutableSegmentMaxItemCount)
       factory.SetMutableSegmentMaxItemCount(mutableSegmentMaxItemCount);
-    if (store.MutableSegmentBloomFilterBitsPerItem is { } bitsPerItem)
-      factory.SetMutableSegmentBloomFilterBitsPerItem(bitsPerItem);
+    if (store.ScannedOnly)
+      factory.SetMutableSegmentBloomFilterBitsPerItem(0);
     if (store.DiskSegmentMaxItemCount is { } diskSegmentMaxItemCount)
       factory.SetDiskSegmentMaxItemCount(diskSegmentMaxItemCount);
     if (directory != null)

@@ -128,9 +128,7 @@ public sealed class ConfigurationTests : DirectoryTest
   public void StoreOptionsAreValidatedWhenTheEngineStarts()
   {
     var engineRule = Assert.Throws<ArgumentException>(() =>
-        TestEngine.Create(directory, o => o.Storage.Rollups.BTreeNodeSize = 0).Dispose());
-    var bloomRule = Assert.Throws<ArgumentException>(() =>
-        TestEngine.Create(directory, o => o.Storage.Sessions.MutableSegmentBloomFilterBitsPerItem = 65).Dispose());
+        TestEngine.Create(directory, o => o.Storage.Rollups.MutableSegmentMaxItemCount = 0).Dispose());
     // Rules of ZoneTree itself surface at start too, not on the first event.
     var zoneTreeRule = Assert.Catch(() =>
         TestEngine.Create(directory, o => o.Storage.Rollups.DiskSegmentMaxItemCount = 1_000).Dispose());
@@ -138,8 +136,7 @@ public sealed class ConfigurationTests : DirectoryTest
         o.Storage.RawEvents.ConfigureWriteAheadLog = wal => wal.AsyncCompressedModeOptions = null).Dispose());
     Assert.Multiple(() =>
     {
-      Assert.That(engineRule.Message, Does.Contain("Storage.Rollups.BTreeNodeSize"));
-      Assert.That(bloomRule.Message, Does.Contain("Storage.Sessions.MutableSegmentBloomFilterBitsPerItem"));
+      Assert.That(engineRule.Message, Does.Contain("Storage.Rollups.MutableSegmentMaxItemCount"));
       Assert.That(zoneTreeRule.Message, Does.Contain("DiskSegmentMaxItemCount"));
     });
   }
@@ -155,7 +152,6 @@ public sealed class ConfigurationTests : DirectoryTest
       // Below ZoneTree's recommended minimum: only accepted with AllowUnsafeOptionValues.
       o.Storage.Rollups.DiskSegmentMaxItemCount = 1_000;
       o.Storage.Rollups.AllowUnsafeOptionValues = true;
-      o.Storage.Rollups.BTreeLockMode = ZoneTree.Collections.BTree.Lock.BTreeLockMode.NodeLevelMonitor;
     });
     engine.Track(Event("purchase", "pro", 0));
     engine.Flush();

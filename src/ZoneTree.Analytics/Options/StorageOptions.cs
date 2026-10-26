@@ -27,7 +27,7 @@ public sealed class StorageOptions
   public StoreOptions RawEvents { get; private set; } = new()
   {
     MutableSegmentMaxItemCount = 50_000,
-    MutableSegmentBloomFilterBitsPerItem = 0
+    ScannedOnly = true
   };
 
   /// <summary>Opt-in full-payload ordered dimension indexes over retained raw events.</summary>

@@ -19,7 +19,7 @@ public sealed class DimensionIndexOptions
   public StoreOptions Store { get; private set; } = new()
   {
     MutableSegmentMaxItemCount = 50_000,
-    MutableSegmentBloomFilterBitsPerItem = 0
+    ScannedOnly = true
   };
 
   internal DimensionIndexOptions Clone()
