@@ -29,9 +29,9 @@ export interface BenchmarkPanel {
 const template = html`<Panel class="form-panel benchmark-panel">
   <h2>Benchmark ingestion</h2>
   <p>
-    Measure ingestion of realistic traffic in a fresh dataset. Events
-    are prepared in memory before timing starts. The latest successful run is
-    kept for browsing.
+    Measure ingestion of realistic traffic in a fresh dataset. Events are
+    prepared in memory before timing starts. The latest successful run is kept
+    for browsing.
   </p>
   <AppForm class="benchmark-form" @submit="run">
     <div class="form-grid">
