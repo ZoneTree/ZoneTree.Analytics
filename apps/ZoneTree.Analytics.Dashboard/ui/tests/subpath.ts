@@ -26,14 +26,17 @@ test('dashboard static build supports a base path and tree-shaken icons', async 
     throw new Error(
       'Refusing to remove a directory outside the test workspace.',
     )
+  // Reuse the temporary content name to isolate each run's build output.
+  const output = resolve(workspace, 'test-results', basename(content))
+  const site = resolve(output, 'site')
   try {
     await cp(resolve(workspace, 'content'), content, { recursive: true })
     const config = JSON.parse(
       await readFile(resolve(content, 'siteConfig.json'), 'utf8'),
     )
     config.basePath = '/analytics/'
-    config.outDir = '../test-results/subpath-site'
-    config.publishDir = '../test-results/subpath-publish'
+    config.outDir = site
+    config.publishDir = resolve(output, 'publish')
     await writeFile(
       resolve(content, 'siteConfig.json'),
       JSON.stringify(config),
@@ -48,10 +51,7 @@ test('dashboard static build supports a base path and tree-shaken icons', async 
       [cli, 'build', '--content', content, '--clean'],
       { cwd: workspace },
     )
-    const html = await readFile(
-      resolve(workspace, 'test-results/subpath-site/pages/index.html'),
-      'utf8',
-    )
+    const html = await readFile(resolve(site, 'pages/index.html'), 'utf8')
     assert.match(html, /href=["']?\/analytics\/pages\//)
     assert.match(html, /href=["']?\/analytics\/assets\/site\./)
     assert.match(html, /src=["']?\/analytics\/pages\/pages\./)
@@ -68,40 +68,29 @@ test('dashboard static build supports a base path and tree-shaken icons', async 
       dashboardTrackerPath,
       'Tracker URL stays on the host API when the dashboard has a base path',
     )
-    await assert.rejects(
-      readFile(
-        resolve(workspace, 'test-results/subpath-site/assets/config.json'),
-      ),
-      { code: 'ENOENT' },
-    )
+    await assert.rejects(readFile(resolve(site, 'assets/config.json')), {
+      code: 'ENOENT',
+    })
     // Development bundles are unminified, so allow headroom while still rejecting
     // accidental imports of the entire multi-megabyte SVG catalog.
-    for (const file of await readdir(
-      resolve(workspace, 'test-results/subpath-site'),
-      {
-        recursive: true,
-      },
-    )) {
+    for (const file of await readdir(site, { recursive: true })) {
       if (file.endsWith('.js'))
         assert.ok(
-          (await stat(resolve(workspace, 'test-results/subpath-site', file)))
-            .size < 750_000,
+          (await stat(resolve(site, file))).size < 750_000,
           `${file} must not include the full icon catalog`,
         )
     }
     await assert.rejects(
-      readFile(
-        resolve(
-          workspace,
-          'test-results/subpath-site/assets/dashboard-icons.json',
-        ),
-      ),
+      readFile(resolve(site, 'assets/dashboard-icons.json')),
       { code: 'ENOENT' },
     )
     console.log(
       'PureStack subpath checks passed: navigation, styles, entry bundle, config base path, tree-shaken icons, bundle size.',
     )
   } finally {
-    await rm(content, { recursive: true, force: true })
+    await Promise.all([
+      rm(content, { recursive: true, force: true }),
+      rm(output, { recursive: true, force: true }),
+    ])
   }
 })
