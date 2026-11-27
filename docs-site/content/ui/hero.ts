@@ -36,7 +36,7 @@ export function defineAnalyticsHero() {
           >Explore the dashboard</BtnLink>
       </Flex>
       <div class="docs-facts">
-        <span>.NET 8 · 9 · 10</span><span>Open source · MIT</span><span>Your infrastructure</span>
+        <span>.NET 8 - 11</span><span>Open source · MIT</span><span>Your infrastructure</span>
       </div>
     </div>
     <div
