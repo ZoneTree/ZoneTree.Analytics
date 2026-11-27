@@ -193,15 +193,16 @@ public sealed class QueryFeatureTests : DirectoryTest
   [Test]
   public void DerivedRollupsCheckAdjustmentRulesOnAdjacentLocalDates()
   {
-    var midnight = new DateTime(1, 1, 1);
-    var rule = TimeZoneInfo.AdjustmentRule.CreateAdjustmentRule(new DateTime(2025, 1, 1), new DateTime(2025, 12, 31),
-        TimeSpan.Zero, TimeZoneInfo.TransitionTime.CreateFixedDateRule(midnight, 1, 1),
-        TimeZoneInfo.TransitionTime.CreateFixedDateRule(midnight, 12, 31), TimeSpan.FromMinutes(30));
+    var from = new DateTime(2024, 12, 31);
+    var start = TimeZoneInfo.TransitionTime.CreateFixedDateRule(new DateTime(1, 1, 1, 0, 30, 0), 1, 1);
+    var end = TimeZoneInfo.TransitionTime.CreateFixedDateRule(new DateTime(1, 1, 1), 7, 1);
+    var rule = TimeZoneInfo.AdjustmentRule.CreateAdjustmentRule(from, new DateTime(2025, 12, 31),
+        TimeSpan.FromMinutes(30), start, end);
     var zone = TimeZoneInfo.CreateCustomTimeZone("local-year-boundary", TimeSpan.FromHours(12), "local-year-boundary",
         "standard", "daylight", [rule]);
     using var engine = Create();
-    var from = new DateTime(2024, 12, 31);
-    Track(engine, from.AddHours(12).AddMinutes(5), "a", "/");
+    // The January 1 local jump occurs on December 31 UTC, within a single UTC hour.
+    Track(engine, from.AddHours(12).AddMinutes(25), "a", "/");
     Track(engine, from.AddHours(12).AddMinutes(35), "b", "/");
     engine.Flush();
     var query = new AnalyticsQuery
@@ -212,9 +213,11 @@ public sealed class QueryFeatureTests : DirectoryTest
     var raw = engine.Query(query);
     query.Source = QuerySource.Rollups;
     var rollup = engine.Query(query);
-    Assert.That(raw.Rows, Has.Count.EqualTo(2));
+    var expected = new Dictionary<string, double> { ["00"] = 1, ["01"] = 1 };
+    Assert.That(raw.Rows.ToDictionary(x => x[StandardDimensions.HourOfDay], x => x[Metric.Events]),
+        Is.EquivalentTo(expected));
     Assert.That(rollup.Rows.ToDictionary(x => x[StandardDimensions.HourOfDay], x => x[Metric.Events]),
-        Is.EquivalentTo(raw.Rows.ToDictionary(x => x[StandardDimensions.HourOfDay], x => x[Metric.Events])));
+        Is.EquivalentTo(expected));
     Assert.That(rollup.Plan.Steps.All(x => x.Source == PlanSource.MinuteRollups), Is.True);
   }
 
