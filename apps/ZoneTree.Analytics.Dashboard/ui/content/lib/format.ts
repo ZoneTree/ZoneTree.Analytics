@@ -15,6 +15,47 @@ export const change = (
   current == null || previous == null || previous === 0
     ? null
     : (current - previous) / previous
+
+const utf8Escapes =
+  /%[cd][0-9a-f]%[89ab][0-9a-f]|%e[0-9a-f](?:%[89ab][0-9a-f]){2}|%f[0-4](?:%[89ab][0-9a-f]){3}/gi
+const unsafeLabelCharacters = /[\p{Cc}\p{Bidi_Control}\u2028\u2029]/gu
+
+function decodePathCharacter(encoded: string): string {
+  try {
+    const character = decodeURIComponent(encoded)
+    return character.search(unsafeLabelCharacters) < 0 ? character : encoded
+  } catch {
+    return encoded
+  }
+}
+
+// Match the .NET PagePath formatter. Use the original value for report actions.
+export function formatPagePath(path: string): string {
+  const firstEscape = path.indexOf('%')
+  if (firstEscape >= 0) {
+    const suffix = path.search(/[?#]/)
+    if (suffix < 0) path = path.replace(utf8Escapes, decodePathCharacter)
+    else if (firstEscape < suffix)
+      path =
+        path.slice(0, suffix).replace(utf8Escapes, decodePathCharacter) +
+        path.slice(suffix)
+  }
+  return path.replace(unsafeLabelCharacters, encodeURIComponent)
+}
+
+export function formatDimensionValue(dimension: string, value: string): string {
+  return dimension === 'page' || dimension === 'entry_page'
+    ? formatPagePath(value)
+    : value
+}
+
+export function formatFilterLabel(filter: string): string {
+  const prefix = /^(?:page|entry_page)(?:==|!=(?!~)|\^=|~=)/.exec(filter)?.[0]
+  return prefix && !filter.includes('|')
+    ? prefix + formatPagePath(filter.slice(prefix.length))
+    : filter
+}
+
 export function csv(rows: unknown[][]): string {
   return (
     '\uFEFF' +
