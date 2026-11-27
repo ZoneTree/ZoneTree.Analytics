@@ -109,6 +109,8 @@ sealed class IngestionWorker : IAsyncDisposable
 
   readonly HashSet<ulong> dirtySessions = [];
 
+  readonly HashSet<string> changedSites;
+
   readonly List<ValueChange> valueChanges = [];
 
   readonly List<ValueChange> valueChangesForSession = [];
@@ -156,6 +158,7 @@ sealed class IngestionWorker : IAsyncDisposable
   {
     this.services = services;
     var options = services.Options;
+    changedSites = options.ReportChanged == null ? null : new(StringComparer.Ordinal);
     schema = services.Enricher.Schema;
     sessionDimensions = new SessionDimensions(schema);
     channel = Channel.CreateBounded<WorkItem>(new BoundedChannelOptions(options.Ingestion.QueueCapacity)
@@ -322,6 +325,7 @@ sealed class IngestionWorker : IAsyncDisposable
       return;
     }
 
+    changedSites?.Add(ev.Site);
     SessionState session = null;
     var isNewSession = false;
     if (sessionsEnabled && ev.Visitor != 0)
@@ -609,6 +613,12 @@ sealed class IngestionWorker : IAsyncDisposable
       }
       EvictSessions();
       Interlocked.Increment(ref services.Counters.Flushes);
+      if (changedSites != null)
+      {
+        foreach (var site in changedSites)
+          services.Options.ReportChanged(site);
+        changedSites.Clear();
+      }
     }
     finally
     {

@@ -30,6 +30,9 @@ public sealed class AnalyticsOptions
   /// </summary>
   public string DefaultSite { get; set; } = "default";
 
+  // The dashboard uses this to invalidate reports after writes become visible.
+  internal Action<string> ReportChanged { get; set; }
+
   /// <summary>
   /// The reporting time zone. Daily rollups and day, week, month and year
   /// query intervals use calendar boundaries of this time zone.

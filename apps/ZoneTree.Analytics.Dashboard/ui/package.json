@@ -1,6 +1,6 @@
 {
   "name": "zonetree-analytics-dashboard",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,6 +10,7 @@
     "publish": "purestack publish --content ./content"
   },
   "dependencies": {
+    "@puregate/web-socket": "1.0.0",
     "@purestack/ts-components": "^1.1.27",
     "@purestack/ts-css": "^1.1.27",
     "@purestack/ts-html": "^1.1.27",

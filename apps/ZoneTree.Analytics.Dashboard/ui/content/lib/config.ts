@@ -7,6 +7,13 @@ export function validateConfig(input: Partial<Config>): Config {
   if (!['demo', 'live'].includes(value.mode))
     throw new Error('Choose demo data or the live API.')
   value.apiBaseUrl = normalizeApiUrl(value.apiBaseUrl)
+  if (value.liveUrl !== undefined) {
+    value.liveUrl = normalizeApiUrl(value.liveUrl)
+    if (!value.liveUrl.startsWith('/'))
+      throw new Error(
+        'The live reporting endpoint must use the dashboard origin.',
+      )
+  }
   new Intl.DateTimeFormat('en', { timeZone: value.timeZone }).format()
   if (![0, 30, 60, 300].includes(Number(value.refreshSeconds)))
     throw new Error('Choose a supported refresh interval.')

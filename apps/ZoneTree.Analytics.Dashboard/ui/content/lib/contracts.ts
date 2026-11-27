@@ -123,6 +123,7 @@ export interface Scope {
 export interface Config {
   mode: 'demo' | 'live'
   apiBaseUrl: string
+  liveUrl?: string
   timeZone: string
   sites: { id: string; name: string }[]
   refreshSeconds: number

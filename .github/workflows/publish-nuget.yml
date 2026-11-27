@@ -6,11 +6,20 @@ on:
       name:
         description: 'When you press run workflow, the nuget packages will be published.'
         default: 'I understand.'
+
+concurrency:
+  group: publish-nuget
+
+defaults:
+  run:
+    shell: bash
+
 jobs:
-  build:
+  publish:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     permissions:
-      contents: read
+      contents: write # Create the release and its tag after both packages are published.
       id-token: write # Trusted publishing: lets NuGet/login request a GitHub OIDC token.
     steps:
       - uses: actions/checkout@v7
@@ -18,11 +27,62 @@ jobs:
         uses: actions/setup-dotnet@v6
         with:
           dotnet-version: |
+            11.0.x
             10.0.x
             9.0.x
             8.0.x
       - name: Display dotnet version
         run: dotnet --version
+      - name: Check release version and availability
+        id: version
+        run: |
+          version=$(dotnet msbuild src/ZoneTree.Analytics/ZoneTree.Analytics.csproj -nologo -getProperty:PackageVersion)
+          aspnet_version=$(dotnet msbuild src/ZoneTree.Analytics.AspNetCore/ZoneTree.Analytics.AspNetCore.csproj -nologo -getProperty:PackageVersion)
+          if [[ -z $version || $version != "$aspnet_version" ]]; then
+            echo "::error::Both packages must have the same PackageVersion ($version and $aspnet_version). Check src/Directory.Build.props."
+            exit 1
+          fi
+          # NuGet removes build metadata and an optional zero revision from package versions.
+          version=${version%%+*}
+          if [[ $version =~ ^([0-9]+\.[0-9]+\.[0-9]+)\.0(-.*)?$ ]]; then
+            version=${BASH_REMATCH[1]}${BASH_REMATCH[2]}
+          fi
+
+          tag="v$version"
+          existing_tag=$(git ls-remote --refs --tags origin "refs/tags/$tag")
+          if [[ -n $existing_tag ]]; then
+            echo "::error::$tag already exists. Raise VersionPrefix in src/Directory.Build.props."
+            exit 1
+          fi
+
+          scratch=$(mktemp -d)
+          trap 'rm -rf "$scratch"' EXIT
+          missing=()
+          for package in ZoneTree.Analytics ZoneTree.Analytics.AspNetCore; do
+            id=${package,,}
+            manifest="https://api.nuget.org/v3-flatcontainer/$id/${version,,}/$id.nuspec"
+            status=$(curl -sS --retry 3 -o "$scratch/package.nuspec" -w '%{http_code}' "$manifest")
+            case "$status" in
+              404) missing+=("$package"); continue ;;
+              200) ;;
+              *) echo "::error::Could not check $package on nuget.org (HTTP $status)."; exit 1 ;;
+            esac
+
+            # Resume a partial publish only if the existing package came from this commit.
+            commit=$(python3 -c '
+          import sys
+          import xml.etree.ElementTree as ET
+          repository = ET.parse(sys.stdin).find("{*}metadata/{*}repository")
+          print(repository.get("commit", "") if repository is not None else "")
+          ' < "$scratch/package.nuspec")
+            if [[ $commit != "$GITHUB_SHA" ]]; then
+              echo "::error::$package $version was published from a different commit."
+              exit 1
+            fi
+            echo "$package $version was already published from this commit."
+          done
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "missing=${missing[*]}" >> "$GITHUB_OUTPUT"
       - name: Restore dependencies
         working-directory: ./src
         run: dotnet restore
@@ -37,22 +97,58 @@ jobs:
           dotnet pack ZoneTree.Analytics/ZoneTree.Analytics.csproj --configuration Release --no-build --output ../artifacts/packages
           dotnet pack ZoneTree.Analytics.AspNetCore/ZoneTree.Analytics.AspNetCore.csproj --configuration Release --no-build --output ../artifacts/packages
         working-directory: ./src
-      - name: Upload packages
-        uses: actions/upload-artifact@v7
-        with:
-          name: nuget-packages
-          path: artifacts/packages/
+      - name: Verify release packages
+        env:
+          PACKAGE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          for package in ZoneTree.Analytics ZoneTree.Analytics.AspNetCore; do
+            test -f "artifacts/packages/$package.$PACKAGE_VERSION.nupkg"
+            test -f "artifacts/packages/$package.$PACKAGE_VERSION.snupkg"
+          done
       # Exchanges the OIDC token for a temporary API key, valid for one hour, so it runs just
       # before the push. Needs a trusted publishing policy on nuget.org for this workflow file.
       # The user is the nuget.org organization that owns the policy and the packages. If the
       # login does not match the policy, use the account that created it instead (koculu).
       - name: NuGet login
         id: login
+        if: steps.version.outputs.missing != ''
         uses: NuGet/login@v1
         with:
           user: koculu
       - name: Publish the packages to nuget.org
-        # Pushing a .nupkg also pushes the .snupkg symbol package next to it.
-        run: dotnet nuget push "artifacts/packages/*.nupkg" --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
+        if: steps.version.outputs.missing != ''
+        # Each push also sends the corresponding .snupkg. A rejected push fails the run.
         env:
           NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
+          PACKAGE_VERSION: ${{ steps.version.outputs.version }}
+          MISSING_PACKAGES: ${{ steps.version.outputs.missing }}
+        run: |
+          read -r -a packages <<< "$MISSING_PACKAGES"
+          for package in "${packages[@]}"; do
+            dotnet nuget push "artifacts/packages/$package.$PACKAGE_VERSION.nupkg" --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json
+          done
+      - name: Upload packages
+        uses: actions/upload-artifact@v7
+        with:
+          name: nuget-packages
+          path: artifacts/packages/
+          overwrite: true
+      - name: Tag and create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PACKAGE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          tag="v$PACKAGE_VERSION"
+          assets=(artifacts/packages/*.nupkg artifacts/packages/*.snupkg)
+          if release=$(gh release view "$tag" --json isDraft,targetCommitish); then
+            if ! jq -e --arg sha "$GITHUB_SHA" '.isDraft and .targetCommitish == $sha' <<< "$release" >/dev/null; then
+              echo "::error::A release for $tag already exists and cannot be resumed."
+              exit 1
+            fi
+            gh release upload "$tag" "${assets[@]}" --clobber
+            gh release edit "$tag" --draft=false
+          else
+            flags=()
+            if [[ $PACKAGE_VERSION == *-* ]]; then flags+=(--prerelease); fi
+            gh release create "$tag" "${assets[@]}" --target "$GITHUB_SHA" --title "ZoneTree Analytics $PACKAGE_VERSION" --generate-notes "${flags[@]}"
+          fi

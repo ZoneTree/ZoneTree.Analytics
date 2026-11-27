@@ -10,6 +10,7 @@ static class DashboardAuthentication
   public const string QueryPolicy = "Query";
   const string UserItem = "zt-dashboard-user";
   const string SessionItem = "zt-dashboard-session";
+  public const string SessionClaim = "zt-dashboard-session";
 
   public static UserRecord User(HttpContext context) => context.Items[UserItem] as UserRecord;
 
@@ -21,11 +22,12 @@ static class DashboardAuthentication
     context.Items[SessionItem] = sessionId;
   }
 
-  public static ClaimsPrincipal Principal(UserRecord user) => new(new ClaimsIdentity(
+  public static ClaimsPrincipal Principal(UserRecord user, string sessionId) => new(new ClaimsIdentity(
   [
     new Claim(ClaimTypes.NameIdentifier, user.Id),
     new Claim(ClaimTypes.Name, user.UserName),
     new Claim(ClaimTypes.Role, user.Role.ToString()),
+    new Claim(SessionClaim, sessionId),
   ], Scheme));
 
   public static IServiceCollection AddDashboardAuthentication(this IServiceCollection services)
@@ -53,7 +55,7 @@ sealed class DashboardAuthenticationHandler(IOptionsMonitor<AuthenticationScheme
       return Task.FromResult(AuthenticateResult.NoResult());
     }
     DashboardAuthentication.SetUser(Context, user, id);
-    return Task.FromResult(AuthenticateResult.Success(new AuthenticationTicket(DashboardAuthentication.Principal(user), Scheme.Name)));
+    return Task.FromResult(AuthenticateResult.Success(new AuthenticationTicket(DashboardAuthentication.Principal(user, id), Scheme.Name)));
   }
 
   protected override async Task HandleChallengeAsync(AuthenticationProperties properties)

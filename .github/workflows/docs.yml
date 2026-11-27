@@ -1,0 +1,30 @@
+name: Documentation
+
+on:
+  push:
+    branches: ['main']
+    paths:
+      - 'README.md'
+      - 'src/README-NUGET.md'
+      - 'docs-site/content/**'
+      - 'scripts/validate-docs.py'
+      - '.github/workflows/docs.yml'
+  pull_request:
+    branches: ['main']
+    paths:
+      - 'README.md'
+      - 'src/README-NUGET.md'
+      - 'docs-site/content/**'
+      - 'scripts/validate-docs.py'
+      - '.github/workflows/docs.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Validate links and navigation
+        run: python3 scripts/validate-docs.py

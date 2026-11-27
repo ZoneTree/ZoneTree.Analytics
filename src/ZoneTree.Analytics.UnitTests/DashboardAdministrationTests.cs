@@ -2,6 +2,10 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using PureGate.WebSocket;
 using ZoneTree.Analytics.AspNetCore;
 
 namespace ZoneTree.Analytics.UnitTests;
@@ -29,13 +33,13 @@ public sealed class DashboardAdministrationTests : DirectoryTest
     public SessionStore Sessions;
     public AnalyticsWebOptions Web = new();
 
-    public Host(string root)
+    public Host(string root, DashboardLiveReports live = null)
     {
       var environment = new TestEnvironment(root);
       Store = new SystemStore(Path.Combine(root, "system"));
       Users = new UserStore(Store);
       Audit = new AuditLog(Store);
-      Engines = new EngineHost(environment, NullLoggerFactory.Instance);
+      Engines = new EngineHost(environment, NullLoggerFactory.Instance, live);
       Settings = new SettingsService(Store, Engines, Web, Users, Audit, environment);
       Sessions = new SessionStore(Store, Users, Settings);
     }
@@ -63,6 +67,45 @@ public sealed class DashboardAdministrationTests : DirectoryTest
       new(name, null, role, false, [.. sites], null, "a long enough password");
 
   static readonly HashSet<string> KnownSites = ["shop", "blog"];
+
+  [Test]
+  public async Task LiveReportsPublishSiteWritesAndRecheckRevokedSessions()
+  {
+    await using var app = WebApplication.CreateSlimBuilder().Build();
+    var live = new DashboardLiveReports(app.Services.GetRequiredService<IHostApplicationLifetime>());
+    await using var host = new Host(directory, live);
+    await host.Settings.CompleteSetupAsync(Settings());
+    // Keep the production refresh behavior and shorten the interval for this test.
+    host.Settings.Current.General.RefreshSeconds = 1;
+    var user = host.Users.Create(NewUser("viewer", UserRole.Viewer, "shop"), KnownSites);
+    var (token, _) = host.Sessions.Create(user, new DefaultHttpContext());
+    var session = SessionStore.Id(token);
+    using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+    await using var forbidden = live.WatchAsync("blog", session, host.Sessions, host.Settings, host.Engines,
+        timeout.Token).GetAsyncEnumerator();
+    var denied = Assert.ThrowsAsync<CallException>(async () => await forbidden.MoveNextAsync());
+    Assert.That(denied.Code, Is.EqualTo("site_forbidden"));
+
+    await using var updates = live.WatchAsync("shop", session, host.Sessions, host.Settings, host.Engines,
+        timeout.Token).GetAsyncEnumerator();
+    Assert.That(await updates.MoveNextAsync(), Is.True);
+    Assert.That(updates.Current, Is.EqualTo(new DashboardLiveUpdate(0, true)));
+
+    using (var lease = await host.Engines.AcquireAsync(timeout.Token))
+    {
+      Assert.That(lease.Engine.Track(new AnalyticsEvent("pageview")
+      {
+        Site = "shop", VisitorId = "visitor-one", Url = "https://shop.example.com/",
+      }), Is.True);
+      await lease.Engine.FlushAsync(timeout.Token);
+    }
+    Assert.That(await updates.MoveNextAsync(), Is.True);
+    Assert.That(updates.Current, Is.EqualTo(new DashboardLiveUpdate(1, true)));
+
+    Assert.That(host.Sessions.Revoke(session, user.Id), Is.True);
+    var revoked = Assert.ThrowsAsync<CallException>(async () => await updates.MoveNextAsync());
+    Assert.That(revoked.Code, Is.EqualTo("session_ended"));
+  }
 
   [Test]
   public void PasswordsVerifyOnlyTheirOwnText()
