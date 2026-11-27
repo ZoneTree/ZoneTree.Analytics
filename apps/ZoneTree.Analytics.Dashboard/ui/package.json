@@ -1,6 +1,6 @@
 {
   "name": "zonetree-analytics-dashboard",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "private": true,
   "type": "module",
   "scripts": {
@@ -17,7 +17,7 @@
     "@purestack/ts-style": "^1.1.27",
     "@purestack/ts-svg-icons": "^1.1.27",
     "@purestack/ts-util": "^1.1.27",
-    "purestack": "^1.1.27",
+    "purestack": "^1.1.36",
     "regor": "^1.7.6"
   },
   "devDependencies": {

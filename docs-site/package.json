@@ -2,18 +2,18 @@
   "private": true,
   "type": "module",
   "name": "analytics.zonetree.dev",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "scripts": {
     "check": "tsc --noEmit",
     "build": "purestack build --content ./content --clean",
     "serve": "purestack serve --content ./content --port 4900 --clean",
     "publish": "purestack publish --content ./content",
-    "deploy": "pgdeploy deploy --host https://analytics.zonetree.dev --package ./dist/web --allow-path 'pagefind/*,.ts-ssg/manifest.json,docs/**/*.json'"
+    "deploy": "pgdeploy deploy --host https://analytics.zonetree.dev --package ./dist/web --allow-path 'pagefind/*,.ts-ssg/manifest.json,docs/**/*.json' --skip-path '.purestack-output'"
   },
   "dependencies": {
     "@purestack/ts-style": "^1.1.27",
     "@purestack/ts-util": "^1.1.27",
-    "purestack": "^1.1.27",
+    "purestack": "^1.1.36",
     "regor": "^1.7.6"
   },
   "devDependencies": {
