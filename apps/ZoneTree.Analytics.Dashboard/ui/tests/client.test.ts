@@ -22,8 +22,11 @@ import {
   csv,
   duration,
   filterExpression,
+  formatFilterLabel,
+  formatPagePath,
   percent,
 } from '../content/lib/format'
+import { pagesTable, queryTable } from '../content/lib/reports'
 
 const scope: Scope = {
   site: 'store',
@@ -92,6 +95,81 @@ test('null and zero stay distinct; CSV protects tracked strings against spreadsh
   assert.match(csv([['quote"value']]), /"quote""value"/)
   assert.equal(filterExpression('page', '~=', '/blog'), 'page~=/blog')
   assert.throws(() => filterExpression('page', '==', '/a,/b'))
+})
+test('page labels decode UTF-8 without changing delimiters, malformed escapes, or the query', () => {
+  for (const [value, label] of [
+    ['', ''],
+    ['/docs/already-应用', '/docs/already-应用'],
+    ['/Blog/net-%E5%BA%94%E7%94%A8', '/Blog/net-应用'],
+    ['/caf%c3%a9/%F0%9F%8C%8D', '/café/🌍'],
+    [
+      '/caf%C3%A9%2F%3F%23%25%5C%3C%0A%252F+%20',
+      '/café%2F%3F%23%25%5C%3C%0A%252F+%20',
+    ],
+    ['/caf%C3%A9?q=%E5%BA%94#%C3%A9', '/café?q=%E5%BA%94#%C3%A9'],
+    ['/ascii?q=%C3%A9', '/ascii?q=%C3%A9'],
+    ['/caf%C3%A9#%C3%A9', '/café#%C3%A9'],
+    [
+      '/%C0%AF/%E0%80%AF/%ED%A0%80/%F4%90%80%80/%E2%98/%ZZ/%/%C3%A9',
+      '/%C0%AF/%E0%80%AF/%ED%A0%80/%F4%90%80%80/%E2%98/%ZZ/%/é',
+    ],
+    [
+      '/%c2%85/%e2%80%ae%E2%81%A6%E2%80%A8%C3%A9',
+      '/%c2%85/%e2%80%ae%E2%81%A6%E2%80%A8é',
+    ],
+    ['/a\u202Eb\u0000?x=\u0085#\u2029', '/a%E2%80%AEb%00?x=%C2%85#%E2%80%A9'],
+  ]) {
+    assert.equal(formatPagePath(value), label)
+    assert.equal(formatPagePath(label), label)
+  }
+})
+test('page and query tables format labels while keeping original filter and export values', () => {
+  const page = '/blog/%E5%BA%94%E7%94%A8%2Ftips'
+  const label = '/blog/应用%2Ftips'
+  const pages = pagesTable([
+    {
+      page,
+      visitors: 5,
+      pageViews: 7,
+      entrances: 3,
+      exits: 1,
+      exitRate: 1 / 7,
+      botHits: null,
+    },
+  ])
+  assert.deepEqual(pages.rows[0].cells[0], {
+    text: label,
+    dimension: 'page',
+    value: page,
+  })
+  assert.equal(pages.exportRows[1][0], page)
+  const filter = filterExpression('page', '==', page)
+  assert.equal(formatFilterLabel(filter), `page==${label}`)
+  assert.equal(formatFilterLabel(`source==${page}`), `source==${page}`)
+  assert.equal(formatFilterLabel(`${filter}|/`), `${filter}|/`)
+
+  const query = queryTable({
+    from: '2026-11-01',
+    to: '2026-11-02',
+    timeZone: 'UTC',
+    interval: 'none',
+    groupBy: ['page', 'entry_page', 'source'],
+    metrics: ['pageviews'],
+    totalRows: 1,
+    totals: { values: { pageviews: 7 } },
+    rows: [
+      {
+        dimensions: { page, entry_page: page, source: page },
+        values: { pageviews: 7 },
+      },
+    ],
+    plan: { complete: true, warnings: [], steps: [], rollupSuggestions: [] },
+  })
+  assert.deepEqual(
+    query.rows[0].cells.map((cell) => cell.text),
+    [label, label, page, '7'],
+  )
+  assert.deepEqual(query.exportRows[1], [page, page, page, 7])
 })
 test('demo summary, pages, devices and time series share one dataset and honor filters', async () => {
   const demo = new DemoClient()

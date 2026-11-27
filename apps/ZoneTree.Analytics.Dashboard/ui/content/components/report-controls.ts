@@ -3,7 +3,7 @@ import { defineComponent, html, type RefOrValue, type SRef, sref } from 'regor'
 import type { DashboardScope } from '../lib/dashboard/scope'
 import type { DashboardStatus } from '../lib/dashboard/state'
 import type { DashboardModel } from '../lib/dashboard-model'
-import { filterExpression } from '../lib/format'
+import { filterExpression, formatFilterLabel } from '../lib/format'
 
 export interface DashboardFilters {
   filterOpen: SRef<boolean>
@@ -147,10 +147,10 @@ const reportControls = html`<div>
       r-for="(filter,index) in dashboard.filters"
       class="filter-chip"
       variant="none"
-      :ariaLabel="'Remove filter ' + filter"
+      :ariaLabel="'Remove filter ' + formatFilterLabel(filter)"
       @click="dashboard.removeFilter(index)"
     >
-      {{ filter }} ×
+      {{ formatFilterLabel(filter) }} ×
     </Btn>
   </div>
   <dialog
@@ -205,6 +205,7 @@ const reportControls = html`<div>
 
 export interface ReportControls {
   dashboard: RefOrValue<DashboardModel>
+  formatFilterLabel: typeof formatFilterLabel
   rangeOptions: FormSelectOption[]
   compareOptions: FormSelectOption[]
   dimensionOptions: FormSelectOption[]
@@ -215,6 +216,7 @@ export function defineReportControlsComponent() {
     props: ['dashboard'],
     context: (head) => ({
       ...head.props,
+      formatFilterLabel,
       rangeOptions: [
         { value: 'today', label: 'Today' },
         { value: 'yesterday', label: 'Yesterday' },

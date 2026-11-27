@@ -2,9 +2,9 @@ import assert from 'node:assert/strict'
 import { setTimeout as pause } from 'node:timers/promises'
 import type { Browser } from 'playwright'
 import { chromium, request } from 'playwright'
-import { inject, test } from 'vitest'
+import { inject, test, vi } from 'vitest'
 import { validateConfig } from '../content/lib/config'
-import type { SummaryReport } from '../content/lib/contracts'
+import type { Page, Report, SummaryReport } from '../content/lib/contracts'
 import {
   dashboardConfigPath,
   dashboardEventPath,
@@ -143,6 +143,57 @@ test('dashboard visits record accepted beacons in the live .NET engine', async (
       after.pageViews >= before.pageViews + 2,
       'Dashboard visits must increase real page views',
     )
+
+    const pageKey = '/blog/%E5%BA%94%E7%94%A8%2Ftips'
+    const pageLabel = '/blog/应用%2Ftips'
+    const beaconStatus = await page.evaluate(
+      async ({ endpoint, path }) => {
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain' },
+          body: JSON.stringify({ n: 'pageview', u: location.origin + path }),
+        })
+        return response.status
+      },
+      { endpoint: dashboardEventPath, path: pageKey },
+    )
+    assert.equal(beaconStatus, 202)
+    await vi.waitFor(
+      async () => {
+        const result = await http.get(`${config.apiBaseUrl}/pages`, {
+          params: {
+            site: 'dashboard-usage',
+            range: 'today',
+            tz: config.timeZone,
+          },
+        })
+        assert.ok(result.ok())
+        const pages = (await result.json()) as Report<Page>
+        assert.ok(pages.rows.some((row) => row.page === pageKey))
+      },
+      { timeout: 10_000, interval: 200 },
+    )
+    await page.goto(new URL('?site=dashboard-usage&range=today', base).href)
+    await page
+      .locator('.row-name')
+      .getByText(pageLabel, { exact: true })
+      .waitFor()
+    await page.goto(
+      new URL('pages/?site=dashboard-usage&range=today', base).href,
+    )
+    const filtered = page.waitForRequest((request) => {
+      const url = new URL(request.url())
+      return (
+        url.pathname === `${reportPath}pages` &&
+        url.searchParams.getAll('filter').includes(`page==${pageKey}`)
+      )
+    })
+    await page.getByRole('button', { name: pageLabel, exact: true }).click()
+    await filtered
+    await page
+      .getByRole('button', { name: `Remove filter page==${pageLabel}` })
+      .waitFor()
+
     console.log(
       `Tracker checks passed: dashboard navigation sent accepted beacons; page views increased from ${before.pageViews} to ${after.pageViews}.`,
     )

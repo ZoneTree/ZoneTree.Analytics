@@ -6,7 +6,13 @@ import type {
   QueryResult,
   Summary,
 } from './contracts'
-import { change, duration, number, percent } from './format'
+import {
+  change,
+  duration,
+  formatDimensionValue,
+  number,
+  percent,
+} from './format'
 
 export const reportInfo = {
   overview: {
@@ -114,7 +120,7 @@ export function countryName(value: string | null) {
 const drill = (
   dimension: string,
   value: string | null,
-  text = value,
+  text = value == null ? null : formatDimensionValue(dimension, value),
 ): Cell => ({
   text: text || (value === '' ? '(empty)' : 'Unknown'),
   ...(value != null ? { dimension, value } : {}),
@@ -184,7 +190,7 @@ export function breakdownTable(
         drill(
           dimension,
           row.value,
-          dimension === 'country' ? countryName(row.value) : row.value,
+          dimension === 'country' ? countryName(row.value) : undefined,
         ),
         numeric(number(row.visitors)),
         numeric(percent(row.visitorShare)),
@@ -277,7 +283,7 @@ export function queryTable(result: QueryResult): TableModel {
       cells: [
         ...(bucket ? [{ text: row.bucket || '' }] : []),
         ...result.groupBy.map((key) => ({
-          text: row.dimensions?.[key] ?? 'Unknown',
+          text: formatDimensionValue(key, row.dimensions?.[key] ?? 'Unknown'),
         })),
         ...result.metrics.map((key) => numeric(number(row.values[key]))),
       ],

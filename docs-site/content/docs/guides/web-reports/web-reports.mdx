@@ -72,6 +72,8 @@ Disabled fields remain null, not zero. Exit-page reports require page-flow metri
 
 A summary exposes `Summary`; list and time-series reports expose `Rows`. Use `TotalRows` for pagination and choose a time interval appropriate to the chart.
 
+The dashboard displays Unicode page paths as readable labels. For your own reports, use `PagePath.FormatForDisplay(row.Page)` and render the result as plain text. Use `row.Page` for filters and exports so the values still match the stored page keys. This works for historical rows too.
+
 Keep the selected range and filters visible to readers. Check plan warnings when a range extends beyond available history, and distinguish unavailable metrics from zero activity.
 
 ## Related pages

@@ -7,12 +7,14 @@ import {
   unref,
 } from 'regor'
 import type { DashboardModel } from '../lib/dashboard-model'
+import { formatPagePath } from '../lib/format'
 
 export interface OverviewTopPages {
   dashboard: DashboardModel | SRef<DashboardModel>
   max: ComputedRef<number>
   barWidth: (views: number) => string
   filterPage: (page: string | null) => void
+  formatPagePath: typeof formatPagePath
 }
 
 const template = html`<Panel>
@@ -33,7 +35,10 @@ const template = html`<Panel>
       :style="{'--bar-width': barWidth(row.pageViews)}"
       @click="filterPage(row.page)"
     >
-      <span class="row-name">{{ row.page || 'Unknown' }}</span>
+      <span
+        class="row-name"
+        r-text="row.page ? formatPagePath(row.page) : 'Unknown'"
+      ></span>
       <span class="row-count">{{ dashboard.number(row.pageViews) }}</span>
     </button>
   </div>
@@ -55,6 +60,7 @@ export function defineOverviewTopPages() {
       return {
         ...head.props,
         max,
+        formatPagePath,
         barWidth: (views) =>
           `${Math.min(100, Math.max(0, (views / max()) * 80))}%`,
         filterPage: (page) => {
