@@ -1,4 +1,4 @@
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 
 namespace ZoneTree.Analytics.Storage;
 
@@ -24,7 +24,7 @@ sealed class IndexMaintenance : IDisposable
 {
   readonly (string Name, Action<CancellationToken> Run)[] jobs;
 
-  readonly ILogger logger;
+  readonly IZoneTreeLogger logger;
 
   readonly string directory;
 
@@ -37,7 +37,7 @@ sealed class IndexMaintenance : IDisposable
   /// <param name="jobs">The jobs, in the order they run.</param>
   /// <param name="logger">Receives, and counts, the failures of jobs; logs a stop that waits for one.</param>
   /// <param name="directory">The data directory, which its logs name.</param>
-  public IndexMaintenance((string Name, Action<CancellationToken> Run)[] jobs, ILogger logger, string directory)
+  public IndexMaintenance((string Name, Action<CancellationToken> Run)[] jobs, IZoneTreeLogger logger, string directory)
   {
     this.jobs = jobs;
     this.logger = logger;
@@ -88,13 +88,13 @@ sealed class IndexMaintenance : IDisposable
         catch (AnalyticsStorageException failure)
         {
           // The job cannot succeed until the engine opens again: the next jobs still run.
-          try { logger.LogError(failure); } catch { }
+          try { logger.LogError(failure.Message, failure); } catch { }
           failures.Add(failure);
           break;
         }
         catch (Exception exception)
         {
-          try { logger.LogError(exception); } catch { }
+          try { logger.LogError(exception.Message, exception); } catch { }
           if (token.WaitHandle.WaitOne(RetryDelay))
           {
             completion.TrySetCanceled(token);

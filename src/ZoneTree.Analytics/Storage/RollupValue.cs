@@ -182,6 +182,10 @@ public sealed class ValueDetail
     return merged;
   }
 
+  internal int GetMaxByteCount() => 1
+      + (HasFirstLast ? 2 * (sizeof(double) + ByteWriter.MaxVarInt64ByteCount) : 0)
+      + (Quantiles?.GetMaxByteCount() ?? 0);
+
   internal void Write(ByteWriter writer)
   {
     var flags = (byte)((HasFirstLast ? HasFirstLastFlag : 0) | (Quantiles != null ? HasQuantilesFlag : 0));
@@ -1261,10 +1265,58 @@ sealed class RollupValueSerializer : ISerializer<RollupValue>
   static bool OwnsBuffer(ReadOnlyMemory<byte> bytes) =>
       MemoryMarshal.TryGetArray(bytes, out var segment) && segment.Offset == 0 && segment.Count == segment.Array.Length;
 
-  public Memory<byte> Serialize(in RollupValue entry)
+  public int GetMaxByteCount(in RollupValue entry)
   {
     if (entry == null)
-      return new byte[] { Deleted };
+      return 1;
+    checked
+    {
+      var size = 1 + ByteWriter.MaxVarInt64ByteCount + ByteWriter.MaxLengthByteCount;
+      foreach (var name in entry.ValueNames)
+        size += ByteWriter.GetMaxStringByteCount(name) + 5 * sizeof(double) + ByteWriter.MaxVarInt64ByteCount;
+      size += SectionSize(entry.VisitorSection, static sketch => sketch.GetMaxByteCount());
+      size += SectionSize(entry.DetailSection, static details =>
+      {
+        var length = ByteWriter.MaxLengthByteCount;
+        foreach (var detail in details.Entries)
+          length = checked(length + (detail == null ? 1 : SectionSize(detail, static value => value.GetMaxByteCount())));
+        return length;
+      });
+      size += SectionSize(entry.DistinctSection, static distinct =>
+      {
+        var length = ByteWriter.MaxLengthByteCount;
+        for (var i = 0; i < distinct.Names.Length; ++i)
+          length = checked(length + ByteWriter.GetMaxStringByteCount(distinct.Names[i])
+              + SectionSize(distinct.Sketches[i], static sketch => sketch.GetMaxByteCount()));
+        return length;
+      });
+      if (entry.Rebuilt != null)
+        size += ByteWriter.MaxLengthByteCount + GetMaxByteCount(entry.Rebuilt);
+      return size;
+    }
+  }
+
+  static int SectionSize<T>(RollupSection<T> section, Func<T, int> valueSize) where T : class =>
+      section == null ? 0 : checked(ByteWriter.MaxLengthByteCount
+          + (section.IsStored ? section.Bytes.Length : valueSize(section.Value)));
+
+  public Memory<byte> Serialize(in RollupValue entry) => Encode(entry).ToArray();
+
+  public int Serialize(in RollupValue entry, Span<byte> destination)
+  {
+    var bytes = Encode(entry).Written;
+    bytes.CopyTo(destination);
+    return bytes.Length;
+  }
+
+  ByteWriter Encode(RollupValue entry)
+  {
+    if (entry == null)
+    {
+      var deleted = ByteWriter.Reuse(ref threadWriter, 256);
+      deleted.WriteByte(Deleted);
+      return deleted;
+    }
     // Encoded first: it uses the same thread-local writers.
     var rebuilt = entry.Rebuilt == null ? default : Serialize(entry.Rebuilt);
     var writer = ByteWriter.Reuse(ref threadWriter, 256);
@@ -1333,7 +1385,7 @@ sealed class RollupValueSerializer : ISerializer<RollupValue>
       writer.WriteVarUInt64((ulong)rebuilt.Length);
       writer.WriteBytes(rebuilt.Span);
     }
-    return writer.ToArray();
+    return writer;
   }
 
   /// <summary>

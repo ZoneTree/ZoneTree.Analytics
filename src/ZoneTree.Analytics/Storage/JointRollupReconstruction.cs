@@ -3,7 +3,7 @@ using System.Text;
 using ZoneTree.Analytics.Ingestion;
 using ZoneTree.Analytics.Internal;
 using ZoneTree.Analytics.Query;
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 
 namespace ZoneTree.Analytics.Storage;
 
@@ -44,12 +44,12 @@ sealed class JointRollupReconstruction
   readonly ReportingCalendar calendar;
   readonly SessionSchema schema;
   readonly MetaStore meta;
-  readonly ILogger logger;
+  readonly IZoneTreeLogger logger;
   readonly RollupDefinition[] definitions;
   readonly string signature;
 
   JointRollupReconstruction(AnalyticsOptions options, RollupStore rollups, RawEventStore rawEvents,
-      ReportingCalendar calendar, SessionSchema schema, MetaStore meta, ILogger logger,
+      ReportingCalendar calendar, SessionSchema schema, MetaStore meta, IZoneTreeLogger logger,
       RollupDefinition[] definitions, string signature, long coverage)
   {
     this.options = options;
@@ -74,7 +74,7 @@ sealed class JointRollupReconstruction
   /// raw events up to <paramref name="fence"/>, the last sequence stored before ingestion starts.
   /// </summary>
   public static JointRollupReconstruction Prepare(AnalyticsOptions options, RollupStore rollups, RawEventStore rawEvents,
-      RollupActivations activations, ReportingCalendar calendar, SessionSchema schema, MetaStore meta, ILogger logger, long fence)
+      RollupActivations activations, ReportingCalendar calendar, SessionSchema schema, MetaStore meta, IZoneTreeLogger logger, long fence)
   {
     using var check = new StageLog(logger, "Joint rollup backfill check", options.DataDirectory);
     if (rawEvents == null || options.Storage.RollupIndexes.Definitions.Count == 0)

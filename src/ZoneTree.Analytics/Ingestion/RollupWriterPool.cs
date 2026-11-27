@@ -1,6 +1,6 @@
 using ZoneTree.Analytics.Internal;
 using ZoneTree.Analytics.Storage;
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 
 namespace ZoneTree.Analytics.Ingestion;
 
@@ -74,11 +74,11 @@ sealed class RollupWriterPool : IDisposable
 
   readonly RollupStore rollups;
 
-  readonly ILogger logger;
+  readonly IZoneTreeLogger logger;
 
   readonly Writer[] writers;
 
-  public RollupWriterPool(RollupStore rollups, int count, ILogger logger)
+  public RollupWriterPool(RollupStore rollups, int count, IZoneTreeLogger logger)
   {
     this.rollups = rollups;
     this.logger = logger;
@@ -137,7 +137,7 @@ sealed class RollupWriterPool : IDisposable
       if (failure == null)
         failure = writerFailure;
       else
-        logger.LogError(writerFailure);
+        logger.LogError(writerFailure.Message, writerFailure);
     }
     // A writer completes every piece of a failed batch with the same failure. Each worker throws
     // an exception of its own: throwing one instance on several threads mixes their stack traces.

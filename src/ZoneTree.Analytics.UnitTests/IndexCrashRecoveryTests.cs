@@ -2,7 +2,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text.RegularExpressions;
 using ZoneTree.Analytics.Storage;
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 
 namespace ZoneTree.Analytics.UnitTests;
 
@@ -19,7 +19,7 @@ public sealed class IndexCrashRecoveryTests : DirectoryTest
     // write reaches its log before it returns.
     foreach (var store in new[] { options.Storage.RawEvents, options.Storage.Rollups, options.Storage.Sessions,
         options.Storage.DimensionIndexes.Store, options.Storage.RollupIndexes.Store })
-      store.WriteAheadLogMode = ZoneTree.Options.WriteAheadLogMode.Sync;
+      store.WriteAheadLogMode = ZoneTree.Options.WriteAheadLogMode.Private;
     options.Ingestion.WorkerCount = 1;
     options.Queries.MaxDegreeOfParallelism = 1;
     options.Sessions.Enabled = scenario.StartsWith("joint", StringComparison.Ordinal);
@@ -274,17 +274,19 @@ public sealed class IndexCrashRecoveryTests : DirectoryTest
     }
   }
 
-  internal sealed class RecoveryLogger(Action<string> intercept = null) : ILogger
+  internal sealed class RecoveryLogger(Action<string> intercept = null) : IZoneTreeLogger
   {
     public ConcurrentQueue<string> Messages { get; } = new();
-    public LogLevel LogLevel { get; set; } = LogLevel.Info;
-    public void LogError(Exception error) => Messages.Enqueue(error.ToString());
-    public void LogWarning(object message) => Messages.Enqueue(message?.ToString());
-    public void LogTrace(object message) { }
-    public void LogInfo(object message)
+    public ZoneTreeLogLevel Level { get; set; } = ZoneTreeLogLevel.Info;
+
+    public bool IsEnabled(ZoneTreeLogLevel level) => level != ZoneTreeLogLevel.None && level >= Level;
+
+    public void Log(ZoneTreeLogLevel level, string message, Exception exception = null)
     {
-      Messages.Enqueue(message?.ToString());
-      intercept?.Invoke(message?.ToString());
+      if (!IsEnabled(level)) return;
+      Messages.Enqueue(exception == null ? message : $"{message}{Environment.NewLine}{exception}");
+      if (level == ZoneTreeLogLevel.Info)
+        intercept?.Invoke(message);
     }
   }
 }

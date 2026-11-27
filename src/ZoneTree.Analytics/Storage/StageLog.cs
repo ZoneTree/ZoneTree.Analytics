@@ -1,5 +1,5 @@
 using System.Diagnostics;
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 
 namespace ZoneTree.Analytics.Storage;
 
@@ -9,13 +9,13 @@ namespace ZoneTree.Analytics.Storage;
 /// </summary>
 sealed class StageLog : IDisposable
 {
-  readonly ILogger logger;
+  readonly IZoneTreeLogger logger;
   readonly string stage;
   readonly string directory;
   readonly long started = Stopwatch.GetTimestamp();
   bool completed;
 
-  public StageLog(ILogger logger, string stage, string directory, FormattableString metrics = null)
+  public StageLog(IZoneTreeLogger logger, string stage, string directory, FormattableString metrics = null)
   {
     this.logger = logger;
     this.stage = stage;
@@ -52,7 +52,7 @@ sealed class StageLog : IDisposable
 }
 
 /// <summary>Logs and times the disposal of a resource as a stage of shutdown.</summary>
-sealed class StageDisposal(IDisposable resource, ILogger logger, string stage, string directory) : IDisposable
+sealed class StageDisposal(IDisposable resource, IZoneTreeLogger logger, string stage, string directory) : IDisposable
 {
   public void Dispose()
   {

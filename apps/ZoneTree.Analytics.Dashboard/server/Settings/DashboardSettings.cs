@@ -352,8 +352,8 @@ sealed class QuerySettings
 // Bloom filters are not settings: they keep the engine's defaults.
 sealed class StoreSettings
 {
-  [Setting("Write-ahead log", Help = "Async compressed is ZoneTree's default.")]
-  public WriteAheadLogMode WriteAheadLogMode { get; set; } = WriteAheadLogMode.AsyncCompressed;
+  [Setting("Write-ahead log", Help = "Async private is ZoneTree's default.")]
+  public WriteAheadLogMode WriteAheadLogMode { get; set; } = WriteAheadLogMode.AsyncPrivate;
 
   [Setting("Mutable segment size", Unit = "records", Min = 1000, Max = 100000000, EmptyLabel = "ZoneTree default")]
   public int? MutableSegmentMaxItemCount { get; set; }

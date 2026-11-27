@@ -133,7 +133,7 @@ public sealed class ConfigurationTests : DirectoryTest
     var zoneTreeRule = Assert.Catch(() =>
         TestEngine.Create(directory, o => o.Storage.Rollups.DiskSegmentMaxItemCount = 1_000).Dispose());
     Assert.Catch(() => TestEngine.Create(directory, o =>
-        o.Storage.RawEvents.ConfigureWriteAheadLog = wal => wal.AsyncCompressedModeOptions = null).Dispose());
+        o.Storage.RawEvents.ConfigureWriteAheadLog = wal => wal.EmptyQueuePollInterval = TimeSpan.FromMilliseconds(-1)).Dispose());
     Assert.Multiple(() =>
     {
       Assert.That(engineRule.Message, Does.Contain("Storage.Rollups.MutableSegmentMaxItemCount"));
@@ -147,15 +147,15 @@ public sealed class ConfigurationTests : DirectoryTest
     var walModes = new System.Collections.Concurrent.ConcurrentBag<ZoneTree.Options.WriteAheadLogMode>();
     using var engine = TestEngine.Create(directory, o =>
     {
-      o.Storage.RawEvents.WriteAheadLogMode = ZoneTree.Options.WriteAheadLogMode.Sync;
-      o.Storage.RawEvents.ConfigureWriteAheadLog = wal => walModes.Add(wal.WriteAheadLogMode);
+      o.Storage.RawEvents.WriteAheadLogMode = ZoneTree.Options.WriteAheadLogMode.Private;
+      o.Storage.RawEvents.ConfigureWriteAheadLog = wal => walModes.Add(wal.Mode);
       // Below ZoneTree's recommended minimum: only accepted with AllowUnsafeOptionValues.
       o.Storage.Rollups.DiskSegmentMaxItemCount = 1_000;
       o.Storage.Rollups.AllowUnsafeOptionValues = true;
     });
     engine.Track(Event("purchase", "pro", 0));
     engine.Flush();
-    Assert.That(walModes, Has.Some.EqualTo(ZoneTree.Options.WriteAheadLogMode.Sync));
+    Assert.That(walModes, Has.Some.EqualTo(ZoneTree.Options.WriteAheadLogMode.Private));
   }
 
   [Test]

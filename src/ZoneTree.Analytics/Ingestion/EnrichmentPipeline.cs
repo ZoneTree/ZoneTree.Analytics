@@ -1,7 +1,7 @@
 using ZoneTree.Analytics.Internal;
 using ZoneTree.Analytics.Privacy;
 using ZoneTree.Analytics.Web;
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 
 namespace ZoneTree.Analytics.Ingestion;
 
@@ -98,11 +98,11 @@ sealed class EnrichmentPipeline
 
   readonly ReferrerClassifier referrerClassifier;
 
-  readonly ILogger logger;
+  readonly IZoneTreeLogger logger;
 
   readonly Counters counters;
 
-  public EnrichmentPipeline(AnalyticsOptions options, VisitorHasher visitorHasher, ILogger logger, Counters counters)
+  public EnrichmentPipeline(AnalyticsOptions options, VisitorHasher visitorHasher, IZoneTreeLogger logger, Counters counters)
   {
     this.options = options;
     this.visitorHasher = visitorHasher;
@@ -129,7 +129,7 @@ sealed class EnrichmentPipeline
   void ExtensionFailed(string extension, Exception exception)
   {
     Interlocked.Increment(ref counters.Errors);
-    logger.LogError(new InvalidOperationException($"The {extension} threw an exception; the event is processed without it.", exception));
+    logger.LogError($"The {extension} threw an exception; the event is processed without it.", exception);
   }
 
   public EnrichedEvent Enrich(EventSnapshot e, out RejectReason reason)

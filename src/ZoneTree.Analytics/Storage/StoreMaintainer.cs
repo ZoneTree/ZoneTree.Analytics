@@ -33,10 +33,10 @@ sealed class StoreMaintainer<TKey, TValue> : IMaintainer
     inner.StartBottomSegmentsMerge();
   }
 
-  public int ThresholdForMergeOperationStart
+  public int MergeThreshold
   {
-    get => inner.ThresholdForMergeOperationStart;
-    set => inner.ThresholdForMergeOperationStart = value;
+    get => inner.MergeThreshold;
+    set => inner.MergeThreshold = value;
   }
 
   public int MaximumReadOnlySegmentCount
@@ -45,16 +45,16 @@ sealed class StoreMaintainer<TKey, TValue> : IMaintainer
     set => inner.MaximumReadOnlySegmentCount = value;
   }
 
-  public bool EnableJobForCleaningInactiveCaches
+  public bool EnableInactiveCacheCleanup
   {
-    get => inner.EnableJobForCleaningInactiveCaches;
-    set => inner.EnableJobForCleaningInactiveCaches = value;
+    get => inner.EnableInactiveCacheCleanup;
+    set => inner.EnableInactiveCacheCleanup = value;
   }
 
-  public TimeSpan BlockCacheLifeTime
+  public TimeSpan BlockCacheLifetime
   {
-    get => inner.BlockCacheLifeTime;
-    set => inner.BlockCacheLifeTime = value;
+    get => inner.BlockCacheLifetime;
+    set => inner.BlockCacheLifetime = value;
   }
 
   public TimeSpan InactiveBlockCacheCleanupInterval

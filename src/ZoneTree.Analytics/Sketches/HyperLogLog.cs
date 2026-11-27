@@ -336,6 +336,16 @@ public sealed class HyperLogLog
     return new HyperLogLog(precision, sparse.AsSpan(0, sparseCount).ToArray(), sparseCount, null);
   }
 
+  internal int GetMaxByteCount()
+  {
+    if (registers != null)
+      return 2 + registers.Length;
+    var entries = sparseCount + pendingCount;
+    var sparseBytes = ByteWriter.MaxLengthByteCount * (1 + entries);
+    // Compacting pending entries can switch the encoding to dense.
+    return 2 + (entries > ExactLimit ? Math.Max(sparseBytes, 1 << precision) : sparseBytes);
+  }
+
   /// <summary>
   /// Writes the sketch in its compact binary form: sparse entries as deltas, dense registers as is.
   /// </summary>

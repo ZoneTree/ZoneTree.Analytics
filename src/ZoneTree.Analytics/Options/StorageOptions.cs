@@ -1,4 +1,4 @@
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 
 namespace ZoneTree.Analytics;
 
@@ -71,7 +71,7 @@ public sealed class StorageOptions
   /// The logger used by the engine and its ZoneTree stores.
   /// Default is a console logger at warning level.
   /// </summary>
-  public ILogger Logger { get; set; }
+  public IZoneTreeLogger Logger { get; set; }
 
   internal StorageOptions Clone()
   {

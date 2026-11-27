@@ -3,7 +3,7 @@ using System.Runtime.ExceptionServices;
 using System.Threading.Channels;
 using ZoneTree.Analytics.Internal;
 using ZoneTree.Analytics.Storage;
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 
 namespace ZoneTree.Analytics.Ingestion;
 
@@ -71,7 +71,7 @@ sealed class IngestionServices
 
   public Counters Counters;
 
-  public ILogger Logger;
+  public IZoneTreeLogger Logger;
 
   public Func<long> NextSequence;
 
@@ -251,7 +251,7 @@ sealed class IngestionWorker : IAsyncDisposable
           catch (Exception e)
           {
             Interlocked.Increment(ref services.Counters.Errors);
-            services.Logger.LogError(e);
+            services.Logger.LogError(e.Message, e);
           }
           if (buffer.Count >= maxBufferedRows ||
               Stopwatch.GetTimestamp() - lastFlushTimestamp >= flushIntervalTimestamp)
@@ -291,9 +291,16 @@ sealed class IngestionWorker : IAsyncDisposable
     while (lastFlushFailure != null && !stopping.Task.IsCompleted &&
         (RetainedRollupRows >= maxBufferedRows || sessions.Count >= services.Options.Sessions.MaxCachedSessions))
     {
-      await Task.WhenAny(Task.Delay(services.Options.Ingestion.FlushInterval), stopping.Task).ConfigureAwait(false);
-      if (!stopping.Task.IsCompleted)
-        TryFlush();
+      try
+      {
+        await stopping.Task.WaitAsync(services.Options.Ingestion.FlushInterval).ConfigureAwait(false);
+        return;
+      }
+      catch (TimeoutException)
+      {
+        if (!stopping.Task.IsCompleted)
+          TryFlush();
+      }
     }
   }
 
@@ -553,7 +560,7 @@ sealed class IngestionWorker : IAsyncDisposable
       // Optional index failures must not discard an event already committed to the
       // primary store. Queries fall back to raw data until recovery rebuilds the index.
       Interlocked.Increment(ref services.Counters.Errors);
-      services.Logger.LogError(exception);
+      services.Logger.LogError(exception.Message, exception);
     }
   }
 
@@ -568,7 +575,7 @@ sealed class IngestionWorker : IAsyncDisposable
     {
       lastFlushFailure = e;
       Interlocked.Increment(ref services.Counters.Errors);
-      services.Logger.LogError(e);
+      services.Logger.LogError(e.Message, e);
     }
     return lastFlushFailure;
   }

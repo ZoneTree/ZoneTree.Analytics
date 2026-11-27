@@ -1,4 +1,4 @@
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 
 namespace ZoneTree.Analytics.Storage;
 
@@ -45,7 +45,7 @@ sealed class DimensionIndexStore : BackgroundIndex
   public object Gate { get; } = new();
 
   public DimensionIndexStore(string directory, DimensionIndexOptions options, RawEventStore rawEvents,
-      StoreFactory factory, MetaStore meta, ILogger logger)
+      StoreFactory factory, MetaStore meta, IZoneTreeLogger logger)
       : base(meta, logger, directory, "Dimension index", "dimension-index", "dimension-index.dimensions",
           StorageFormats.DimensionIndexKey, StorageFormats.DimensionIndex, "The dimension indexes of the analytics data directory")
   {

@@ -144,21 +144,18 @@ static class UserAgents
 /// <summary>
 /// Records the errors and warnings that the engine and ZoneTree log.
 /// </summary>
-sealed class RecordingLogger : ZoneTree.Logger.ILogger
+sealed class RecordingLogger : ZoneTree.Logging.IZoneTreeLogger
 {
   public System.Collections.Concurrent.ConcurrentQueue<string> Problems { get; } = new();
 
-  public ZoneTree.Logger.LogLevel LogLevel { get; set; } = ZoneTree.Logger.LogLevel.Warning;
+  public ZoneTree.Logging.ZoneTreeLogLevel Level { get; set; } = ZoneTree.Logging.ZoneTreeLogLevel.Warning;
 
-  public void LogError(Exception log) => Problems.Enqueue(log.ToString());
+  public bool IsEnabled(ZoneTree.Logging.ZoneTreeLogLevel level) =>
+      level != ZoneTree.Logging.ZoneTreeLogLevel.None && level >= Level;
 
-  public void LogWarning(object log) => Problems.Enqueue(log?.ToString());
-
-  public void LogInfo(object log)
+  public void Log(ZoneTree.Logging.ZoneTreeLogLevel level, string message, Exception exception = null)
   {
-  }
-
-  public void LogTrace(object log)
-  {
+    if (IsEnabled(level))
+      Problems.Enqueue(exception == null ? message : $"{message}{Environment.NewLine}{exception}");
   }
 }

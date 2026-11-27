@@ -1,4 +1,4 @@
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 
 namespace ZoneTree.Analytics.Storage;
 
@@ -6,33 +6,32 @@ namespace ZoneTree.Analytics.Storage;
 /// The logger handed to ZoneTree. It counts the errors ZoneTree reports on its own threads, for
 /// example failed merges or segment cleanups, in <see cref="AnalyticsStatistics.Errors"/>.
 /// </summary>
-sealed class CountingLogger : ILogger
+sealed class CountingLogger : IZoneTreeLogger
 {
-  readonly ILogger inner;
+  readonly IZoneTreeLogger inner;
 
   readonly Counters counters;
 
-  public CountingLogger(ILogger inner, Counters counters)
+  public CountingLogger(IZoneTreeLogger inner, Counters counters)
   {
     this.inner = inner;
     this.counters = counters;
   }
 
-  public LogLevel LogLevel
+  public ZoneTreeLogLevel Level
   {
-    get => inner.LogLevel;
-    set => inner.LogLevel = value;
+    get => inner.Level;
+    set => inner.Level = value;
   }
 
-  public void LogError(Exception log)
+  // Keep error counts independent of the log sink's filters.
+  public bool IsEnabled(ZoneTreeLogLevel level) => level == ZoneTreeLogLevel.Error || inner.IsEnabled(level);
+
+  public void Log(ZoneTreeLogLevel level, string message, Exception exception = null)
   {
-    Interlocked.Increment(ref counters.Errors);
-    inner.LogError(log);
+    if (level == ZoneTreeLogLevel.Error)
+      Interlocked.Increment(ref counters.Errors);
+    if (inner.IsEnabled(level))
+      inner.Log(level, message, exception);
   }
-
-  public void LogWarning(object log) => inner.LogWarning(log);
-
-  public void LogInfo(object log) => inner.LogInfo(log);
-
-  public void LogTrace(object log) => inner.LogTrace(log);
 }
