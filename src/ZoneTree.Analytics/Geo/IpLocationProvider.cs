@@ -1,7 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using ZoneTree.Analytics.Geo;
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 
 namespace ZoneTree.Analytics;
 
@@ -38,7 +38,7 @@ public sealed class IpLocationProvider : IGeoLocator, IDisposable, IAsyncDisposa
 
   readonly IpLocationOptions options;
   readonly GeoPrecision precision;
-  readonly ILogger logger;
+  readonly IZoneTreeLogger logger;
   readonly HttpClient client;
   readonly bool ownsClient;
   readonly string[] paths;
@@ -66,7 +66,7 @@ public sealed class IpLocationProvider : IGeoLocator, IDisposable, IAsyncDisposa
   /// <param name="logger">Receives downloads, updates and failures. Default is none.</param>
   /// <exception cref="ArgumentException">The options are invalid.</exception>
   public IpLocationProvider(IpLocationOptions options, GeoPrecision precision = GeoPrecision.Country,
-      string baseDirectory = null, ILogger logger = null)
+      string baseDirectory = null, IZoneTreeLogger logger = null)
   {
     ArgumentNullException.ThrowIfNull(options);
     if (precision == GeoPrecision.None || !Enum.IsDefined(precision))
@@ -136,7 +136,7 @@ public sealed class IpLocationProvider : IGeoLocator, IDisposable, IAsyncDisposa
     }
     catch (Exception exception)
     {
-      logger?.LogError(new InvalidOperationException("IP location updates stopped.", exception));
+      logger?.LogError("IP location updates stopped.", exception);
     }
   }
 
@@ -317,7 +317,7 @@ public sealed class IpLocationProvider : IGeoLocator, IDisposable, IAsyncDisposa
         notBefore[path] = DateTimeOffset.UtcNow + options.RetryInterval;
     }
     if (exception == null) logger?.LogWarning(message);
-    else logger?.LogError(new IOException(message, exception));
+    else logger?.LogError(message, exception);
   }
 
   void RemoveAbandonedDownloads()

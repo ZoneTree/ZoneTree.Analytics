@@ -1,5 +1,5 @@
 using ZoneTree.Analytics.Internal;
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 
 namespace ZoneTree.Analytics.Storage;
 
@@ -34,7 +34,7 @@ sealed class RollupIndexStore : BackgroundIndex
   readonly Dictionary<Granularity, IndexRecovery> recovery = [];
   RollupActivations activations;
 
-  public RollupIndexStore(string root, AnalyticsOptions options, RollupStore rollups, StoreFactory factory, MetaStore meta, ILogger logger)
+  public RollupIndexStore(string root, AnalyticsOptions options, RollupStore rollups, StoreFactory factory, MetaStore meta, IZoneTreeLogger logger)
       : base(meta, logger, root, "Rollup index", KeyPrefix, "rollup-index.config",
           StorageFormats.RollupIndexKey, StorageFormats.RollupIndex, "The rollup indexes of the analytics data directory")
   {
@@ -245,7 +245,7 @@ sealed class RollupIndexStore : BackgroundIndex
     {
       Invalidate();
       // Primary rollups remain authoritative and must keep accepting deltas.
-      try { Logger.LogError(exception); } catch { }
+      try { Logger.LogError(exception.Message, exception); } catch { }
     }
   }
 

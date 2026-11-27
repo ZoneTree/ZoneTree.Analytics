@@ -1,5 +1,5 @@
 using ZoneTree.Analytics.Internal;
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 
 namespace ZoneTree.Analytics.Storage;
 
@@ -46,7 +46,7 @@ abstract class BackgroundIndex : IDisposable
   /// <param name="formatKey">The metadata key of the index format.</param>
   /// <param name="format">The current index format.</param>
   /// <param name="formatDescription">What the format describes, for its errors.</param>
-  protected BackgroundIndex(MetaStore meta, ILogger logger, string root, string stage, string keyPrefix,
+  protected BackgroundIndex(MetaStore meta, IZoneTreeLogger logger, string root, string stage, string keyPrefix,
       string configurationKey, string formatKey, int format, string formatDescription)
   {
     Meta = meta;
@@ -63,7 +63,7 @@ abstract class BackgroundIndex : IDisposable
 
   protected MetaStore Meta { get; }
 
-  protected ILogger Logger { get; }
+  protected IZoneTreeLogger Logger { get; }
 
   /// <summary>The directory of the index stores.</summary>
   protected string Root { get; }

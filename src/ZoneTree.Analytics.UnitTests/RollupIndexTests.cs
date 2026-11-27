@@ -500,7 +500,7 @@ public sealed class RollupIndexTests : DirectoryTest
     void Options(AnalyticsOptions options)
     {
       Configure(options);
-      options.Storage.RollupIndexes.Store.ConfigureWriteAheadLog = wal => wal.WriteAheadLogMode = ZoneTree.Options.WriteAheadLogMode.None;
+      options.Storage.RollupIndexes.Store.ConfigureWriteAheadLog = wal => wal.Mode = ZoneTree.Options.WriteAheadLogMode.None;
     }
     using (var engine = TestEngine.Create(directory, Options))
     {

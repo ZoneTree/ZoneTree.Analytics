@@ -1,5 +1,5 @@
 using ZoneTree.Analytics.Internal;
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 
 namespace ZoneTree.Analytics.Storage;
 
@@ -26,7 +26,7 @@ sealed class RawEventStore : IDisposable
   const long MinSliceTicks = TimeSpan.TicksPerMinute;
 
   public RawEventStore(
-      string rootDirectory, long recordsPerPartition, StoreFactory factory, ILogger logger)
+      string rootDirectory, long recordsPerPartition, StoreFactory factory, IZoneTreeLogger logger)
   {
     Store = new(rootDirectory, recordsPerPartition, factory.OpenRawEvents, logger, factory.CreateRawEventsMaintainer, factory.WriteAheadLogDirectoryOf);
   }

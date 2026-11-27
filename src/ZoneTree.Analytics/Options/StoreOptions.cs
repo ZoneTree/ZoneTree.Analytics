@@ -21,9 +21,9 @@ namespace ZoneTree.Analytics;
 public sealed class StoreOptions
 {
   /// <summary>
-  /// The write-ahead-log mode. Default is <see cref="WriteAheadLogMode.AsyncCompressed"/>.
+  /// The write-ahead-log mode. Default is <see cref="WriteAheadLogMode.AsyncPrivate"/>.
   /// </summary>
-  public WriteAheadLogMode WriteAheadLogMode { get; set; } = WriteAheadLogMode.AsyncCompressed;
+  public WriteAheadLogMode WriteAheadLogMode { get; set; } = WriteAheadLogMode.AsyncPrivate;
 
   /// <summary>
   /// How many recent records are held in the mutable (in-memory) segment before it moves
@@ -47,7 +47,7 @@ public sealed class StoreOptions
   public bool AllowUnsafeOptionValues { get; set; }
 
   /// <summary>
-  /// Tunes the write-ahead log, for example compression or incremental backup. Runs after
+  /// Tunes the write-ahead log, for example compression or sync intervals. Runs after
   /// <see cref="WriteAheadLogMode"/> is applied.
   /// </summary>
   public Action<WriteAheadLogOptions> ConfigureWriteAheadLog { get; set; }

@@ -87,7 +87,7 @@ Completed coverage is recorded for reuse after reopening. After interrupted writ
 
 Interrupted backfills resume from saved checkpoints. Copy backfills checkpoint every 100,000 input records and at partition boundaries. Historical joint-rollup reconstruction also preserves active sessions and replays absolute contributions to avoid counting the same chunk twice.
 
-Recovery follows the configured write-ahead log (WAL) mode. The default `AsyncCompressed` mode can lose recent writes in a crash, including index copies or reconstructed aggregate contributions. Raw events can remain stored while their reconstructed aggregates miss those contributions. Use synchronous WAL for the stores involved when checkpoint recovery must retain every completed write.
+Recovery follows the configured write-ahead log (WAL) mode. The default `AsyncPrivate` mode can lose recent writes in a crash, including index copies or reconstructed aggregate contributions. Raw events can remain stored while their reconstructed aggregates miss those contributions. Use `Private` WAL for the stores involved when checkpoint recovery must retain every completed write after a process crash.
 
 Information logs report reuse, repair, or rebuild decisions, checkpoint progress, resumed counts, duration, and throughput. Configuration changes, missing retained partitions, and stores configured without a write-ahead log can still require a full rebuild.
 

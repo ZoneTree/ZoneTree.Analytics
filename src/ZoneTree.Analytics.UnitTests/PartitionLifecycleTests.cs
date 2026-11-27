@@ -506,10 +506,10 @@ public sealed class PartitionLifecycleTests : DirectoryTest
     public Task WaitForBackgroundThreadsAsync() => inner.WaitForBackgroundThreadsAsync();
     public void StartMerge() => inner.StartMerge();
     public void StartBottomSegmentsMerge(int fromIndex = 0, int toIndex = int.MaxValue) => inner.StartBottomSegmentsMerge(fromIndex, toIndex);
-    public int ThresholdForMergeOperationStart { get => inner.ThresholdForMergeOperationStart; set => inner.ThresholdForMergeOperationStart = value; }
+    public int MergeThreshold { get => inner.MergeThreshold; set => inner.MergeThreshold = value; }
     public int MaximumReadOnlySegmentCount { get => inner.MaximumReadOnlySegmentCount; set => inner.MaximumReadOnlySegmentCount = value; }
-    public bool EnableJobForCleaningInactiveCaches { get => inner.EnableJobForCleaningInactiveCaches; set => inner.EnableJobForCleaningInactiveCaches = value; }
-    public TimeSpan BlockCacheLifeTime { get => inner.BlockCacheLifeTime; set => inner.BlockCacheLifeTime = value; }
+    public bool EnableInactiveCacheCleanup { get => inner.EnableInactiveCacheCleanup; set => inner.EnableInactiveCacheCleanup = value; }
+    public TimeSpan BlockCacheLifetime { get => inner.BlockCacheLifetime; set => inner.BlockCacheLifetime = value; }
     public TimeSpan InactiveBlockCacheCleanupInterval { get => inner.InactiveBlockCacheCleanupInterval; set => inner.InactiveBlockCacheCleanupInterval = value; }
   }
 }

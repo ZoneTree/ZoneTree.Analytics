@@ -1,7 +1,7 @@
 using System.Runtime.CompilerServices;
 using ZoneTree.Analytics.Ingestion;
 using ZoneTree.Analytics.Internal;
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 
 namespace ZoneTree.Analytics.Storage;
 
@@ -38,7 +38,7 @@ sealed class RollupStore : IDisposable
       PartitioningOptions partitioning,
       RollupDefinition[] definitions,
       StoreFactory factory,
-      ILogger logger)
+      IZoneTreeLogger logger)
   {
     this.definitions = definitions;
     if ((granularities & Granularity.Minute) != 0)

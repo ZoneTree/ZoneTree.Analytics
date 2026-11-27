@@ -9,6 +9,10 @@ namespace ZoneTree.Analytics.Internal;
 /// </summary>
 sealed class ByteWriter
 {
+  public const int MaxLengthByteCount = 5;
+
+  public const int MaxVarInt64ByteCount = 10;
+
   byte[] buffer;
 
   int length;
@@ -75,7 +79,7 @@ sealed class ByteWriter
 
   public void WriteVarUInt64(ulong value)
   {
-    Ensure(10);
+    Ensure(MaxVarInt64ByteCount);
     while (value >= 0x80)
     {
       buffer[length++] = (byte)(value | 0x80);
@@ -89,6 +93,12 @@ sealed class ByteWriter
     // zig-zag encoding keeps small negative numbers small.
     WriteVarUInt64((ulong)((value << 1) ^ (value >> 63)));
   }
+
+  /// <summary>
+  /// Returns an upper bound for the UTF-8 bytes and length prefix.
+  /// </summary>
+  public static int GetMaxStringByteCount(string value) =>
+      value == null ? 1 : checked(MaxLengthByteCount + 3 * value.Length);
 
   /// <summary>
   /// Writes a length-prefixed UTF-8 string. Null is encoded distinctly from empty.

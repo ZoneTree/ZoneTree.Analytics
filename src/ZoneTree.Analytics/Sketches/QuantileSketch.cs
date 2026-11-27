@@ -189,6 +189,8 @@ public sealed class QuantileSketch
     return count;
   }
 
+  internal int GetMaxByteCount() => ByteWriter.MaxVarInt64ByteCount + positive.GetMaxByteCount() + negative.GetMaxByteCount();
+
   internal void Write(ByteWriter writer)
   {
     writer.WriteVarUInt64((ulong)zeroCount);
@@ -295,6 +297,9 @@ public sealed class QuantileSketch
       clone.Total = Total;
       return clone;
     }
+
+    public int GetMaxByteCount() => Total == 0 ? 1 :
+        2 * ByteWriter.MaxLengthByteCount + ByteWriter.MaxVarInt64ByteCount * (MaxIndex - MinIndex + 1);
 
     public void Write(ByteWriter writer)
     {

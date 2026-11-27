@@ -300,7 +300,7 @@ public sealed class LimitsTests : DirectoryTest
     var configured = new System.Collections.Concurrent.ConcurrentBag<string>();
     Action<IMaintainer> Hook(string store) => maintainer =>
     {
-      maintainer.ThresholdForMergeOperationStart = 1234;
+      maintainer.MergeThreshold = 1234;
       configured.Add(store);
     };
     using (var engine = TestEngine.Create(directory, o =>

@@ -163,11 +163,44 @@ sealed class SessionStateSerializer : ISerializer<SessionState>
     return state;
   }
 
-  public Memory<byte> Serialize(in SessionState entry)
+  public int GetMaxByteCount(in SessionState entry)
   {
     if (entry == null)
-      return new byte[] { Deleted };
+      return 1;
+    checked
+    {
+      var size = 1 + 8 * ByteWriter.MaxVarInt64ByteCount + ByteWriter.MaxLengthByteCount
+          + ByteWriter.GetMaxStringByteCount(entry.EntryPage) + ByteWriter.GetMaxStringByteCount(entry.EntryHostname)
+          + ByteWriter.GetMaxStringByteCount(entry.LastPage) + ByteWriter.GetMaxStringByteCount(entry.LastHostname);
+      var dimensions = entry.Dimensions ?? [];
+      for (var i = 0; i < SessionSchema.StandardCount; ++i)
+        size += ByteWriter.GetMaxStringByteCount(i < dimensions.Length ? dimensions[i] : null);
+      for (var i = SessionSchema.StandardCount; i < dimensions.Length; ++i)
+      {
+        if (dimensions[i] != null)
+          size += ByteWriter.GetMaxStringByteCount(schema.Names[i]) + ByteWriter.GetMaxStringByteCount(dimensions[i]);
+      }
+      return size;
+    }
+  }
+
+  public Memory<byte> Serialize(in SessionState entry) => Encode(entry).ToArray();
+
+  public int Serialize(in SessionState entry, Span<byte> destination)
+  {
+    var bytes = Encode(entry).Written;
+    bytes.CopyTo(destination);
+    return bytes.Length;
+  }
+
+  ByteWriter Encode(SessionState entry)
+  {
     var writer = ByteWriter.Reuse(ref threadWriter, 256);
+    if (entry == null)
+    {
+      writer.WriteByte(Deleted);
+      return writer;
+    }
     writer.WriteByte(Present);
     writer.WriteVarUInt64(entry.SessionId);
     writer.WriteVarInt64(entry.StartTicks);
@@ -199,6 +232,6 @@ sealed class SessionStateSerializer : ISerializer<SessionState>
       writer.WriteString(schema.Names[i]);
       writer.WriteString(dimensions[i]);
     }
-    return writer.ToArray();
+    return writer;
   }
 }

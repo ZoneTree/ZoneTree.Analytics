@@ -1,6 +1,6 @@
 using ZoneTree.Analytics.Ingestion;
 using ZoneTree.Comparers;
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 using ZoneTree.Options;
 
 namespace ZoneTree.Analytics.Storage;
@@ -26,7 +26,7 @@ sealed class StoreFactory
 
   readonly string writeAheadLogRoot;
 
-  readonly ILogger logger;
+  readonly IZoneTreeLogger logger;
 
   readonly RetentionClock retention;
 
@@ -42,7 +42,7 @@ sealed class StoreFactory
 
   public long RollupRetentionCutoff(Granularity granularity) => retention.Current.RollupCutoff(granularity);
 
-  public StoreFactory(StorageOptions storage, string dataRoot, ILogger logger, RetentionClock retention)
+  public StoreFactory(StorageOptions storage, string dataRoot, IZoneTreeLogger logger, RetentionClock retention)
   {
     this.storage = storage;
     this.retention = retention;
@@ -68,7 +68,7 @@ sealed class StoreFactory
         .SetLogger(logger)
         .ConfigureWriteAheadLogOptions(options =>
         {
-          options.WriteAheadLogMode = store.WriteAheadLogMode;
+          options.Mode = store.WriteAheadLogMode;
           store.ConfigureWriteAheadLog?.Invoke(options);
         })
         .ConfigureDiskSegmentOptions(options => store.ConfigureDiskSegments?.Invoke(options))
@@ -101,22 +101,22 @@ sealed class StoreFactory
     {
       var factory = RawEventsFactory(null);
       factory.Validate();
-      RawEventsDurable = factory.Options.WriteAheadLogOptions.WriteAheadLogMode != WriteAheadLogMode.None;
+      RawEventsDurable = factory.Options.WriteAheadLogOptions.Mode != WriteAheadLogMode.None;
     }
     if (storage.DimensionIndexes.Dimensions.Count > 0)
     {
       var factory = DimensionIndexFactory(null);
       factory.Validate();
-      DimensionIndexesDurable = factory.Options.WriteAheadLogOptions.WriteAheadLogMode != WriteAheadLogMode.None;
+      DimensionIndexesDurable = factory.Options.WriteAheadLogOptions.Mode != WriteAheadLogMode.None;
     }
     var rollupFactory = RollupsFactory(null, Granularity.Hour);
     rollupFactory.Validate();
-    RollupsDurable = rollupFactory.Options.WriteAheadLogOptions.WriteAheadLogMode != WriteAheadLogMode.None;
+    RollupsDurable = rollupFactory.Options.WriteAheadLogOptions.Mode != WriteAheadLogMode.None;
     if (storage.RollupIndexes.Definitions.Count > 0)
     {
       var indexFactory = RollupIndexFactory(null, Granularity.Hour);
       indexFactory.Validate();
-      RollupIndexesDurable = indexFactory.Options.WriteAheadLogOptions.WriteAheadLogMode != WriteAheadLogMode.None;
+      RollupIndexesDurable = indexFactory.Options.WriteAheadLogOptions.Mode != WriteAheadLogMode.None;
     }
     SessionsFactory(null, schema).Validate();
   }

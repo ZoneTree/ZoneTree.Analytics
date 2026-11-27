@@ -38,6 +38,20 @@ public sealed class RollupValueLayoutTests
   }
 
   [Test]
+  public void SerializingIntoAnExistingBufferUsesTheSameLayout()
+  {
+    var row = RollupValue.WithRebuilt(HeavyRow(), HeavyRow(10));
+    var stored = Serializer.Deserialize(Serializer.Serialize(row));
+    foreach (var value in new[] { row, stored, null })
+    {
+      var buffer = new byte[Serializer.GetMaxByteCount(value)];
+      buffer.AsSpan().Fill(0xff);
+      var written = Serializer.Serialize(value, buffer);
+      Assert.That(buffer.AsSpan(0, written).ToArray(), Is.EqualTo(Serializer.Serialize(value).ToArray()));
+    }
+  }
+
+  [Test]
   public void QueriesDecodeOnlyTheSketchesTheyRead()
   {
     var bytes = Serializer.Serialize(HeavyRow());

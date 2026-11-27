@@ -63,8 +63,8 @@ public sealed class AdvancedStorageTests : DirectoryTest
     Assert.That(sessions.Next(), Is.True);
     Assert.That(sessions.CurrentValue.PageViews, Is.EqualTo(1));
     Assert.That(sessions.CurrentValue.Clone().Dimensions, Is.Not.SameAs(sessions.CurrentValue.Dimensions));
-    lease.Maintainer.ThresholdForMergeOperationStart = 3;
-    Assert.That(internalLease.Maintainer.ThresholdForMergeOperationStart, Is.EqualTo(3));
+    lease.Maintainer.MergeThreshold = 3;
+    Assert.That(internalLease.Maintainer.MergeThreshold, Is.EqualTo(3));
   }
 
   [Test]

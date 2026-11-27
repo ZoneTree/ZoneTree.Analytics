@@ -177,14 +177,18 @@ public sealed class StorageCodecTests
     var state = new SessionState { SessionId = 1, Dimensions = new string[writerSchema.Count] };
     state.Dimensions[0] = "Google";
     state.Dimensions[writerSchema.IndexOf("plan")] = "pro";
-    state.Dimensions[writerSchema.IndexOf("ab_variant")] = "B";
-    var restored = new SessionStateSerializer(readerSchema).Deserialize(
-        new SessionStateSerializer(writerSchema).Serialize(state));
+    state.Dimensions[writerSchema.IndexOf("ab_variant")] = "β";
+    var serializer = new SessionStateSerializer(writerSchema);
+    var buffer = new byte[serializer.GetMaxByteCount(state)];
+    buffer.AsSpan().Fill(0xff);
+    var written = serializer.Serialize(state, buffer);
+    var restored = new SessionStateSerializer(readerSchema).Deserialize(buffer.AsMemory(0, written));
     Assert.Multiple(() =>
     {
+      Assert.That(buffer.AsSpan(0, written).ToArray(), Is.EqualTo(serializer.Serialize(state).ToArray()));
       Assert.That(restored.Dimensions, Has.Length.EqualTo(readerSchema.Count));
       Assert.That(restored.Dimensions[0], Is.EqualTo("Google"));
-      Assert.That(restored.Dimensions[readerSchema.IndexOf("ab_variant")], Is.EqualTo("B"));
+      Assert.That(restored.Dimensions[readerSchema.IndexOf("ab_variant")], Is.EqualTo("β"));
       Assert.That(restored.Dimensions[readerSchema.IndexOf("team")], Is.Null);
     });
   }

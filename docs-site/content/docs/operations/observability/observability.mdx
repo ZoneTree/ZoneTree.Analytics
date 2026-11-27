@@ -69,10 +69,7 @@ Merge this logging section into the host's `appsettings.json`, or the environmen
 For a standalone engine, set its logger before opening it:
 
 ```csharp
-options.Storage.Logger = new ZoneTree.Logger.ConsoleLogger
-{
-    LogLevel = ZoneTree.Logger.LogLevel.Info,
-};
+options.Storage.Logger = new ZoneTree.Logging.ConsoleLogger(ZoneTree.Logging.ZoneTreeLogLevel.Info);
 ```
 
 An engine opened outside dependency injection in an ASP.NET Core host can also use the integration's `UseLogger` extension to forward engine and storage messages to a host logger.

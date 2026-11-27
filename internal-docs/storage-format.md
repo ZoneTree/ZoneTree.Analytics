@@ -14,7 +14,9 @@ There are two layers to the persisted format:
 | Analytics records | ZoneTree.Analytics | Directory routing, keys, event payloads, rollup and session serializers, metadata, index namespaces, and recovery checkpoints |
 | Storage engine files | ZoneTree | Tree metadata, segments, write-ahead logs, compression, block layout, and merge machinery |
 
-The byte layouts below describe the serialized keys and values passed to ZoneTree. They are not offsets into segment or WAL files. Segment mode and compression can be configured through `StoreOptions`; opening trees through the matching ZoneTree version handles that layer. The current core project references ZoneTree **2.0.1**.
+The byte layouts below describe the serialized keys and values passed to ZoneTree. They are not offsets into segment or WAL files. Segment mode and compression can be configured through `StoreOptions`; opening trees through the matching ZoneTree version handles that layer. The current core project references ZoneTree **2.2.0**.
+
+ZoneTree 2.2.0 opens storage format 2.1.10 or newer. See the [storage upgrade instructions](../docs-site/content/docs/reference/configuration/configuration.mdx#storeoptions) for existing databases.
 
 On dataset creation, the engine persists these settings and requires exact matches on every reopen:
 
@@ -403,7 +405,7 @@ Activation metadata records historical coverage. Definitions and aggregates pres
 
 An accepted event first enters the ingestion queue. Raw records, session snapshots, rollups, and index copies are then maintained through different write paths. There is no dataset-wide transaction committing all of them together.
 
-`StoreOptions.WriteAheadLogMode` defaults to `AsyncCompressed`. Persistent tree writes follow the configured ZoneTree WAL mode; in that mode a process that dies can lose its most recent writes. A successful tracking call reports queue acceptance, and a crash can lose queued events and buffered aggregates. `Flush` drains prior accepted ingestion work and writes buffered aggregates and session state; it does not make every configured WAL mode synchronous. Clean disposal drains work, flushes, closes stores, and releases the directory lock. `Compact` additionally moves open trees toward merged disk storage.
+`StoreOptions.WriteAheadLogMode` defaults to `AsyncPrivate`. A process crash can lose recent writes still queued for the WAL writer. A successful tracking call reports queue acceptance, and a crash can lose queued events and buffered aggregates. `Flush` drains prior accepted ingestion work and writes buffered aggregates and session state. Clean disposal drains work, flushes, closes stores, and releases the directory lock. `Compact` additionally moves open trees toward merged disk storage.
 
 Ingestion workers do not write rollup rows themselves. On flush, a worker hands its buffered rows to dedicated rollup writers (`Ingestion.RollupWriterCount`), each of which owns a share of the rows by key. A writer merges the rows of all workers that flushed since its last write, writes each row once, and only then lets those workers persist their session states. Rollup writes serialize the updates of each row. A row's key selects one of 64 lock stripes of its partition, so writers update different rows of a partition in parallel and the same row one at a time; its covering index copies are written under the same lock, in order. The writer merges a delta with the existing value once, retains the absolute replacement for retries, and finishes a pending replacement before applying a newer delta in its stripe. This prevents retrying a failed upsert from applying the same contribution twice within that write path. It does not provide crash-atomic coordination between raw events and every aggregate tier.
 

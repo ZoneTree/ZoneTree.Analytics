@@ -1,7 +1,7 @@
 using System.Globalization;
 using System.Text;
 using ZoneTree.Analytics.Internal;
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 
 namespace ZoneTree.Analytics.Storage;
 
@@ -143,7 +143,7 @@ sealed class PartitionedStore<TKey, TValue> : IDisposable
 
   readonly Func<string, string> writeAheadLogDirectoryOf;
 
-  readonly ILogger logger;
+  readonly IZoneTreeLogger logger;
 
   readonly Action<string> deleteDirectory;
 
@@ -157,7 +157,7 @@ sealed class PartitionedStore<TKey, TValue> : IDisposable
       string rootDirectory,
       long recordsPerPartition,
       Func<string, IZoneTree<TKey, TValue>> openTree,
-      ILogger logger,
+      IZoneTreeLogger logger,
       Func<IZoneTree<TKey, TValue>, IMaintainer> createMaintainer,
       Func<string, string> writeAheadLogDirectoryOf,
       Action<string> deleteDirectory = null)
@@ -421,7 +421,7 @@ sealed class PartitionedStore<TKey, TValue> : IDisposable
       catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
       {
         // The marks in memory are exact; a later call saves them.
-        logger.LogError(exception);
+        logger.LogError(exception.Message, exception);
       }
       var current = map;
       if (current.Count == 0)
@@ -658,7 +658,7 @@ sealed class PartitionedStore<TKey, TValue> : IDisposable
     catch (Exception e)
     {
       failure = e;
-      logger.LogError(e);
+      logger.LogError(e.Message, e);
     }
     finally
     {

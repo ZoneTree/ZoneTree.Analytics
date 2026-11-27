@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using ZoneTree.Analytics.AspNetCore;
+using ZoneTree.Logging;
 
 namespace ZoneTree.Analytics.UnitTests;
 
@@ -159,13 +160,15 @@ public sealed class AspNetCoreTests : DirectoryTest
     Assert.That(Engine.GetStatistics().Errors, Is.Zero);
   }
 
-  sealed class ThrowingLogger : ZoneTree.Logger.ILogger
+  sealed class ThrowingLogger : IZoneTreeLogger
   {
-    public ZoneTree.Logger.LogLevel LogLevel { get; set; } = ZoneTree.Logger.LogLevel.Warning;
-    public void LogError(Exception log) => throw new InvalidOperationException("logger failure");
-    public void LogWarning(object log) { }
-    public void LogInfo(object log) { }
-    public void LogTrace(object log) { }
+    public ZoneTreeLogLevel Level { get; set; } = ZoneTreeLogLevel.Warning;
+    public bool IsEnabled(ZoneTreeLogLevel level) => level != ZoneTreeLogLevel.None && level >= Level;
+    public void Log(ZoneTreeLogLevel level, string message, Exception exception = null)
+    {
+      if (level == ZoneTreeLogLevel.Error)
+        throw new InvalidOperationException("logger failure");
+    }
   }
 
   [Test]

@@ -811,9 +811,9 @@ public sealed class EngineTests : DirectoryTest
         new StoreFactory(
             options.Storage,
             Path.GetFullPath(directory),
-            new ZoneTree.Logger.ConsoleLogger(),
+            new ZoneTree.Logging.ConsoleLogger(),
             new RetentionClock(options.Retention, new ReportingCalendar(options.TimeZone, options.FirstDayOfWeek))),
-        new ZoneTree.Logger.ConsoleLogger()))
+        new ZoneTree.Logging.ConsoleLogger()))
     {
       raw.Scan("default", Day0.Ticks, Day0.AddDays(1).Ticks, 1, () => events, (list, ticks, value) =>
       {

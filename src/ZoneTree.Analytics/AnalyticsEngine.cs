@@ -6,7 +6,7 @@ using ZoneTree.Analytics.Privacy;
 using ZoneTree.Analytics.Query;
 using ZoneTree.Analytics.Storage;
 using ZoneTree.Analytics.Web;
-using ZoneTree.Logger;
+using ZoneTree.Logging;
 
 namespace ZoneTree.Analytics;
 
@@ -40,7 +40,7 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
 {
   readonly AnalyticsOptions options;
 
-  readonly ILogger logger;
+  readonly IZoneTreeLogger logger;
 
   readonly string dataRoot;
 
@@ -334,7 +334,7 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
     Interlocked.Increment(ref counters.Errors);
     try
     {
-      logger.LogError(exception);
+      logger.LogError(exception.Message, exception);
     }
     catch (Exception)
     {
@@ -477,8 +477,7 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
       catch (Exception exception)
       {
         Interlocked.Increment(ref counters.Errors);
-        logger.LogError(new InvalidOperationException(
-            $"The event filter {filter.GetType().Name} threw an exception; the event is tracked.", exception));
+        logger.LogError($"The event filter {filter.GetType().Name} threw an exception; the event is tracked.", exception);
       }
     }
     return true;
@@ -1041,7 +1040,7 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
       catch (Exception e)
       {
         Interlocked.Increment(ref counters.Errors);
-        logger.LogError(e);
+        logger.LogError(e.Message, e);
       }
       finally
       {

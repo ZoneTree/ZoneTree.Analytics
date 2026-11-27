@@ -209,7 +209,7 @@ Track the attribute as an event dimension, such as an experiment variant. Later 
 | `Sessions` | `StoreOptions` | ZoneTree settings of the active session store. By default the mutable segment holds 50,000 sessions. |
 | `WriteAheadLogDirectory` | `string` | A separate root directory for write-ahead logs, for example on a faster disk. Each store keeps its log under the same relative path as its data. Null (the default) keeps logs next to the data. It is persisted when the data directory is created and cannot be changed afterwards, because unflushed records live in the log. |
 | `PartitionIdleTimeout` | `TimeSpan` | Partitions that were not used for this long are closed. Default is 10 minutes. |
-| `Logger` | `ILogger` | The logger used by the engine and its ZoneTree stores. Default is a console logger at warning level. |
+| `Logger` | `IZoneTreeLogger` | The logger used by the engine and its ZoneTree stores. Default is a console logger at warning level. |
 
 ## PartitioningOptions
 
@@ -224,14 +224,16 @@ Track the attribute as an event dimension, such as an experiment variant. Later 
 
 | Setting | Type | Behavior and default |
 | --- | --- | --- |
-| `WriteAheadLogMode` | `WriteAheadLogMode` | The write-ahead-log mode. Default is `WriteAheadLogMode.AsyncCompressed`. |
+| `WriteAheadLogMode` | `WriteAheadLogMode` | The write-ahead-log mode. Default is `WriteAheadLogMode.AsyncPrivate`. |
 | `MutableSegmentMaxItemCount` | `int?` | How many recent records are held in the mutable (in-memory) segment before it moves toward disk. |
 | `DiskSegmentMaxItemCount` | `int?` | How many records a disk segment holds before merges start a new one. |
 | `EnableSingleSegmentGarbageCollection` | `bool?` | Removes deleted records on load when a tree consists of its mutable segment only. |
 | `AllowUnsafeOptionValues` | `bool` | Lets ZoneTree accept option values outside its recommended ranges. |
-| `ConfigureWriteAheadLog` | `Action<WriteAheadLogOptions>` | Tunes the write-ahead log, for example compression or incremental backup. Runs after `WriteAheadLogMode` is applied. |
+| `ConfigureWriteAheadLog` | `Action<WriteAheadLogOptions>` | Tunes the write-ahead log, for example compression or sync intervals. Runs after `WriteAheadLogMode` is applied. |
 | `ConfigureDiskSegments` | `Action<DiskSegmentOptions>` | Tunes disk segments, for example the segment mode, compression or caches. |
 | `ConfigureMaintainer` | `Action<IMaintainer>` | Tunes the maintainer of every tree, for example merge thresholds or block cache cleanup. |
+
+ZoneTree 2.2.0 requires storage format 2.1.10 or newer. Before upgrading an existing installation, open every older tree once using ZoneTree 2.1.10 with `EnableZstdMigration()`, then close it before starting Analytics with 2.2.0. Include historical partitions and the dashboard system store. Keep each tree's serializers and WAL location, and configure Zstd or no compression and a WAL mode other than `Sync` for the migration. Follow the [ZoneTree storage upgrade guide](https://zonetree.dev/docs/storage/compression/#upgrade-from-a-version-before-2110).
 
 ## WebOptions
 
