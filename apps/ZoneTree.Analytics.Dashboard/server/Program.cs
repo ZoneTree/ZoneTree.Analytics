@@ -1,6 +1,7 @@
 using System.Net;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Extensions.FileProviders;
+using PureGate.WebSocket;
 using ZoneTree.Analytics;
 using ZoneTree.Analytics.AspNetCore;
 
@@ -21,6 +22,7 @@ var systemStore = new SystemStore(Path.IsPathRooted(systemDirectory) ? systemDir
 builder.Services.AddSingleton(systemStore);
 builder.Services.AddSingleton<UserStore>();
 builder.Services.AddSingleton<AuditLog>();
+builder.Services.AddSingleton<DashboardLiveReports>();
 builder.Services.AddSingleton<EngineHost>();
 builder.Services.AddSingleton<SettingsService>();
 builder.Services.AddSingleton<SessionStore>();
@@ -30,6 +32,7 @@ builder.Services.AddSingleton<SetupStatus>();
 builder.Services.AddSingleton<SiteResolution>();
 builder.Services.AddHostedService<SystemCleanup>();
 builder.Services.AddDashboardAuthentication();
+builder.Services.AddPureGateWebSocket();
 // Behind a reverse proxy that terminates HTTPS, the origin check, secure cookies and visitor
 // addresses need the original scheme, host and client address. Loopback proxies are trusted by
 // default; list others with Dashboard:KnownProxies (comma-separated addresses).
@@ -80,6 +83,7 @@ if (settings.IsConfigured)
 }
 
 app.UseForwardedHeaders();
+app.UseWebSockets();
 app.UseMiddleware<FrameProtectionMiddleware>();
 app.UseAuthentication();
 app.UseMiddleware<SameOriginMiddleware>();
@@ -102,6 +106,9 @@ app.MapZoneTreeAnalytics()
 app.MapDashboardAuth();
 app.MapDashboardSetup();
 app.MapDashboardAdmin();
+var live = DashboardLiveReports.Map(app);
+if (app.Environment.IsDevelopment())
+  live.MapContract(DashboardLiveReports.Path + "/contract.ts").RequireAuthorization(DashboardAuthentication.AdministratorPolicy);
 reportingApi.MapGet("/config", (HttpContext context) =>
 {
   context.Response.Headers.CacheControl = "no-store";
@@ -118,6 +125,7 @@ reportingApi.MapGet("/config", (HttpContext context) =>
   {
     mode = "live",
     apiBaseUrl = EngineMiddleware.ApiPath,
+    liveUrl = DashboardLiveReports.Path,
     timeZone = current?.General.TimeZone ?? "UTC",
     sites,
     refreshSeconds = current?.General.RefreshSeconds ?? 30,

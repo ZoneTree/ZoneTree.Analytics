@@ -3,6 +3,7 @@ import { parameters } from '../api'
 import type { Config, Realtime } from '../contracts'
 import type { DashboardModel, Loader } from '../dashboard-model'
 import type { DashboardExport } from './exports'
+import { watchLiveReports } from './live'
 import type { DashboardRequests } from './requests'
 import { type DashboardScope, persistDashboardScope } from './scope'
 import type { DashboardReports, DashboardStatus } from './state'
@@ -40,6 +41,9 @@ export function createDashboardRuntime(
   let initialized = false
   let queued: ReturnType<typeof setTimeout> | null = null
   let refreshTimer: ReturnType<typeof setInterval> | null = null
+  let stopLive: (() => void) | null = null
+  let liveReady = false
+  let liveRefreshPending = false
   const cleanup: (() => void)[] = []
 
   function beginRequest(): AbortSignal {
@@ -72,11 +76,10 @@ export function createDashboardRuntime(
 
   async function updateRealtime(signal: AbortSignal) {
     try {
-      reports.realtime(
-        (await requests.request<Realtime>('realtime', signal)).visitors,
-      )
+      const value = await requests.request<Realtime>('realtime', signal)
+      if (!signal.aborted && !liveReady) reports.realtime(value.visitors)
     } catch {
-      if (!signal.aborted) reports.realtime(null)
+      if (!signal.aborted && !liveReady) reports.realtime(null)
     }
   }
 
@@ -89,7 +92,10 @@ export function createDashboardRuntime(
           'Demo data is synthetic. Demo reporting dates use UTC; live reports use the configured time zone.',
         ])
       if (loader) {
-        await Promise.all([loader(getModel(), signal), updateRealtime(signal)])
+        await Promise.all([
+          loader(getModel(), signal),
+          liveReady ? undefined : updateRealtime(signal),
+        ])
         signal.throwIfAborted()
         updateTime()
       }
@@ -101,7 +107,10 @@ export function createDashboardRuntime(
         exports.exportRows([])
       }
     } finally {
-      if (!signal.aborted) status.loading(false)
+      if (!signal.aborted) {
+        status.loading(false)
+        if (liveRefreshPending) refreshFromLive()
+      }
     }
   }
 
@@ -139,13 +148,60 @@ export function createDashboardRuntime(
     }, 0)
   }
 
-  function setupRefresh() {
-    if (refreshTimer) clearInterval(refreshTimer)
+  function stopPolling() {
+    if (refreshTimer !== null) clearInterval(refreshTimer)
+    refreshTimer = null
+  }
+
+  function startPolling() {
     const seconds = scope.config().refreshSeconds
-    if (seconds && loader)
+    if (seconds && loader && refreshTimer === null && !document.hidden)
       refreshTimer = setInterval(() => {
         if (!document.hidden && !status.loading()) void load()
       }, seconds * 1000)
+  }
+
+  function refreshFromLive() {
+    if (document.hidden) return
+    liveRefreshPending = status.loading()
+    if (!liveRefreshPending) void load()
+  }
+
+  function stopRefresh() {
+    stopLive?.()
+    stopLive = null
+    liveReady = false
+    liveRefreshPending = false
+    stopPolling()
+  }
+
+  function setupRefresh() {
+    stopRefresh()
+    const config = scope.config()
+    const site = scope.site()
+    if (!loader || !config.refreshSeconds || document.hidden) return
+    startPolling()
+    if (
+      config.mode !== 'live' ||
+      !config.liveUrl ||
+      site === config.benchmark?.siteId ||
+      typeof WebSocket === 'undefined'
+    )
+      return
+    stopLive = watchLiveReports(
+      config.liveUrl,
+      site,
+      ({ visitors, reportsChanged }) => {
+        liveReady = true
+        stopPolling()
+        reports.realtime(visitors)
+        if (reportsChanged) refreshFromLive()
+      },
+      () => {
+        liveReady = false
+        startPolling()
+      },
+    )
   }
 
   return {
@@ -165,10 +221,23 @@ export function createDashboardRuntime(
         ])
           cleanup.push(
             observe(source as SRef<unknown>, () => {
+              if (source === scope.site) {
+                reports.realtime(null)
+                setupRefresh()
+              }
               getModel().offset(0)
               queueLoad()
             }),
           )
+        const visibilityChanged = () => {
+          setupRefresh()
+          if (!stopLive && loader && scope.config().refreshSeconds)
+            refreshFromLive()
+        }
+        document.addEventListener('visibilitychange', visibilityChanged)
+        cleanup.push(() =>
+          document.removeEventListener('visibilitychange', visibilityChanged),
+        )
         setupRefresh()
         if (loader) void load()
       },
@@ -184,7 +253,7 @@ export function createDashboardRuntime(
       dispose: () => {
         controller?.abort()
         if (queued) clearTimeout(queued)
-        if (refreshTimer) clearInterval(refreshTimer)
+        stopRefresh()
         for (const stop of cleanup) stop()
       },
     },

@@ -72,8 +72,18 @@ test('dashboard visits record accepted beacons in the live .NET engine', async (
       Object.defineProperty(navigator, 'webdriver', { get: () => false }),
     )
     const page = await context.newPage()
+    assert.ok(config.liveUrl, 'The live host must advertise its WebSocket')
+    await page.route('**/realtime?*', (route) =>
+      route.fulfill({ json: { visitors: 900, minutes: 5 } }),
+    )
     for (const path of ['', 'pages/']) {
       const target = new URL(path, base)
+      target.searchParams.set('site', 'dashboard-usage')
+      target.searchParams.set('range', 'today')
+      const socket = page.waitForEvent(
+        'websocket',
+        (connection) => new URL(connection.url()).pathname === config.liveUrl,
+      )
       const beacon = page.waitForResponse((result) => {
         const url = new URL(result.url())
         return (
@@ -82,6 +92,7 @@ test('dashboard visits record accepted beacons in the live .NET engine', async (
         )
       })
       await page.goto(target.href)
+      await socket
       const accepted = await beacon
       assert.equal(
         accepted.status(),
@@ -92,6 +103,15 @@ test('dashboard visits record accepted beacons in the live .NET engine', async (
       // The tracker unit tests check payloads; this test checks server ingestion.
       await page.locator('.page-heading h1').waitFor()
     }
+    // The realtime HTTP response above is a sentinel. The actual number must
+    // come from the authenticated reporting stream.
+    await page.waitForFunction(
+      () =>
+        document.querySelector('.live-count strong')?.textContent?.trim() ===
+        '1',
+      undefined,
+      { timeout: 45_000 },
+    )
     let after = await summary()
     for (
       let attempt = 0;

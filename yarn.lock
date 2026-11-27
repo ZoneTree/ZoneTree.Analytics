@@ -413,6 +413,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@puregate/web-socket@npm:1.0.0":
+  version: 1.0.0
+  resolution: "@puregate/web-socket@npm:1.0.0"
+  checksum: 10c0/70be4698ba59b46bc3fe3d016908596b258e017a27d960001028f637337d9ec29ac71a458bf6eb2571efc4d53f807a8b0b257139f756955f6d408b9409ca547e
+  languageName: node
+  linkType: hard
+
 "@purestack/ts-common@npm:^1.1.27":
   version: 1.1.27
   resolution: "@purestack/ts-common@npm:1.1.27"
@@ -3421,6 +3428,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "zonetree-analytics-dashboard@workspace:apps/ZoneTree.Analytics.Dashboard/ui"
   dependencies:
+    "@puregate/web-socket": "npm:1.0.0"
     "@purestack/ts-components": "npm:^1.1.27"
     "@purestack/ts-css": "npm:^1.1.27"
     "@purestack/ts-html": "npm:^1.1.27"

@@ -16,7 +16,7 @@ sealed record EngineStatus(EngineState State, string Error, DateTime? OpenedAt, 
 
 // Owns the primary analytics engine. Requests hold a lease while they use it; reopening waits
 // for the leases to end, closes the engine (which flushes it) and opens it with new options.
-sealed class EngineHost(IWebHostEnvironment environment, ILoggerFactory loggers) : IAsyncDisposable
+sealed class EngineHost(IWebHostEnvironment environment, ILoggerFactory loggers, DashboardLiveReports live = null) : IAsyncDisposable
 {
   static readonly TimeSpan AcquireTimeout = TimeSpan.FromSeconds(30);
   readonly Lock sync = new();
@@ -27,6 +27,7 @@ sealed class EngineHost(IWebHostEnvironment environment, ILoggerFactory loggers)
   EngineState state = EngineState.NotConfigured;
   string error;
   DateTime? openedAt;
+  long generation;
   int readers;
   TaskCompletionSource drained = Completed();
   TaskCompletionSource settled = Completed();
@@ -55,7 +56,7 @@ sealed class EngineHost(IWebHostEnvironment environment, ILoggerFactory loggers)
         {
           case EngineState.Running:
             if (readers++ == 0) drained = new(TaskCreationOptions.RunContinuationsAsynchronously);
-            return new EngineLease(engine, Release);
+            return new EngineLease(engine, generation, Release);
           case EngineState.NotConfigured:
             throw new EngineUnavailableException("Analytics is not set up yet. Finish the setup wizard.");
           case EngineState.Failed:
@@ -140,6 +141,7 @@ sealed class EngineHost(IWebHostEnvironment environment, ILoggerFactory loggers)
     try
     {
       var options = SettingsMapper.ToOptions(settings, environment.ContentRootPath, engineLogger);
+      if (live != null) options.ReportChanged = live.MarkChanged;
       // Opening reads metadata and decides index work; keep it off the request threads.
       var opened = await Task.Run(() => new AnalyticsEngine(options)).ConfigureAwait(false);
       lock (sync)
@@ -153,6 +155,7 @@ sealed class EngineHost(IWebHostEnvironment environment, ILoggerFactory loggers)
         state = EngineState.Running;
         error = null;
         openedAt = DateTime.UtcNow;
+        ++generation;
         settled.TrySetResult();
       }
       logger.LogInformation("Analytics engine opened at {Directory}.", options.DataDirectory);
@@ -210,10 +213,11 @@ sealed class EngineHost(IWebHostEnvironment environment, ILoggerFactory loggers)
   }
 }
 
-sealed class EngineLease(AnalyticsEngine engine, Action release) : IDisposable
+sealed class EngineLease(AnalyticsEngine engine, long generation, Action release) : IDisposable
 {
   Action onRelease = release;
   public AnalyticsEngine Engine { get; } = engine;
+  public long Generation { get; } = generation;
   public void Dispose() => Interlocked.Exchange(ref onRelease, null)?.Invoke();
 }
 

@@ -802,6 +802,7 @@ public sealed class AnalyticsEngine : IAnalyticsTracker, IDisposable, IAsyncDisp
     {
       try { return EraseFlushedVisitorCore(hash, site, cancellationToken); }
       catch { dimensionIndexes.Invalidate(); throw; }
+      finally { options.ReportChanged?.Invoke(site); }
     }
   }
 

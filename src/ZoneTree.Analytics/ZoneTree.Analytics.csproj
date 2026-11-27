@@ -33,6 +33,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="ZoneTree.Analytics.UnitTests" />
+    <InternalsVisibleTo Include="ZoneTree.Analytics.Dashboard" />
   </ItemGroup>
 
 </Project>

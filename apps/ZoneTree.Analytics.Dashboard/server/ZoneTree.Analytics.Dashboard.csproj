@@ -15,6 +15,7 @@
     <None Remove="data/**" />
   </ItemGroup>
   <ItemGroup>
+    <PackageReference Include="PureGate.WebSocket" Version="1.0.0" />
     <ProjectReference Include="../../../src/ZoneTree.Analytics.AspNetCore/ZoneTree.Analytics.AspNetCore.csproj" />
   </ItemGroup>
 </Project>

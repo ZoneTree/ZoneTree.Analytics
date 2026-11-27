@@ -51,21 +51,29 @@ sealed class SessionStore(SystemStore store, UserStore users, SettingsService se
     id = null;
     if (string.IsNullOrEmpty(token) || token.Length > 100) return false;
     id = Id(token);
+    return TryAuthenticateId(id, out user, touch: true);
+  }
+
+  // The WebSocket reads this id from the authenticated upgrade principal.
+  internal bool TryAuthenticateId(string id, out UserRecord user, bool touch = false)
+  {
+    user = null;
+    if (string.IsNullOrEmpty(id)) return false;
     if (!store.TryGet<SessionRecord>(Prefix + id, out var session)) return false;
     var now = DateTime.UtcNow;
     if (IsExpired(session, now))
     {
-      store.Delete(Prefix + id);
+      if (touch) store.Delete(Prefix + id);
       return false;
     }
     user = users.Get(session.UserId);
     if (user == null || user.Disabled || user.SecurityStamp != session.SecurityStamp)
     {
-      store.Delete(Prefix + id);
+      if (touch) store.Delete(Prefix + id);
       user = null;
       return false;
     }
-    if (now - session.LastSeen >= TouchInterval)
+    if (touch && now - session.LastSeen >= TouchInterval)
     {
       session.LastSeen = now;
       store.Put(Prefix + id, session);

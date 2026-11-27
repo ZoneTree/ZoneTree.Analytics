@@ -3,8 +3,10 @@ import { setImmediate as nextTurn } from 'node:timers/promises'
 import { afterEach, test, vi } from 'vitest'
 import { loadConfig } from '../content/lib/config'
 import { defaultConfig } from '../content/lib/contracts'
+import { watchLiveReports } from '../content/lib/dashboard/live'
 import { createDashboardModel } from '../content/lib/dashboard-model'
 
+vi.mock('../content/lib/dashboard/live', () => ({ watchLiveReports: vi.fn() }))
 afterEach(() => vi.useRealTimers())
 
 function memoryStorage(): Storage {
@@ -31,6 +33,7 @@ function browserEnvironment(url = 'http://localhost/') {
   const location = new URL(url)
   const localStorage = memoryStorage()
   const sessionStorage = memoryStorage()
+  const visibility = new EventTarget()
   const document = {
     hidden: false,
     body: { dataset: { basePath: '/' } },
@@ -38,6 +41,9 @@ function browserEnvironment(url = 'http://localhost/') {
     getElementById: () => null,
     querySelector: () => null,
     querySelectorAll: () => [],
+    addEventListener: visibility.addEventListener.bind(visibility),
+    removeEventListener: visibility.removeEventListener.bind(visibility),
+    dispatchEvent: visibility.dispatchEvent.bind(visibility),
   }
   const history = {
     replaceState: (
@@ -53,6 +59,62 @@ function browserEnvironment(url = 'http://localhost/') {
     vi.stubGlobal(name, value)
   return globals
 }
+
+test('live reports use pushed counts and refreshes, with polling during disconnects', async () => {
+  browserEnvironment()
+  vi.stubGlobal('WebSocket', class {})
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+  const watch = vi.mocked(watchLiveReports)
+  const stop = vi.fn()
+  watch.mockReturnValue(stop)
+  const model = createDashboardModel('overview', {
+    ...defaultConfig,
+    mode: 'live',
+    liveUrl: '/_dashboard/live',
+    sites: [{ id: 'shop', name: 'Shop' }],
+    refreshSeconds: 30,
+  })
+  const request = vi.spyOn(globalThis, 'fetch').mockImplementation(
+    async () =>
+      new Response(JSON.stringify({ visitors: 2, minutes: 5 }), {
+        headers: { 'Content-Type': 'application/json' },
+      }),
+  )
+  const load = vi.fn(async () => {})
+  try {
+    model.start(load)
+    await nextTurn()
+    const call = watch.mock.lastCall
+    assert.ok(call)
+    assert.deepEqual(call.slice(0, 2), ['/_dashboard/live', 'shop'])
+    const [, , update, unavailable] = call
+    assert.equal(model.realtime(), 2)
+    update({ visitors: 4, reportsChanged: true })
+    await nextTurn()
+    assert.equal(load.mock.calls.length, 2)
+    assert.equal(model.realtime(), 4)
+
+    update({ visitors: 3, reportsChanged: false })
+    await vi.advanceTimersByTimeAsync(60_000)
+    assert.equal(model.realtime(), 3)
+    assert.equal(load.mock.calls.length, 2)
+    assert.equal(request.mock.calls.length, 1)
+
+    unavailable()
+    await vi.advanceTimersByTimeAsync(30_000)
+    assert.equal(load.mock.calls.length, 3)
+    assert.equal(model.realtime(), 2)
+
+    update({ visitors: 5, reportsChanged: true })
+    await nextTurn()
+    assert.equal(load.mock.calls.length, 4)
+    assert.equal(model.realtime(), 5)
+    assert.equal(request.mock.calls.length, 2)
+  } finally {
+    model.dispose()
+  }
+  assert.equal(stop.mock.calls.length, 1)
+})
 
 test('benchmark controls are advertised by the host rather than restored from browser settings', async () => {
   const browser = browserEnvironment()

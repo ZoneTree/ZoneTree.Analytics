@@ -66,6 +66,9 @@ HttpOnly and SameSite=Lax, marked Secure over HTTPS, and state-changing requests
 origins are rejected. Serve the dashboard over HTTPS in production. Behind a reverse proxy that
 terminates HTTPS, the server reads `X-Forwarded-Proto`, `X-Forwarded-Host` and `X-Forwarded-For` from
 loopback proxies; list other proxy addresses with `--Dashboard:KnownProxies=10.0.0.5,10.0.0.6`.
+Forward WebSocket upgrades on `/_dashboard/live` for live reports. The **Auto-refresh** setting
+controls how often the server checks the selected site's reports and rolling visitor count.
+If the WebSocket disconnects, visible report pages use HTTP polling until the stream recovers.
 Failed sign-ins pause a user name from one address, and with a larger limit the address itself.
 
 The host listens on all network interfaces by default. Startup logs include a clickable local
