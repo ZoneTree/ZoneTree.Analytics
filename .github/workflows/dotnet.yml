@@ -29,13 +29,20 @@ jobs:
         run: yarn check
       - name: Run Vitest unit tests
         run: yarn vitest run --project unit
-      - name: Build dashboard
-        run: yarn workspace zonetree-analytics-dashboard build
+      - name: Publish dashboard UI
+        run: yarn workspace zonetree-analytics-dashboard publish
+      - name: Upload dashboard UI
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v7
+        with:
+          name: dashboard-ui
+          path: apps/ZoneTree.Analytics.Dashboard/ui/dist/publish/
+          if-no-files-found: error
 
   build:
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -43,11 +50,19 @@ jobs:
         uses: actions/setup-dotnet@v6
         with:
           dotnet-version: |
+            11.0.x
             10.0.x
             9.0.x
             8.0.x
       - name: Display dotnet version
         run: dotnet --version
+      - name: Verify native ARM64 on macOS
+        if: runner.os == 'macOS'
+        run: |
+          test "$(uname -m)" = arm64
+          sdk_info=$(dotnet --info)
+          echo "$sdk_info"
+          grep -q 'RID: *osx-arm64' <<< "$sdk_info"
       - name: Restore dependencies
         working-directory: ./src
         run: dotnet restore
