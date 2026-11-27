@@ -105,6 +105,21 @@ jobs:
             test -f "artifacts/packages/$package.$PACKAGE_VERSION.nupkg"
             test -f "artifacts/packages/$package.$PACKAGE_VERSION.snupkg"
           done
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - name: Enable Corepack
+        run: corepack enable
+      - name: Install workspace dependencies
+        run: yarn install --immutable
+      - name: Package dashboard UI
+        env:
+          PACKAGE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          yarn workspace zonetree-analytics-dashboard publish
+          cd apps/ZoneTree.Analytics.Dashboard/ui/dist/publish
+          test -f index.html
+          python3 -m zipfile -c "$GITHUB_WORKSPACE/artifacts/dashboard-ui-v$PACKAGE_VERSION.zip" *
       # Exchanges the OIDC token for a temporary API key, valid for one hour, so it runs just
       # before the push. Needs a trusted publishing policy on nuget.org for this workflow file.
       # The user is the nuget.org organization that owns the policy and the packages. If the
@@ -139,7 +154,7 @@ jobs:
           PACKAGE_VERSION: ${{ steps.version.outputs.version }}
         run: |
           tag="v$PACKAGE_VERSION"
-          assets=(artifacts/packages/*.nupkg artifacts/packages/*.snupkg)
+          assets=(artifacts/packages/*.nupkg artifacts/packages/*.snupkg "artifacts/dashboard-ui-$tag.zip")
           if release=$(gh release view "$tag" --json isDraft,targetCommitish); then
             if ! jq -e --arg sha "$GITHUB_SHA" '.isDraft and .targetCommitish == $sha' <<< "$release" >/dev/null; then
               echo "::error::A release for $tag already exists and cannot be resumed."
