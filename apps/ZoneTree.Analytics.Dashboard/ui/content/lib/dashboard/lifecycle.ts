@@ -175,7 +175,7 @@ export function createDashboardRuntime(
     stopPolling()
   }
 
-  function setupRefresh() {
+  function setupRefresh(initialReportLoad = false) {
     stopRefresh()
     const config = scope.config()
     const site = scope.site()
@@ -188,6 +188,8 @@ export function createDashboardRuntime(
       typeof WebSocket === 'undefined'
     )
       return
+    let skipFirstSnapshot = initialReportLoad
+    let awaitFollowUp = false
     stopLive = watchLiveReports(
       config.liveUrl,
       site,
@@ -195,7 +197,16 @@ export function createDashboardRuntime(
         liveReady = true
         stopPolling()
         reports.realtime(visitors)
-        if (reportsChanged) refreshFromLive()
+        if (skipFirstSnapshot) {
+          skipFirstSnapshot = false
+          // The next sample also catches writes between the HTTP load and subscription.
+          awaitFollowUp = true
+          return
+        }
+        if (awaitFollowUp || reportsChanged) {
+          awaitFollowUp = false
+          refreshFromLive()
+        }
       },
       () => {
         liveReady = false
@@ -223,7 +234,7 @@ export function createDashboardRuntime(
             observe(source as SRef<unknown>, () => {
               if (source === scope.site) {
                 reports.realtime(null)
-                setupRefresh()
+                setupRefresh(true)
               }
               getModel().offset(0)
               queueLoad()
@@ -238,7 +249,7 @@ export function createDashboardRuntime(
         cleanup.push(() =>
           document.removeEventListener('visibilitychange', visibilityChanged),
         )
-        setupRefresh()
+        setupRefresh(true)
         if (loader) void load()
       },
       updateConfig: (config) => {

@@ -54,6 +54,7 @@ sealed class DashboardLiveReports(IHostApplicationLifetime lifetime)
     try
     {
       Sample previous = null;
+      var sendFollowUp = false;
       while (true)
       {
         cancellationToken.ThrowIfCancellationRequested();
@@ -63,9 +64,12 @@ sealed class DashboardLiveReports(IHostApplicationLifetime lifetime)
           var current = await state.ReadAsync(engines, site, TimeSpan.FromSeconds(seconds), lifetime.ApplicationStopping)
               .WaitAsync(cancellationToken).ConfigureAwait(false);
           RequireSite(site, sessionId, sessions, settings);
-          var reportsChanged = previous == null || current.Version != previous.Version;
-          if (reportsChanged || current.Visitors != previous.Visitors)
+          var isFirstSample = previous == null;
+          var reportsChanged = isFirstSample || current.Version != previous.Version;
+          if (reportsChanged || sendFollowUp || current.Visitors != previous.Visitors)
             yield return new DashboardLiveUpdate(current.Visitors, reportsChanged);
+          // Let a client that already loaded reports reconcile once at the next sample.
+          sendFollowUp = isFirstSample;
           previous = current;
         }
         else

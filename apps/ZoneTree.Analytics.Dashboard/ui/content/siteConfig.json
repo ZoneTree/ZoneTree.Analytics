@@ -28,5 +28,8 @@
     "href": "/assets/site.css"
   },
   "html": { "minify": true },
-  "scripts": { "cacheBusting": true }
+  "scripts": {
+    "cacheBusting": true,
+    "sharedLibraries": ["@puregate/web-socket"]
+  }
 }

@@ -1,4 +1,3 @@
-import { CallError, connect } from '@puregate/web-socket'
 import { redirectToSignIn } from '../session'
 
 interface DashboardLiveUpdate {
@@ -18,6 +17,28 @@ export function watchLiveReports(
   update: (value: DashboardLiveUpdate) => void,
   unavailable: () => void,
 ): () => void {
+  const lifetime = new AbortController()
+  void observeLiveReports(
+    url,
+    site,
+    update,
+    unavailable,
+    lifetime.signal,
+  ).catch(() => {
+    if (!lifetime.signal.aborted) unavailable()
+  })
+  return () => lifetime.abort()
+}
+
+async function observeLiveReports(
+  url: string,
+  site: string,
+  update: (value: DashboardLiveUpdate) => void,
+  unavailable: () => void,
+  lifetime: AbortSignal,
+) {
+  const { CallError, connect } = await import('@puregate/web-socket')
+  if (lifetime.aborted) return
   const connection = connect<DashboardLiveContract>(url, { streamBuffer: 1 })
   let reader: AbortController | null = null
 
@@ -50,9 +71,13 @@ export function watchLiveReports(
     }
   })
 
-  return () => {
-    stopListening()
-    reader?.abort()
-    void connection.close()
-  }
+  lifetime.addEventListener(
+    'abort',
+    () => {
+      stopListening()
+      reader?.abort()
+      void connection.close()
+    },
+    { once: true },
+  )
 }

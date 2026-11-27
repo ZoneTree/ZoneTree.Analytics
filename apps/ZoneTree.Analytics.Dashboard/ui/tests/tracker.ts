@@ -73,6 +73,13 @@ test('dashboard visits record accepted beacons in the live .NET engine', async (
     )
     const page = await context.newPage()
     assert.ok(config.liveUrl, 'The live host must advertise its WebSocket')
+    const reportPath = `${new URL(config.apiBaseUrl, base).pathname}/`
+    const reportRequests: string[] = []
+    page.on('request', (request) => {
+      const { pathname } = new URL(request.url())
+      if (pathname.startsWith(reportPath) && pathname !== `${reportPath}config`)
+        reportRequests.push(pathname)
+    })
     await page.route('**/realtime?*', (route) =>
       route.fulfill({ json: { visitors: 900, minutes: 5 } }),
     )
@@ -102,6 +109,17 @@ test('dashboard visits record accepted beacons in the live .NET engine', async (
       // Chromium does not expose sendBeacon Blob bodies through postData().
       // The tracker unit tests check payloads; this test checks server ingestion.
       await page.locator('.page-heading h1').waitFor()
+      if (!path) {
+        await page.waitForFunction(() => {
+          const visitors =
+            document.querySelector('.live-count strong')?.textContent
+          return (
+            /^\d+$/.test(visitors?.trim() ?? '') && visitors?.trim() !== '900'
+          )
+        })
+        await page.locator('#overview-app [aria-busy="false"]').waitFor()
+        assert.equal(reportRequests.length, 7, reportRequests.join(', '))
+      }
     }
     // The realtime HTTP response above is a sentinel. The actual number must
     // come from the authenticated reporting stream.
