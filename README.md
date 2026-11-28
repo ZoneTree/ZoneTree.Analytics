@@ -44,7 +44,7 @@ Use it for a website's first page view, a product's conversion funnel, or a work
 
 ## Quick start
 
-The library targets **.NET 8, 9, and 10**. In a .NET console project, install:
+The library targets **.NET 8, 9, 10, and 11**. In a .NET console project, install:
 
 ```sh
 dotnet add package ZoneTree.Analytics
